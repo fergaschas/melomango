@@ -1,13 +1,20 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { DEFAULT_SOURCE, listSources, searchTracks, trendingTracks, type SourceInfo, type Track } from "./lib/api";
-import { usePlayer } from "./hooks/usePlayer";
+import { useLibrary } from "./lib/library";
+import { usePlayer, type Player } from "./hooks/usePlayer";
 import { TrackList } from "./components/TrackList";
 import { PlayerBar } from "./components/PlayerBar";
 import { PluginsDialog } from "./components/PluginsDialog";
+import { Sidebar } from "./components/Sidebar";
+import { LikesView, PlaylistView } from "./components/LibraryViews";
 import { PuzzleIcon, SearchIcon } from "./components/Icons";
 import "./App.css";
 
-type View = { kind: "trending" } | { kind: "search"; query: string };
+export type View =
+  | { kind: "trending" }
+  | { kind: "search"; query: string }
+  | { kind: "likes" }
+  | { kind: "playlist"; id: number };
 
 const SOURCE_KEY = "melomango.source";
 
@@ -21,14 +28,12 @@ function savedSource() {
 
 export default function App() {
   const player = usePlayer();
+  const { toast } = useLibrary();
   const [sources, setSources] = useState<SourceInfo[]>([]);
   const [sourceId, setSourceId] = useState(savedSource);
   const [showPlugins, setShowPlugins] = useState(false);
   const [query, setQuery] = useState("");
   const [view, setView] = useState<View>({ kind: "trending" });
-  const [tracks, setTracks] = useState<Track[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const source = sources.find((s) => s.id === sourceId) ?? null;
 
@@ -41,7 +46,7 @@ export default function App() {
           return list.some((s) => s.id === wanted) ? wanted : DEFAULT_SOURCE;
         });
       })
-      .catch((e) => setError(String(e)));
+      .catch(() => {});
   }, []);
 
   useEffect(() => refreshSources(), [refreshSources]);
@@ -53,6 +58,91 @@ export default function App() {
       /* storage unavailable: not important */
     }
   }, [sourceId]);
+
+  function onSearch(e: FormEvent) {
+    e.preventDefault();
+    const q = query.trim();
+    setView(q ? { kind: "search", query: q } : { kind: "trending" });
+  }
+
+  function selectSource(id: string) {
+    setSourceId(id);
+    // Switching source from a library view goes back to browsing.
+    if (view.kind === "likes" || view.kind === "playlist") setView({ kind: "trending" });
+  }
+
+  return (
+    <div className="app">
+      <header className="topbar">
+        <button className="logo" onClick={() => setView({ kind: "trending" })}>
+          <span className="logo-mark">🥭</span> Melomango
+        </button>
+        <form className="search" onSubmit={onSearch}>
+          <SearchIcon size={18} />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={`Busca en ${source?.name ?? "…"}…`}
+            aria-label="Buscar"
+          />
+        </form>
+        <div className="source-tabs" role="tablist" aria-label="Fuente de música">
+          {sources.map((s) => (
+            <button
+              key={s.id}
+              role="tab"
+              aria-selected={s.id === sourceId}
+              className={`source-tab${s.id === sourceId ? " active" : ""}`}
+              onClick={() => selectSource(s.id)}
+            >
+              {s.name}
+            </button>
+          ))}
+        </div>
+        <button className="btn ghost plugins-btn" onClick={() => setShowPlugins(true)}>
+          <PuzzleIcon size={16} /> Plugins
+        </button>
+      </header>
+
+      <Sidebar view={view} onNavigate={setView} />
+
+      <main className="content">
+        {view.kind === "likes" && <LikesView player={player} />}
+        {view.kind === "playlist" && (
+          <PlaylistView id={view.id} player={player} onDeleted={() => setView({ kind: "likes" })} />
+        )}
+        {(view.kind === "trending" || view.kind === "search") && (
+          <BrowseView view={view} source={source} player={player} />
+        )}
+      </main>
+
+      <PlayerBar player={player} />
+
+      {toast && (
+        <div className="toast" role="status">
+          {toast}
+        </div>
+      )}
+
+      {showPlugins && (
+        <PluginsDialog sources={sources} onChanged={refreshSources} onClose={() => setShowPlugins(false)} />
+      )}
+    </div>
+  );
+}
+
+function BrowseView({
+  view,
+  source,
+  player,
+}: {
+  view: Extract<View, { kind: "trending" | "search" }>;
+  source: SourceInfo | null;
+  player: Player;
+}) {
+  const [tracks, setTracks] = useState<Track[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!source) return;
@@ -74,12 +164,6 @@ export default function App() {
     };
   }, [view, source]);
 
-  function onSearch(e: FormEvent) {
-    e.preventDefault();
-    const q = query.trim();
-    setView(q ? { kind: "search", query: q } : { kind: "trending" });
-  }
-
   const sourceName = source?.name ?? "…";
   const emptyMessage =
     view.kind === "trending" && source && !source.supportsTrending
@@ -87,60 +171,21 @@ export default function App() {
       : "Ni un mango. Prueba otra búsqueda.";
 
   return (
-    <div className="app">
-      <header className="topbar">
-        <button className="logo" onClick={() => setView({ kind: "trending" })}>
-          <span className="logo-mark">🥭</span> Melomango
-        </button>
-        <form className="search" onSubmit={onSearch}>
-          <SearchIcon size={18} />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={`Busca en ${sourceName}…`}
-            aria-label="Buscar"
-          />
-        </form>
-        <div className="source-tabs" role="tablist" aria-label="Fuente de música">
-          {sources.map((s) => (
-            <button
-              key={s.id}
-              role="tab"
-              aria-selected={s.id === sourceId}
-              className={`source-tab${s.id === sourceId ? " active" : ""}`}
-              onClick={() => setSourceId(s.id)}
-            >
-              {s.name}
-            </button>
-          ))}
-        </div>
-        <button className="btn ghost plugins-btn" onClick={() => setShowPlugins(true)}>
-          <PuzzleIcon size={16} /> Plugins
-        </button>
-      </header>
+    <>
+      <h1>{view.kind === "trending" ? "Tendencias" : `Resultados para “${view.query}”`}</h1>
+      <p className="subtitle">Música gratis vía {sourceName}. Sin pagar ni un mango.</p>
 
-      <main className="content">
-        <h1>{view.kind === "trending" ? "Tendencias" : `Resultados para “${view.query}”`}</h1>
-        <p className="subtitle">Música gratis vía {sourceName}. Sin pagar ni un mango.</p>
-
-        {loading && <p className="status">Pelando mangos…</p>}
-        {error && <p className="status error">Algo ha fallado: {error}</p>}
-        {!loading && !error && tracks.length === 0 && <p className="status">{emptyMessage}</p>}
-        {!loading && !error && tracks.length > 0 && (
-          <TrackList
-            tracks={tracks}
-            current={player.current}
-            isPlaying={player.isPlaying}
-            onPlay={(i) => player.playQueue(tracks, i)}
-          />
-        )}
-      </main>
-
-      <PlayerBar player={player} />
-
-      {showPlugins && (
-        <PluginsDialog sources={sources} onChanged={refreshSources} onClose={() => setShowPlugins(false)} />
+      {loading && <p className="status">Pelando mangos…</p>}
+      {error && <p className="status error">Algo ha fallado: {error}</p>}
+      {!loading && !error && tracks.length === 0 && <p className="status">{emptyMessage}</p>}
+      {!loading && !error && tracks.length > 0 && (
+        <TrackList
+          tracks={tracks}
+          current={player.current}
+          isPlaying={player.isPlaying}
+          onPlay={(i) => player.playQueue(tracks, i)}
+        />
       )}
-    </div>
+    </>
   );
 }

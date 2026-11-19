@@ -1,4 +1,5 @@
 mod catalog;
+mod library;
 mod models;
 mod sources;
 mod stream;
@@ -12,6 +13,7 @@ use tauri::{Manager, State};
 use tauri_plugin_opener::OpenerExt;
 
 use catalog::{Catalog, RegistryInfo, Registries};
+use library::{Library, Playlist, PlaylistSummary};
 use models::{SourceInfo, Track};
 use sources::{audius::Audius, plugin, MusicSource, Registry};
 use stream::StreamCache;
@@ -22,6 +24,7 @@ struct AppState {
     builtins: Vec<Arc<dyn MusicSource>>,
     plugins_dir: PathBuf,
     registries: Registries,
+    library: Library,
     http: reqwest::Client,
     streams: StreamCache,
 }
@@ -119,6 +122,72 @@ fn open_plugins_dir(app: tauri::AppHandle, state: State<'_, AppState>) -> Result
         .map_err(|e| e.to_string())
 }
 
+// ---------- Library ----------
+
+fn lib_err(e: anyhow::Error) -> String {
+    format!("{e:#}")
+}
+
+#[tauri::command]
+fn liked_tracks(state: State<'_, AppState>) -> Result<Vec<Track>, String> {
+    state.library.liked_tracks().map_err(lib_err)
+}
+
+#[tauri::command]
+fn liked_keys(state: State<'_, AppState>) -> Result<Vec<String>, String> {
+    state.library.liked_keys().map_err(lib_err)
+}
+
+#[tauri::command]
+fn set_liked(state: State<'_, AppState>, track: Track, liked: bool) -> Result<(), String> {
+    state.library.set_liked(&track, liked).map_err(lib_err)
+}
+
+#[tauri::command]
+fn list_playlists(state: State<'_, AppState>) -> Result<Vec<PlaylistSummary>, String> {
+    state.library.playlists().map_err(lib_err)
+}
+
+#[tauri::command]
+fn create_playlist(state: State<'_, AppState>, name: String) -> Result<PlaylistSummary, String> {
+    state.library.create_playlist(&name).map_err(lib_err)
+}
+
+#[tauri::command]
+fn rename_playlist(state: State<'_, AppState>, id: i64, name: String) -> Result<(), String> {
+    state.library.rename_playlist(id, &name).map_err(lib_err)
+}
+
+#[tauri::command]
+fn delete_playlist(state: State<'_, AppState>, id: i64) -> Result<(), String> {
+    state.library.delete_playlist(id).map_err(lib_err)
+}
+
+#[tauri::command]
+fn get_playlist(state: State<'_, AppState>, id: i64) -> Result<Playlist, String> {
+    state.library.playlist(id).map_err(lib_err)
+}
+
+#[tauri::command]
+fn add_to_playlist(state: State<'_, AppState>, id: i64, track: Track) -> Result<bool, String> {
+    state.library.add_to_playlist(id, &track).map_err(lib_err)
+}
+
+#[tauri::command]
+fn remove_from_playlist(
+    state: State<'_, AppState>,
+    id: i64,
+    source: String,
+    track_id: String,
+) -> Result<(), String> {
+    state.library.remove_from_playlist(id, &source, &track_id).map_err(lib_err)
+}
+
+#[tauri::command]
+fn move_in_playlist(state: State<'_, AppState>, id: i64, from: usize, to: usize) -> Result<(), String> {
+    state.library.move_in_playlist(id, from, to).map_err(lib_err)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -137,6 +206,7 @@ pub fn run() {
                 builtins: vec![Arc::new(Audius::new(http.clone()))],
                 plugins_dir,
                 registries: Registries::new(data_dir.join("registries.json")),
+                library: Library::open(&data_dir.join("library.db"))?,
                 http,
                 streams: StreamCache::default(),
             };
@@ -164,7 +234,18 @@ pub fn run() {
             list_registries,
             add_registry,
             remove_registry,
-            open_plugins_dir
+            open_plugins_dir,
+            liked_tracks,
+            liked_keys,
+            set_liked,
+            list_playlists,
+            create_playlist,
+            rename_playlist,
+            delete_playlist,
+            get_playlist,
+            add_to_playlist,
+            remove_from_playlist,
+            move_in_playlist
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

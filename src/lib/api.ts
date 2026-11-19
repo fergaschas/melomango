@@ -76,3 +76,39 @@ export function formatTime(secs: number) {
   const s = Math.floor(secs);
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
+
+// ---------- Library ----------
+
+export interface PlaylistSummary {
+  id: number;
+  name: string;
+  trackCount: number;
+  durationSecs: number;
+  artworkUrls: string[];
+}
+
+export interface Playlist extends PlaylistSummary {
+  tracks: Track[];
+}
+
+export const trackKey = (t: Pick<Track, "source" | "id">) => `${t.source}/${t.id}`;
+
+export const likedTracks = () => invoke<Track[]>("liked_tracks");
+export const likedKeys = () => invoke<string[]>("liked_keys");
+export const setLiked = (track: Track, liked: boolean) => invoke<void>("set_liked", { track, liked });
+
+export const listPlaylists = () => invoke<PlaylistSummary[]>("list_playlists");
+export const createPlaylist = (name: string) => invoke<PlaylistSummary>("create_playlist", { name });
+export const renamePlaylist = (id: number, name: string) => invoke<void>("rename_playlist", { id, name });
+export const deletePlaylist = (id: number) => invoke<void>("delete_playlist", { id });
+export const getPlaylist = (id: number) => invoke<Playlist>("get_playlist", { id });
+export const addToPlaylist = (id: number, track: Track) => invoke<boolean>("add_to_playlist", { id, track });
+export const removeFromPlaylist = (id: number, track: Track) =>
+  invoke<void>("remove_from_playlist", { id, source: track.source, trackId: track.id });
+export const moveInPlaylist = (id: number, from: number, to: number) =>
+  invoke<void>("move_in_playlist", { id, from, to });
+
+export function formatTotal(secs: number) {
+  const mins = Math.round(secs / 60);
+  return mins < 60 ? `${mins} min` : `${Math.floor(mins / 60)} h ${mins % 60} min`;
+}
