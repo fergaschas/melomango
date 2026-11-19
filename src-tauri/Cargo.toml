@@ -28,6 +28,8 @@ tokio = { version = "1", features = ["sync", "process", "time"] }
 async-trait = "0.1"
 anyhow = "1"
 percent-encoding = "2"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+sha2 = "0.10"
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration

@@ -34,6 +34,40 @@ export const uninstallPlugin = (id: string) => invoke<void>("uninstall_plugin", 
 
 export const openPluginsDir = () => invoke<void>("open_plugins_dir");
 
+export interface CatalogPlugin {
+  id: string;
+  name: string;
+  version: string;
+  description: string | null;
+  author: string | null;
+  homepage: string | null;
+  tags: string[];
+  registry: string;
+  registryName: string;
+  available: boolean;
+}
+
+export interface Catalog {
+  plugins: CatalogPlugin[];
+  errors: string[];
+}
+
+export interface RegistryInfo {
+  url: string;
+  official: boolean;
+}
+
+export const browsePlugins = () => invoke<Catalog>("browse_plugins");
+
+export const installCatalogPlugin = (registry: string, id: string) =>
+  invoke<SourceInfo>("install_catalog_plugin", { registry, id });
+
+export const listRegistries = () => invoke<RegistryInfo[]>("list_registries");
+
+export const addRegistry = (url: string) => invoke<RegistryInfo[]>("add_registry", { url });
+
+export const removeRegistry = (url: string) => invoke<RegistryInfo[]>("remove_registry", { url });
+
 /** URL of the Rust `stream://` protocol that proxies the track's audio. */
 export const streamUrl = (track: Track) => convertFileSrc(`${track.source}/${track.id}`, "stream");
 

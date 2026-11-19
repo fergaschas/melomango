@@ -1,3 +1,4 @@
+mod catalog;
 mod models;
 mod sources;
 mod stream;
@@ -10,6 +11,7 @@ use std::{
 use tauri::{Manager, State};
 use tauri_plugin_opener::OpenerExt;
 
+use catalog::{Catalog, RegistryInfo, Registries};
 use models::{SourceInfo, Track};
 use sources::{audius::Audius, plugin, MusicSource, Registry};
 use stream::StreamCache;
@@ -19,6 +21,7 @@ struct AppState {
     registry: RwLock<Arc<Registry>>,
     builtins: Vec<Arc<dyn MusicSource>>,
     plugins_dir: PathBuf,
+    registries: Registries,
     http: reqwest::Client,
     streams: StreamCache,
 }
@@ -75,6 +78,41 @@ fn uninstall_plugin(state: State<'_, AppState>, id: String) -> Result<(), String
 }
 
 #[tauri::command]
+async fn browse_plugins(state: State<'_, AppState>) -> Result<Catalog, String> {
+    Ok(catalog::browse(&state.http, &state.registries.list()).await)
+}
+
+#[tauri::command]
+async fn install_catalog_plugin(
+    state: State<'_, AppState>,
+    registry: String,
+    id: String,
+) -> Result<SourceInfo, String> {
+    let id = catalog::install(&state.http, &registry, &id, &state.plugins_dir)
+        .await
+        .map_err(|e| format!("{e:#}"))?;
+    state.reload();
+    state.registry().get(&id).map(|s| s.info()).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn list_registries(state: State<'_, AppState>) -> Vec<RegistryInfo> {
+    state.registries.list()
+}
+
+#[tauri::command]
+fn add_registry(state: State<'_, AppState>, url: String) -> Result<Vec<RegistryInfo>, String> {
+    state.registries.add(&url).map_err(|e| format!("{e:#}"))?;
+    Ok(state.registries.list())
+}
+
+#[tauri::command]
+fn remove_registry(state: State<'_, AppState>, url: String) -> Result<Vec<RegistryInfo>, String> {
+    state.registries.remove(&url).map_err(|e| format!("{e:#}"))?;
+    Ok(state.registries.list())
+}
+
+#[tauri::command]
 fn open_plugins_dir(app: tauri::AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     app.opener()
         .open_path(state.plugins_dir.to_string_lossy(), None::<&str>)
@@ -87,7 +125,8 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
-            let plugins_dir = app.path().app_data_dir()?.join("plugins");
+            let data_dir = app.path().app_data_dir()?;
+            let plugins_dir = data_dir.join("plugins");
             std::fs::create_dir_all(&plugins_dir)?;
 
             let http = reqwest::Client::builder()
@@ -97,6 +136,7 @@ pub fn run() {
                 registry: Default::default(),
                 builtins: vec![Arc::new(Audius::new(http.clone()))],
                 plugins_dir,
+                registries: Registries::new(data_dir.join("registries.json")),
                 http,
                 streams: StreamCache::default(),
             };
@@ -119,6 +159,11 @@ pub fn run() {
             trending,
             install_plugin,
             uninstall_plugin,
+            browse_plugins,
+            install_catalog_plugin,
+            list_registries,
+            add_registry,
+            remove_registry,
             open_plugins_dir
         ])
         .run(tauri::generate_context!())

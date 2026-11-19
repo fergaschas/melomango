@@ -230,23 +230,32 @@ mod tests {
         );
     }
 
-    /// Installs the packaged YouTube plugin and streams through it.
-    /// Needs network, yt-dlp and `npm run plugin:build -- youtube`: `cargo test -- --ignored`
+    /// Downloads the YouTube plugin from the official repository, installs it and streams
+    /// through it. Needs network and yt-dlp: `cargo test -- --ignored`
     #[tokio::test]
-    #[ignore = "necesita red, yt-dlp y el plugin empaquetado"]
+    #[ignore = "necesita red y yt-dlp"]
     async fn streams_through_the_youtube_plugin() {
-        use crate::sources::plugin;
+        use crate::{catalog, sources::plugin};
 
-        let dist = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../plugins/dist/youtube");
+        let http = reqwest::Client::builder().user_agent("Melomango-tests").build().unwrap();
         let plugins_dir = std::env::temp_dir().join(format!("melomango-e2e-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&plugins_dir);
-        plugin::install(&dist, &plugins_dir).expect("ejecuta `npm run plugin:build -- youtube`");
+
+        let listing = catalog::browse(&http, &[catalog::RegistryInfo {
+            url: catalog::OFFICIAL_INDEX.into(),
+            official: true,
+        }])
+        .await;
+        assert!(listing.errors.is_empty(), "{:?}", listing.errors);
+        assert!(listing.plugins.iter().any(|p| p.id == "youtube" && p.available));
+        catalog::install(&http, catalog::OFFICIAL_INDEX, "youtube", &plugins_dir)
+            .await
+            .unwrap();
 
         let youtube: Arc<dyn MusicSource> = Arc::new(plugin::discover(&plugins_dir).pop().unwrap());
         let track = youtube.search("shakira dai dai").await.unwrap().into_iter().next().unwrap();
         assert_eq!(track.source, "youtube");
 
-        let http = reqwest::Client::new();
         let registry = Arc::new(Registry::new(vec![youtube]));
         let cache = StreamCache::default();
         let request = |range: &str| {

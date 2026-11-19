@@ -6,8 +6,10 @@ Sin pagar ni un mango.
 Fuentes:
 
 - **Audius** (integrada): plataforma descentralizada con API abierta y canciones completas, legal y gratis.
-- **YouTube** (plugin instalable): todo el catálogo de YouTube, vía [yt-dlp](https://github.com/yt-dlp/yt-dlp).
+- **YouTube** (plugin instalable desde la app): todo el catálogo de YouTube, vía [yt-dlp](https://github.com/yt-dlp/yt-dlp).
 - Cualquier otra que alguien escriba como plugin: ver [plugins/PROTOCOL.md](plugins/PROTOCOL.md).
+
+Los plugins oficiales viven en [fergaschas/melomango-plugins](https://github.com/fergaschas/melomango-plugins).
 
 ## Desarrollo
 
@@ -20,8 +22,7 @@ Tests:
 
 ```powershell
 cd src-tauri; cargo test                     # unitarios
-cd src-tauri; cargo test -- --include-ignored # + pruebas reales contra Audius y el plugin de YouTube
-cd plugins/youtube; cargo test               # limpieza de títulos del plugin
+cd src-tauri; cargo test -- --include-ignored # + pruebas reales: Audius, y descarga e instalación del plugin de YouTube
 ```
 
 ## Plugins
@@ -29,17 +30,19 @@ cd plugins/youtube; cargo test               # limpieza de títulos del plugin
 Un plugin es una carpeta con `plugin.json` y un ejecutable que habla un protocolo JSON muy simple
 (`search`, `trending`, `stream`). Se puede escribir en cualquier lenguaje: [plugins/PROTOCOL.md](plugins/PROTOCOL.md).
 
-### Instalar el plugin de YouTube
+### Buscar e instalar plugins
+
+**Plugins → Explorar** muestra los plugins de los repositorios configurados, con buscador. Al pulsar **Instalar**,
+la app descarga el zip, comprueba su SHA-256 y lo instala. Sin reiniciar, aparece una pestaña nueva junto a Audius.
+
+- El repositorio oficial viene configurado. Puedes añadir otros (cualquier `index.json` servido por HTTPS) en
+  **Explorar → Repositorios**. El formato está en [plugins/PROTOCOL.md](plugins/PROTOCOL.md).
+- Para probar un plugin en desarrollo: **Instalados → Instalar desde carpeta…**
+
+### YouTube
 
 1. Instala yt-dlp: `winget install yt-dlp.yt-dlp` (o deja `yt-dlp.exe` dentro de la carpeta del plugin).
-2. Empaqueta el plugin:
-
-   ```powershell
-   npm run plugin:build -- youtube
-   ```
-
-3. En Melomango: **Plugins → Instalar plugin…** y elige `plugins/dist/youtube`.
-4. Aparece la pestaña **YouTube** junto a Audius.
+2. En Melomango: **Plugins → Explorar**, busca «youtube» y pulsa **Instalar**.
 
 Si YouTube cambia algo y deja de funcionar, actualiza yt-dlp: `yt-dlp -U` (o `winget upgrade yt-dlp.yt-dlp`).
 
@@ -58,11 +61,10 @@ src-tauri/src/
   sources/mod.rs              trait MusicSource + Registry
   sources/audius.rs           fuente integrada Audius
   sources/plugin.rs           carga, instalación y ejecución de plugins
+  catalog.rs                  repositorios de plugins: índice, descarga y verificación SHA-256
   stream.rs                   protocolo stream://: proxy con soporte Range (seek)
 plugins/
-  PROTOCOL.md                 especificación de plugins
-  youtube/                    plugin de YouTube (Rust, usa yt-dlp)
-scripts/build-plugin.mjs      compila y empaqueta un plugin en plugins/dist/<id>
+  PROTOCOL.md                 especificación de plugins y del formato de índice
 ```
 
 **Flujo de reproducción:** el `<audio>` pide `stream://localhost/<fuente>/<id>` (en Windows `http://stream.localhost/...`).

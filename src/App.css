@@ -564,3 +564,118 @@ input[type="range"]:disabled {
     max-width: none;
   }
 }
+
+/* ---------- Plugin browser ---------- */
+.dialog-tabs {
+  display: flex;
+  gap: 4px;
+  margin-top: 14px;
+  padding: 4px;
+  width: fit-content;
+  border-radius: 999px;
+  background: var(--surface-soft);
+}
+
+.dialog-tabs button {
+  padding: 6px 16px;
+  border-radius: 999px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.dialog-tabs button.active {
+  background: var(--surface);
+  color: var(--accent-text);
+  box-shadow: 0 1px 4px rgba(180, 100, 20, 0.15);
+}
+
+.dialog-search {
+  max-width: none;
+  margin-bottom: 12px;
+}
+
+.source-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.tag {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+.muted-note {
+  color: var(--muted);
+  font-size: 0.82rem;
+  text-align: right;
+}
+
+.btn.small {
+  padding: 5px 12px;
+  font-size: 0.82rem;
+}
+
+.registries {
+  margin-top: 16px;
+  font-size: 0.88rem;
+}
+
+.registries summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.registries ul {
+  list-style: none;
+  margin: 10px 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.registries li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.registry-url {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 0.8rem;
+}
+
+.registry-add {
+  display: flex;
+  gap: 8px;
+}
+
+.registry-add input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  outline: none;
+}
+
+.registry-add input:focus {
+  border-color: var(--accent);
+}

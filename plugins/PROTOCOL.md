@@ -33,6 +33,7 @@ Al instalarlo, Melomango copia la carpeta a `%APPDATA%\com.melomango.app\plugins
 | `args` | no | Argumentos que se anteponen a cada comando. |
 | `capabilities` | no | Incluye `"trending"` si el plugin implementa ese comando. `search` y `stream` son obligatorios. |
 | `description` | no | Texto corto para la lista de plugins. |
+| `author`, `homepage`, `tags` | no | Metadatos para el buscador de plugins (los usa el script de publicación del índice). |
 
 ## Comandos
 
@@ -59,3 +60,39 @@ Cada llamada ejecuta el programa una vez (directorio de trabajo: la carpeta del 
 ## Errores
 
 Termina con código distinto de 0 y escribe el motivo en **stderr**. Melomango muestra la última línea.
+
+## Repositorios de plugins (índices)
+
+La app descarga plugins desde **índices**: archivos JSON servidos por `https://`. El oficial es
+[fergaschas/melomango-plugins](https://github.com/fergaschas/melomango-plugins)
+(`https://raw.githubusercontent.com/fergaschas/melomango-plugins/main/index.json`), y se pueden añadir otros
+desde **Plugins → Explorar → Repositorios**.
+
+```json
+{
+  "version": 1,
+  "name": "Melomango oficial",
+  "plugins": [
+    {
+      "id": "youtube",
+      "name": "YouTube",
+      "version": "0.1.0",
+      "description": "Todo el catálogo de YouTube, vía yt-dlp.",
+      "author": "Melomango",
+      "homepage": "https://github.com/fergaschas/melomango-plugins/tree/main/youtube",
+      "tags": ["youtube", "música"],
+      "downloads": {
+        "windows-x86_64": {
+          "url": "https://github.com/.../youtube-0.1.0-windows-x86_64.zip",
+          "sha256": "3f1c…"
+        }
+      }
+    }
+  ]
+}
+```
+
+- Claves de `downloads`: `<os>-<arch>` con los valores de Rust (`windows`, `macos`, `linux` × `x86_64`, `aarch64`).
+- Cada descarga es un **zip** con `plugin.json` en la raíz (o dentro de una única carpeta) y el ejecutable.
+- Antes de instalar, la app comprueba que el SHA-256 coincide y que el `id` del zip es el del índice.
+  Las URL deben ser `https://` y el zip no puede superar 200 MB.
