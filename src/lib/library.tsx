@@ -17,6 +17,8 @@ interface LibraryValue {
   removeFromPlaylist: (id: number, t: Track) => Promise<void>;
   moveInPlaylist: (id: number, from: number, to: number) => Promise<void>;
   notify: (text: string) => void;
+  /** Reloads likes and playlists (e.g. after an import). */
+  refresh: () => Promise<void>;
 }
 
 const LibraryContext = createContext<LibraryValue | null>(null);
@@ -73,6 +75,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       version,
       toast,
       notify,
+      refresh,
       isLiked: (t) => liked.has(api.trackKey(t)),
       toggleLike: async (t) => {
         const now = !liked.has(api.trackKey(t));
@@ -95,7 +98,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       removeFromPlaylist: (id, t) => change(() => api.removeFromPlaylist(id, t)),
       moveInPlaylist: (id, from, to) => change(() => api.moveInPlaylist(id, from, to)),
     }),
-    [playlists, liked, version, toast, notify, change],
+    [playlists, liked, version, toast, notify, change, refresh],
   );
 
   return <LibraryContext.Provider value={value}>{children}</LibraryContext.Provider>;

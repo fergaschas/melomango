@@ -19,11 +19,15 @@ use tauri::http::{header, Request, Response};
 use tokio::sync::OnceCell;
 
 use crate::{
+    library::Library,
+    matcher,
     models::StreamInfo,
     sources::{MusicSource, Registry},
 };
 
 const CHUNK: u64 = 1024 * 1024;
+const PROBE_RETRIES: u32 = 6;
+const PROBE_RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(750);
 
 type Slot = Arc<OnceCell<StreamInfo>>;
 
@@ -50,11 +54,12 @@ impl StreamCache {
 
 pub async fn handle(
     registry: Arc<Registry>,
+    library: &Library,
     http: &reqwest::Client,
     cache: &StreamCache,
     request: Request<Vec<u8>>,
 ) -> Response<Vec<u8>> {
-    match serve(&registry, http, cache, &request).await {
+    match serve(&registry, library, http, cache, &request).await {
         Ok(response) => response,
         Err(e) => Response::builder()
             .status(502)
@@ -66,6 +71,7 @@ pub async fn handle(
 
 async fn serve(
     registry: &Registry,
+    library: &Library,
     http: &reqwest::Client,
     cache: &StreamCache,
     request: &Request<Vec<u8>>,
@@ -76,7 +82,11 @@ async fn serve(
     let (source_id, track_id) = path
         .split_once('/')
         .ok_or_else(|| anyhow!("se esperaba <fuente>/<id>, llegó {path}"))?;
-    let source = registry.get(source_id)?;
+    // Tracks from metadata-only sources (e.g. Spotify) are matched to a playable one.
+    let open = || async {
+        let (source, play_id) = matcher::resolve(registry, library, source_id, track_id).await?;
+        resolve(http, source.as_ref(), &play_id).await
+    };
 
     let range = capped_range(
         request
@@ -89,7 +99,7 @@ async fn serve(
     let slot = cache.slot(&key);
     let was_cached = slot.initialized();
     let info = slot
-        .get_or_try_init(|| resolve(http, source.as_ref(), track_id))
+        .get_or_try_init(open)
         .await?
         .clone();
     let mut upstream = fetch(http, &info, &range).await?;
@@ -98,10 +108,7 @@ async fn serve(
     if !upstream.status().is_success() && was_cached {
         cache.invalidate(&key, &slot);
         let slot = cache.slot(&key);
-        let info = slot
-            .get_or_try_init(|| resolve(http, source.as_ref(), track_id))
-            .await?
-            .clone();
+        let info = slot.get_or_try_init(open).await?.clone();
         upstream = fetch(http, &info, &range).await?;
     }
 
@@ -128,12 +135,20 @@ async fn resolve(
     track_id: &str,
 ) -> anyhow::Result<StreamInfo> {
     let mut info = source.stream(track_id).await?;
-    let probe = fetch(http, &info, "bytes=0-0").await?;
-    if !probe.status().is_success() {
-        bail!("el servidor de audio respondió {}", probe.status());
+    // Some servers (YouTube) answer 403 for the first moments after issuing a URL.
+    let mut attempt = 0;
+    loop {
+        let probe = fetch(http, &info, "bytes=0-0").await?;
+        if probe.status().is_success() {
+            info.url = probe.url().to_string();
+            return Ok(info);
+        }
+        if probe.status() != reqwest::StatusCode::FORBIDDEN || attempt >= PROBE_RETRIES {
+            bail!("el servidor de audio respondió {}", probe.status());
+        }
+        attempt += 1;
+        tokio::time::sleep(PROBE_RETRY_DELAY).await;
     }
-    info.url = probe.url().to_string();
-    Ok(info)
 }
 
 async fn fetch(http: &reqwest::Client, info: &StreamInfo, range: &str) -> anyhow::Result<reqwest::Response> {
@@ -204,6 +219,7 @@ mod tests {
         let audius = Arc::new(Audius::new(http.clone()));
         let track = audius.trending().await.unwrap().into_iter().next().expect("sin tendencias");
         let registry = Arc::new(Registry::new(vec![audius]));
+        let library = Library::in_memory();
         let cache = StreamCache::default();
 
         let request = |range: &str| {
@@ -214,13 +230,13 @@ mod tests {
                 .unwrap()
         };
 
-        let first = handle(registry.clone(), &http, &cache, request("bytes=0-")).await;
+        let first = handle(registry.clone(), &library, &http, &cache, request("bytes=0-")).await;
         assert_eq!(first.status(), 206, "{}", String::from_utf8_lossy(first.body()));
         assert_eq!(first.body().len() as u64, CHUNK);
         assert!(first.headers()[header::CONTENT_TYPE].to_str().unwrap().starts_with("audio/"));
 
         // Second chunk comes from the cached final URL.
-        let second = handle(registry, &http, &cache, request("bytes=1048576-")).await;
+        let second = handle(registry, &library, &http, &cache, request("bytes=1048576-")).await;
         assert_eq!(second.status(), 206);
         assert!(
             second.headers()[header::CONTENT_RANGE]
@@ -252,11 +268,13 @@ mod tests {
             .await
             .unwrap();
 
-        let youtube: Arc<dyn MusicSource> = Arc::new(plugin::discover(&plugins_dir).pop().unwrap());
+        let youtube: Arc<dyn MusicSource> =
+            Arc::new(plugin::discover(&plugins_dir, &plugins_dir.join("data")).pop().unwrap());
         let track = youtube.search("shakira dai dai").await.unwrap().into_iter().next().unwrap();
         assert_eq!(track.source, "youtube");
 
         let registry = Arc::new(Registry::new(vec![youtube]));
+        let library = Library::in_memory();
         let cache = StreamCache::default();
         let request = |range: &str| {
             Request::builder()
@@ -266,13 +284,35 @@ mod tests {
                 .unwrap()
         };
 
-        let first = handle(registry.clone(), &http, &cache, request("bytes=0-")).await;
+        let first = handle(registry.clone(), &library, &http, &cache, request("bytes=0-")).await;
         assert_eq!(first.status(), 206, "{}", String::from_utf8_lossy(first.body()));
         assert_eq!(first.body().len() as u64, CHUNK);
         assert!(first.headers()[header::CONTENT_TYPE].to_str().unwrap().starts_with("audio/"));
 
-        let second = handle(registry, &http, &cache, request("bytes=1048576-")).await;
+        let second = handle(registry.clone(), &library, &http, &cache, request("bytes=1048576-")).await;
         assert_eq!(second.status(), 206);
+
+        // A track imported from a metadata-only service (as from Spotify) is matched to
+        // YouTube on first play and the match is remembered.
+        let imported = crate::models::Track {
+            id: "4fakeSpotifyId".into(),
+            source: "spotify".into(),
+            title: "Dai Dai".into(),
+            artist: "Shakira, Burna Boy".into(),
+            duration_secs: 223,
+            artwork_url: None,
+            genre: None,
+        };
+        library.import_playlist("spotify", "liked", "Me gusta de Spotify", &[imported]).unwrap();
+        let spotify_request = Request::builder()
+            .uri("http://stream.localhost/spotify%2F4fakeSpotifyId")
+            .header(header::RANGE, "bytes=0-")
+            .body(Vec::new())
+            .unwrap();
+        let matched = handle(registry, &library, &http, &cache, spotify_request).await;
+        assert_eq!(matched.status(), 206, "{}", String::from_utf8_lossy(matched.body()));
+        let (play_source, _) = library.track_match("spotify", "4fakeSpotifyId").unwrap().unwrap();
+        assert_eq!(play_source, "youtube");
 
         let _ = std::fs::remove_dir_all(&plugins_dir);
     }

@@ -16,7 +16,7 @@ use serde::Serialize;
 
 use crate::models::Track;
 
-const SCHEMA_VERSION: i32 = 1;
+const SCHEMA_VERSION: i32 = 2;
 
 const SCHEMA_V1: &str = "
 CREATE TABLE tracks (
@@ -54,6 +54,26 @@ CREATE TABLE playlist_tracks (
 CREATE INDEX playlist_tracks_order ON playlist_tracks (playlist_id, position);
 ";
 
+/// v2: playlists imported from another service, and which playable track each
+/// metadata-only track (e.g. from Spotify) was matched to.
+const SCHEMA_V2: &str = "
+CREATE TABLE playlist_links (
+    playlist_id INTEGER PRIMARY KEY REFERENCES playlists (id) ON DELETE CASCADE,
+    plugin_id   TEXT NOT NULL,
+    remote_id   TEXT NOT NULL,
+    synced_at   INTEGER NOT NULL,
+    UNIQUE (plugin_id, remote_id)
+);
+CREATE TABLE track_matches (
+    source      TEXT NOT NULL,
+    id          TEXT NOT NULL,
+    play_source TEXT NOT NULL,
+    play_id     TEXT NOT NULL,
+    matched_at  INTEGER NOT NULL,
+    PRIMARY KEY (source, id)
+);
+";
+
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct PlaylistSummary {
@@ -70,6 +90,16 @@ pub struct Playlist {
     #[serde(flatten)]
     pub summary: PlaylistSummary,
     pub tracks: Vec<Track>,
+    /// Set when the playlist was imported from another service and can be re-synced.
+    pub link: Option<PlaylistLink>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaylistLink {
+    pub plugin_id: String,
+    pub remote_id: String,
+    pub synced_at: i64,
 }
 
 pub struct Library {
@@ -97,6 +127,9 @@ impl Library {
         }
         if version < 1 {
             conn.execute_batch(SCHEMA_V1)?;
+        }
+        if version < 2 {
+            conn.execute_batch(SCHEMA_V2)?;
         }
         conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         Ok(Self { conn: Mutex::new(conn) })
@@ -203,7 +236,7 @@ impl Library {
                 )?
                 .query_map([id], track_from_row)?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
-            Ok(Playlist { summary: summary(c, id)?, tracks })
+            Ok(Playlist { summary: summary(c, id)?, tracks, link: link(c, id)? })
         })
     }
 
@@ -248,6 +281,111 @@ impl Library {
             renumber(&tx, id, Some((from, to)))?;
             touch(&tx, id)?;
             tx.commit()
+        })
+    }
+
+    // ---------- Imported playlists ----------
+
+    /// Creates (or refreshes) the playlist linked to `remote_id` of `plugin_id` with
+    /// exactly `tracks`, in order. A previously imported playlist keeps its name.
+    pub fn import_playlist(
+        &self,
+        plugin_id: &str,
+        remote_id: &str,
+        name: &str,
+        tracks: &[Track],
+    ) -> anyhow::Result<PlaylistSummary> {
+        let name = clean_name(name)?;
+        self.with(|c| {
+            let tx = c.transaction()?;
+            let ts = now();
+            let existing: Option<i64> = tx
+                .query_row(
+                    "SELECT playlist_id FROM playlist_links WHERE plugin_id = ?1 AND remote_id = ?2",
+                    params![plugin_id, remote_id],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            let id = match existing {
+                Some(id) => id,
+                None => {
+                    tx.execute(
+                        "INSERT INTO playlists (name, created_at, updated_at) VALUES (?1, ?2, ?2)",
+                        params![name, ts],
+                    )?;
+                    let id = tx.last_insert_rowid();
+                    tx.execute(
+                        "INSERT INTO playlist_links (playlist_id, plugin_id, remote_id, synced_at) VALUES (?1, ?2, ?3, ?4)",
+                        params![id, plugin_id, remote_id, ts],
+                    )?;
+                    id
+                }
+            };
+            tx.execute("DELETE FROM playlist_tracks WHERE playlist_id = ?1", [id])?;
+            let mut position = 0i64;
+            for track in tracks {
+                upsert_track(&tx, track)?;
+                position += tx.execute(
+                    "INSERT OR IGNORE INTO playlist_tracks (playlist_id, source, id, position, added_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5)",
+                    params![id, track.source, track.id, position, ts],
+                )? as i64;
+            }
+            tx.execute("UPDATE playlist_links SET synced_at = ?2 WHERE playlist_id = ?1", params![id, ts])?;
+            touch(&tx, id)?;
+            let result = summary(&tx, id)?;
+            tx.commit()?;
+            Ok(result)
+        })
+    }
+
+    pub fn playlist_link(&self, id: i64) -> anyhow::Result<Option<PlaylistLink>> {
+        self.with(|c| link(c, id))
+    }
+
+    /// remote id -> playlist id, for everything imported from `plugin_id`.
+    pub fn imported_from(&self, plugin_id: &str) -> anyhow::Result<std::collections::HashMap<String, i64>> {
+        self.with(|c| {
+            c.prepare("SELECT remote_id, playlist_id FROM playlist_links WHERE plugin_id = ?1")?
+                .query_map([plugin_id], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .collect()
+        })
+    }
+
+    // ---------- Track metadata and matches ----------
+
+    pub fn track(&self, source: &str, id: &str) -> anyhow::Result<Option<Track>> {
+        self.with(|c| {
+            c.query_row(
+                "SELECT * FROM tracks WHERE source = ?1 AND id = ?2",
+                params![source, id],
+                track_from_row,
+            )
+            .optional()
+        })
+    }
+
+    /// The playable (source, id) a metadata-only track was matched to.
+    pub fn track_match(&self, source: &str, id: &str) -> anyhow::Result<Option<(String, String)>> {
+        self.with(|c| {
+            c.query_row(
+                "SELECT play_source, play_id FROM track_matches WHERE source = ?1 AND id = ?2",
+                params![source, id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()
+        })
+    }
+
+    pub fn set_track_match(&self, source: &str, id: &str, play_source: &str, play_id: &str) -> anyhow::Result<()> {
+        self.with(|c| {
+            c.execute(
+                "INSERT INTO track_matches (source, id, play_source, play_id, matched_at) VALUES (?1, ?2, ?3, ?4, ?5)
+                 ON CONFLICT (source, id) DO UPDATE SET
+                   play_source = excluded.play_source, play_id = excluded.play_id, matched_at = excluded.matched_at",
+                params![source, id, play_source, play_id, now()],
+            )?;
+            Ok(())
         })
     }
 
@@ -340,6 +478,15 @@ fn summary(c: &Connection, id: i64) -> rusqlite::Result<PlaylistSummary> {
         .query_map([id], |r| r.get(0))?
         .collect::<rusqlite::Result<_>>()?;
     Ok(PlaylistSummary { id, name, track_count, duration_secs, artwork_urls })
+}
+
+fn link(c: &Connection, playlist_id: i64) -> rusqlite::Result<Option<PlaylistLink>> {
+    c.query_row(
+        "SELECT plugin_id, remote_id, synced_at FROM playlist_links WHERE playlist_id = ?1",
+        [playlist_id],
+        |r| Ok(PlaylistLink { plugin_id: r.get(0)?, remote_id: r.get(1)?, synced_at: r.get(2)? }),
+    )
+    .optional()
 }
 
 fn track_from_row(r: &Row) -> rusqlite::Result<Track> {
@@ -445,6 +592,56 @@ mod tests {
         lib.set_liked(&track("a"), true).unwrap();
         lib.set_liked(&yt, true).unwrap();
         assert_eq!(lib.liked_tracks().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn import_creates_then_resyncs_the_same_playlist() {
+        let lib = Library::in_memory();
+        let sp = |id: &str| Track { source: "spotify".into(), ..track(id) };
+
+        let first = lib.import_playlist("spotify", "playlist:abc", "Verano", &[sp("1"), sp("2"), sp("1")]).unwrap();
+        assert_eq!(first.name, "Verano");
+        assert_eq!(first.track_count, 2, "duplicados fuera");
+        let full = lib.playlist(first.id).unwrap();
+        assert_eq!(ids(&full.tracks), ["1", "2"]);
+        assert_eq!(full.link.as_ref().unwrap().remote_id, "playlist:abc");
+
+        // The user renames it; a re-sync keeps the name and replaces the tracks.
+        lib.rename_playlist(first.id, "Mi verano").unwrap();
+        let again = lib.import_playlist("spotify", "playlist:abc", "Verano", &[sp("3"), sp("2")]).unwrap();
+        assert_eq!(again.id, first.id);
+        assert_eq!(again.name, "Mi verano");
+        assert_eq!(ids(&lib.playlist(first.id).unwrap().tracks), ["3", "2"]);
+
+        assert_eq!(lib.imported_from("spotify").unwrap()["playlist:abc"], first.id);
+        assert!(lib.playlist(first.id).unwrap().link.is_some());
+
+        // Deleting the playlist drops the link too.
+        lib.delete_playlist(first.id).unwrap();
+        assert!(lib.imported_from("spotify").unwrap().is_empty());
+    }
+
+    #[test]
+    fn remembers_track_matches() {
+        let lib = Library::in_memory();
+        let sp = Track { source: "spotify".into(), ..track("x") };
+        lib.import_playlist("spotify", "liked", "Me gusta de Spotify", &[sp]).unwrap();
+        assert_eq!(lib.track("spotify", "x").unwrap().unwrap().title, "Canción x");
+        assert!(lib.track_match("spotify", "x").unwrap().is_none());
+        lib.set_track_match("spotify", "x", "youtube", "abc").unwrap();
+        lib.set_track_match("spotify", "x", "youtube", "def").unwrap();
+        assert_eq!(lib.track_match("spotify", "x").unwrap(), Some(("youtube".into(), "def".into())));
+    }
+
+    #[test]
+    fn migrates_a_v1_database() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(SCHEMA_V1).unwrap();
+        conn.pragma_update(None, "user_version", 1).unwrap();
+        conn.execute("INSERT INTO playlists (name, created_at, updated_at) VALUES ('Vieja', 0, 0)", []).unwrap();
+        let lib = Library::init(conn).unwrap();
+        assert_eq!(lib.playlists().unwrap()[0].name, "Vieja");
+        assert!(lib.imported_from("spotify").unwrap().is_empty());
     }
 
     #[test]

@@ -84,6 +84,7 @@ impl MusicSource for Audius {
             version: None,
             description: Some("Música independiente, gratis y legal.".into()),
             supports_trending: true,
+            is_library: false,
         }
     }
 

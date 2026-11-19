@@ -45,6 +45,8 @@ pub struct SourceInfo {
     pub version: Option<String>,
     pub description: Option<String>,
     pub supports_trending: bool,
+    /// Metadata-only plugin (playlists from another service), not a playable source.
+    pub is_library: bool,
 }
 
 /// "Song (feat. Someone)" -> "Song". Lyrics databases usually list the bare title.

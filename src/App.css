@@ -1308,3 +1308,77 @@ input[type="range"]:disabled {
   }
 }
 
+/* ---------- Services (Spotify import) ---------- */
+.dialog.wide {
+  width: min(680px, 100%);
+}
+
+.section-actions {
+  display: flex;
+  gap: 2px;
+}
+
+.empty-services {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 12px;
+  background: var(--surface-soft);
+}
+
+.empty-services p {
+  margin: 0;
+}
+
+.service {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+
+.service-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.service-head > div {
+  display: flex;
+  flex-direction: column;
+}
+
+.service-status {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.collection-list {
+  max-height: 46vh;
+  overflow-y: auto;
+}
+
+.collection-list li {
+  justify-content: flex-start;
+}
+
+.collection-list .source-text {
+  flex: 1;
+}
+
+.collection-actions-inline {
+  display: flex;
+  gap: 6px;
+}
+
+.eyebrow .linked {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 600;
+  margin-left: 4px;
+}

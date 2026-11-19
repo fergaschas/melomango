@@ -24,3 +24,5 @@ export const HomeIcon = svg("M12 3 3 10v11h6v-6h6v6h6V10z");
 export const TrashIcon = svg("M9 3h6l1 1h4v2H4V4h4l1-1zM6 8h12l-1 13H7L6 8z");
 export const NoteIcon = svg("M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z");
 export const MicIcon = svg("M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z");
+export const ImportIcon = svg("M11 3h2v9.17l3.59-3.58L18 10l-6 6-6-6 1.41-1.41L11 12.17V3zM5 18h14v2H5z");
+export const SyncIcon = svg("M12 4V1L8 5l4 4V6a6 6 0 0 1 5.65 8.03l1.46 1.46A8 8 0 0 0 12 4zm0 14a6 6 0 0 1-5.65-8.03L4.89 8.51A8 8 0 0 0 12 20v3l4-4-4-4v3z");

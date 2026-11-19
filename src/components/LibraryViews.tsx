@@ -1,9 +1,9 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { ask } from "@tauri-apps/plugin-dialog";
-import { formatTotal, getPlaylist, likedTracks, type Playlist, type Track } from "../lib/api";
+import { formatTotal, getPlaylist, likedTracks, syncPlaylist, type Playlist, type Track } from "../lib/api";
 import { useLibrary } from "../lib/library";
 import type { Player } from "../hooks/usePlayer";
-import { PlayIcon, TrashIcon } from "./Icons";
+import { PlayIcon, SyncIcon, TrashIcon } from "./Icons";
 import { PlaylistCover } from "./PlaylistCover";
 import { TrackList } from "./TrackList";
 
@@ -61,6 +61,7 @@ export function PlaylistView({ id, player, onDeleted }: { id: number; player: Pl
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState("");
+  const [syncing, setSyncing] = useState(false);
 
   useEffect(() => {
     getPlaylist(id)
@@ -92,6 +93,19 @@ export function PlaylistView({ id, player, onDeleted }: { id: number; player: Pl
     onDeleted();
   }
 
+  async function onSync() {
+    setSyncing(true);
+    try {
+      const updated = await syncPlaylist(id);
+      await library.refresh();
+      library.notify(`Sincronizada: ${updated.trackCount} canciones`);
+    } catch (e) {
+      library.notify(String(e));
+    } finally {
+      setSyncing(false);
+    }
+  }
+
   function onMove(from: number, to: number) {
     // Optimistic reorder, then persist.
     setPlaylist((p) => {
@@ -109,7 +123,14 @@ export function PlaylistView({ id, player, onDeleted }: { id: number; player: Pl
       <header className="collection-header">
         <PlaylistCover artworkUrls={playlist.artworkUrls} size={148} />
         <div className="collection-info">
-          <span className="eyebrow">Playlist</span>
+          <span className="eyebrow">
+            Playlist
+            {playlist.link && (
+              <span className="linked" title={`Última sincronización: ${new Date(playlist.link.syncedAt).toLocaleString()}`}>
+                · de {playlist.link.pluginId === "spotify" ? "Spotify" : playlist.link.pluginId}
+              </span>
+            )}
+          </span>
           {editing ? (
             <form onSubmit={onRename}>
               <input
@@ -141,6 +162,11 @@ export function PlaylistView({ id, player, onDeleted }: { id: number; player: Pl
           </p>
           <div className="collection-actions">
             <PlayAllButton tracks={playlist.tracks} player={player} />
+            {playlist.link && (
+              <button className="btn ghost" onClick={onSync} disabled={syncing}>
+                <SyncIcon size={16} /> {syncing ? "Sincronizando…" : "Sincronizar"}
+              </button>
+            )}
             <button className="btn ghost" onClick={onDelete}>
               <TrashIcon size={16} /> Eliminar
             </button>

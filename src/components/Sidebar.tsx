@@ -3,17 +3,19 @@ import { useLibrary } from "../lib/library";
 import type { View } from "../App";
 import type { Updater } from "../hooks/useUpdater";
 import { updateStatusText } from "./UpdateCard";
-import { HomeIcon, PlusIcon } from "./Icons";
+import { HomeIcon, ImportIcon, PlusIcon } from "./Icons";
 import { PlaylistCover } from "./PlaylistCover";
 
 export function Sidebar({
   view,
   onNavigate,
   updater,
+  onImport,
 }: {
   view: View;
   onNavigate: (v: View) => void;
   updater: Updater;
+  onImport: () => void;
 }) {
   const library = useLibrary();
   const [creating, setCreating] = useState(false);
@@ -51,9 +53,14 @@ export function Sidebar({
 
       <div className="sidebar-section">
         <span>Playlists</span>
-        <button className="icon-btn" onClick={() => setCreating((c) => !c)} aria-label="Nueva playlist" title="Nueva playlist">
-          <PlusIcon size={18} />
-        </button>
+        <span className="section-actions">
+          <button className="icon-btn" onClick={onImport} aria-label="Importar playlists" title="Importar de Spotify y otros servicios">
+            <ImportIcon size={18} />
+          </button>
+          <button className="icon-btn" onClick={() => setCreating((c) => !c)} aria-label="Nueva playlist" title="Nueva playlist">
+            <PlusIcon size={18} />
+          </button>
+        </span>
       </div>
 
       {creating && (

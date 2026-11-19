@@ -228,7 +228,7 @@ pub async fn install(
         let root = plugin_root(&staging)?;
         let installed = plugin::install(&root, plugins_dir)?;
         if installed != entry.id {
-            let _ = plugin::uninstall(&installed, plugins_dir);
+            let _ = fs::remove_dir_all(plugins_dir.join(&installed));
             bail!("el paquete contiene el plugin \"{installed}\", no \"{}\"", entry.id);
         }
         Ok(installed)

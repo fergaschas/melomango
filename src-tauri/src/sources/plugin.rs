@@ -8,6 +8,16 @@
 //! <executable> <args...> trending         -> {"tracks": [Track, ...]}
 //! <executable> <args...> stream <id>      -> {"url": "...", "headers": {...}}
 //! ```
+//!
+//! Plugins with the "library" capability provide metadata only (e.g. Spotify playlists):
+//!
+//! ```text
+//! <executable> status | connect | disconnect     -> {"connected": bool, "user": "..."}
+//! <executable> collections                       -> {"collections": [Collection, ...]}
+//! <executable> tracks <collection id>            -> {"tracks": [Track, ...]}
+//! ```
+//!
+//! Every call gets `MELOMANGO_DATA_DIR`: a folder of its own that survives plugin updates.
 
 use std::{
     fs,
@@ -17,7 +27,7 @@ use std::{
 
 use anyhow::{bail, Context};
 use async_trait::async_trait;
-use serde::{de::DeserializeOwned, Deserialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use super::MusicSource;
 use crate::models::{SourceInfo, SourceKind, StreamInfo, Track};
@@ -25,6 +35,8 @@ use crate::models::{SourceInfo, SourceKind, StreamInfo, Track};
 pub const PROTOCOL_VERSION: u32 = 1;
 const MANIFEST: &str = "plugin.json";
 const CALL_TIMEOUT: Duration = Duration::from_secs(60);
+/// `connect` waits for the user to log in in the browser.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 /// Ids taken by built-in sources.
 const RESERVED_IDS: &[&str] = &["audius"];
 
@@ -49,6 +61,38 @@ pub struct PluginSource {
     manifest: Manifest,
     dir: PathBuf,
     exe: PathBuf,
+    data_dir: Option<PathBuf>,
+}
+
+/// Login state of a library plugin.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LibraryStatus {
+    pub connected: bool,
+    #[serde(default)]
+    pub user: Option<String>,
+}
+
+/// A playlist, album or similar set of tracks offered by a library plugin.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Collection {
+    pub id: String,
+    pub name: String,
+    /// "liked", "playlist", "album"...
+    pub kind: String,
+    #[serde(default)]
+    pub owner: Option<String>,
+    #[serde(default)]
+    pub track_count: u32,
+    #[serde(default)]
+    pub artwork_url: Option<String>,
+    /// False when the service won't hand out its tracks (e.g. playlists you only follow).
+    #[serde(default = "yes")]
+    pub importable: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 impl PluginSource {
@@ -75,6 +119,7 @@ impl PluginSource {
             manifest,
             dir: dir.to_path_buf(),
             exe,
+            data_dir: None,
         })
     }
 
@@ -82,7 +127,25 @@ impl PluginSource {
         &self.manifest.id
     }
 
+    pub fn name(&self) -> &str {
+        &self.manifest.name
+    }
+
+    fn has(&self, capability: &str) -> bool {
+        self.manifest.capabilities.iter().any(|c| c == capability)
+    }
+
+    /// Plays music (search + stream). Metadata-only library plugins are not sources.
+    pub fn is_source(&self) -> bool {
+        !self.has("library") || self.has("search")
+    }
+
+    pub fn is_library(&self) -> bool {
+        self.has("library")
+    }
+
     async fn call<T: DeserializeOwned>(&self, command: &str, arg: Option<&str>) -> anyhow::Result<T> {
+        let timeout = if command == "connect" { CONNECT_TIMEOUT } else { CALL_TIMEOUT };
         let mut cmd = tokio::process::Command::new(&self.exe);
         cmd.args(&self.manifest.args)
             .arg(command)
@@ -90,10 +153,14 @@ impl PluginSource {
             .current_dir(&self.dir)
             .stdin(std::process::Stdio::null())
             .kill_on_drop(true);
+        if let Some(data_dir) = &self.data_dir {
+            fs::create_dir_all(data_dir).ok();
+            cmd.env("MELOMANGO_DATA_DIR", data_dir);
+        }
         #[cfg(windows)]
         cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW: no console flashing
 
-        let output = tokio::time::timeout(CALL_TIMEOUT, cmd.output())
+        let output = tokio::time::timeout(timeout, cmd.output())
             .await
             .with_context(|| format!("el plugin {} tardó demasiado", self.manifest.name))?
             .with_context(|| format!("no se pudo ejecutar el plugin {}", self.manifest.name))?;
@@ -122,6 +189,33 @@ impl PluginSource {
             })
             .collect())
     }
+
+    // ---------- Library plugins ----------
+
+    pub async fn library_status(&self) -> anyhow::Result<LibraryStatus> {
+        self.call("status", None).await
+    }
+
+    /// Opens the service's login in the browser and waits for it to finish.
+    pub async fn connect(&self) -> anyhow::Result<LibraryStatus> {
+        self.call("connect", None).await
+    }
+
+    pub async fn disconnect(&self) -> anyhow::Result<LibraryStatus> {
+        self.call("disconnect", None).await
+    }
+
+    pub async fn collections(&self) -> anyhow::Result<Vec<Collection>> {
+        #[derive(Deserialize)]
+        struct List {
+            collections: Vec<Collection>,
+        }
+        Ok(self.call::<List>("collections", None).await?.collections)
+    }
+
+    pub async fn collection_tracks(&self, collection_id: &str) -> anyhow::Result<Vec<Track>> {
+        self.tracks("tracks", Some(collection_id)).await
+    }
 }
 
 #[async_trait]
@@ -133,7 +227,8 @@ impl MusicSource for PluginSource {
             kind: SourceKind::Plugin,
             version: Some(self.manifest.version.clone()),
             description: self.manifest.description.clone(),
-            supports_trending: self.manifest.capabilities.iter().any(|c| c == "trending"),
+            supports_trending: self.has("trending"),
+            is_library: self.is_library(),
         }
     }
 
@@ -154,7 +249,8 @@ impl MusicSource for PluginSource {
 }
 
 /// Loads every plugin under `plugins_dir`, skipping (and reporting) broken ones.
-pub fn discover(plugins_dir: &Path) -> Vec<PluginSource> {
+/// Each plugin gets `data_root/<id>` as its data folder.
+pub fn discover(plugins_dir: &Path, data_root: &Path) -> Vec<PluginSource> {
     let Ok(entries) = fs::read_dir(plugins_dir) else {
         return Vec::new();
     };
@@ -162,7 +258,10 @@ pub fn discover(plugins_dir: &Path) -> Vec<PluginSource> {
         .flatten()
         .filter(|e| e.path().is_dir())
         .filter_map(|e| match PluginSource::load(&e.path()) {
-            Ok(p) => Some(p),
+            Ok(mut p) => {
+                p.data_dir = Some(data_root.join(p.id()));
+                Some(p)
+            }
             Err(err) => {
                 eprintln!("[plugins] ignorando {}: {err:#}", e.path().display());
                 None
@@ -190,13 +289,19 @@ pub fn install(src: &Path, plugins_dir: &Path) -> anyhow::Result<String> {
     Ok(plugin.manifest.id)
 }
 
-pub fn uninstall(id: &str, plugins_dir: &Path) -> anyhow::Result<()> {
+/// Removes the plugin and its data (sessions, settings).
+pub fn uninstall(id: &str, plugins_dir: &Path, data_root: &Path) -> anyhow::Result<()> {
     validate_id(id)?;
     let target = plugins_dir.join(id);
     if !target.exists() {
         bail!("el plugin {id} no está instalado");
     }
-    fs::remove_dir_all(&target).with_context(|| format!("no se pudo borrar {}", target.display()))
+    fs::remove_dir_all(&target).with_context(|| format!("no se pudo borrar {}", target.display()))?;
+    let data = data_root.join(id);
+    if data.exists() {
+        fs::remove_dir_all(&data).ok();
+    }
+    Ok(())
 }
 
 fn validate_id(id: &str) -> anyhow::Result<()> {
@@ -269,14 +374,14 @@ mod tests {
         );
 
         assert_eq!(install(&src, &plugins).unwrap(), "demo");
-        let found = discover(&plugins);
+        let found = discover(&plugins, &root.join("data"));
         assert_eq!(found.len(), 1);
         let info = found[0].info();
         assert_eq!(info.id, "demo");
         assert!(info.supports_trending);
 
-        uninstall("demo", &plugins).unwrap();
-        assert!(discover(&plugins).is_empty());
+        uninstall("demo", &plugins, &root.join("data")).unwrap();
+        assert!(discover(&plugins, &root.join("data")).is_empty());
         let _ = fs::remove_dir_all(&root);
     }
 

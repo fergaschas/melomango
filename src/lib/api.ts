@@ -17,11 +17,15 @@ export interface SourceInfo {
   version: string | null;
   description: string | null;
   supportsTrending: boolean;
+  isLibrary: boolean;
 }
 
 export const DEFAULT_SOURCE = "audius";
 
 export const listSources = () => invoke<SourceInfo[]>("list_sources");
+
+/** Built-in sources plus every installed plugin (including metadata-only ones like Spotify). */
+export const listPlugins = () => invoke<SourceInfo[]>("list_plugins");
 
 export const searchTracks = (source: string, query: string) =>
   invoke<Track[]>("search", { source, query });
@@ -87,8 +91,15 @@ export interface PlaylistSummary {
   artworkUrls: string[];
 }
 
+export interface PlaylistLink {
+  pluginId: string;
+  remoteId: string;
+  syncedAt: number;
+}
+
 export interface Playlist extends PlaylistSummary {
   tracks: Track[];
+  link: PlaylistLink | null;
 }
 
 export const trackKey = (t: Pick<Track, "source" | "id">) => `${t.source}/${t.id}`;
@@ -129,3 +140,37 @@ export interface Lyrics {
 }
 
 export const getLyrics = (track: Track) => invoke<Lyrics>("get_lyrics", { track });
+
+// ---------- Services (library plugins such as Spotify) ----------
+
+export interface LibraryConnection {
+  pluginId: string;
+  name: string;
+  connected: boolean;
+  user: string | null;
+  error: string | null;
+}
+
+export interface LibraryStatus {
+  connected: boolean;
+  user: string | null;
+}
+
+export interface CollectionView {
+  id: string;
+  name: string;
+  kind: "liked" | "playlist" | "album" | string;
+  owner: string | null;
+  trackCount: number;
+  artworkUrl: string | null;
+  importable: boolean;
+  importedPlaylistId: number | null;
+}
+
+export const libraryConnections = () => invoke<LibraryConnection[]>("library_connections");
+export const connectLibrary = (pluginId: string) => invoke<LibraryStatus>("connect_library", { pluginId });
+export const disconnectLibrary = (pluginId: string) => invoke<LibraryStatus>("disconnect_library", { pluginId });
+export const libraryCollections = (pluginId: string) => invoke<CollectionView[]>("library_collections", { pluginId });
+export const importCollection = (pluginId: string, collectionId: string, name: string) =>
+  invoke<PlaylistSummary>("import_collection", { pluginId, collectionId, name });
+export const syncPlaylist = (id: number) => invoke<PlaylistSummary>("sync_playlist", { id });

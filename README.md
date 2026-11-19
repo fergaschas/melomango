@@ -5,7 +5,7 @@
 Reproductor de música en streaming gratuito para escritorio, hecho con **Tauri v2 + React + TypeScript + Rust**.
 Sin pagar ni un mango.
 
-Playlists, Me gusta, letras sincronizadas (LRCLIB) y fuentes ampliables con plugins.
+Playlists, Me gusta, letras sincronizadas (LRCLIB), importación de playlists de Spotify y fuentes ampliables con plugins.
 
 Fuentes:
 
@@ -80,6 +80,22 @@ la app descarga el zip, comprueba su SHA-256 y lo instala. Sin reiniciar, aparec
   **Explorar → Repositorios**. El formato está en [plugins/PROTOCOL.md](plugins/PROTOCOL.md).
 - Para probar un plugin en desarrollo: **Instalados → Instalar desde carpeta…**
 
+### Spotify (importar playlists)
+
+El plugin **Spotify** importa tus playlists, tus «Canciones que te gustan» y tus álbumes guardados. Solo lee
+metadatos: al reproducir, Melomango busca cada canción en YouTube (por artista, título y duración) y recuerda el
+resultado, así que conviene tener también el plugin de YouTube.
+
+1. **Plugins → Explorar**, busca «spotify» e instálalo.
+2. En la barra lateral, junto a *Playlists*, pulsa **⬇ Importar playlists → Conectar Spotify**.
+3. Se abre el navegador: la primera vez te guía para crear tu propia app gratuita en
+   [developer.spotify.com](https://developer.spotify.com/dashboard) (Redirect URI `http://127.0.0.1:43821/callback`)
+   y pegar su *Client ID*. Después inicias sesión en Spotify.
+4. Elige qué importar. Las playlists importadas tienen un botón **Sincronizar** para traer los cambios.
+
+Limitaciones de Spotify: solo deja leer las playlists que has creado o en las que colaboras (no las que solo
+sigues ni las editoriales como «Éxitos de hoy»).
+
 ### YouTube
 
 1. Instala yt-dlp: `winget install yt-dlp.yt-dlp` (o deja `yt-dlp.exe` dentro de la carpeta del plugin).
@@ -103,6 +119,7 @@ src-tauri/src/
   sources/audius.rs           fuente integrada Audius
   sources/plugin.rs           carga, instalación y ejecución de plugins
   catalog.rs                  repositorios de plugins: índice, descarga y verificación SHA-256
+  matcher.rs                  empareja canciones importadas (Spotify) con una fuente reproducible
   stream.rs                   protocolo stream://: proxy con soporte Range (seek)
 plugins/
   PROTOCOL.md                 especificación de plugins y del formato de índice

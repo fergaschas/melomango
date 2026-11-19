@@ -67,7 +67,12 @@ export function PluginsDialog({ sources, onChanged, onClose }: Props) {
 
         {tab === "explore" ? (
           <ExploreTab sources={sources} busy={busy} run={run} onInstalled={(info) => {
-            setNotice({ kind: "ok", text: `${info.name} ${info.version ?? ""} instalado. Ya aparece junto a las demás fuentes.` });
+            setNotice({
+              kind: "ok",
+              text: info.isLibrary
+                ? `${info.name} ${info.version ?? ""} instalado. Conéctalo con el botón «Importar playlists» (⬇) de la barra lateral.`
+                : `${info.name} ${info.version ?? ""} instalado. Ya aparece junto a las demás fuentes.`,
+            });
             onChanged(info.id);
           }} />
         ) : (

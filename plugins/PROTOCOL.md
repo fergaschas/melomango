@@ -31,7 +31,7 @@ Al instalarlo, Melomango copia la carpeta a `%APPDATA%\com.melomango.app\plugins
 | `protocol` | sí | Debe ser `1`. |
 | `executable` | sí | Ruta relativa dentro de la carpeta. En Windows se prueba con `.exe` si no tiene extensión. |
 | `args` | no | Argumentos que se anteponen a cada comando. |
-| `capabilities` | no | Incluye `"trending"` si el plugin implementa ese comando. `search` y `stream` son obligatorios. |
+| `capabilities` | no | `"trending"` si implementa ese comando. `"library"` para plugins de biblioteca (ver abajo). En los plugins de música, `search` y `stream` son obligatorios. |
 | `description` | no | Texto corto para la lista de plugins. |
 | `author`, `homepage`, `tags` | no | Metadatos para el buscador de plugins (los usa el script de publicación del índice). |
 
@@ -56,6 +56,37 @@ Cada llamada ejecuta el programa una vez (directorio de trabajo: la carpeta del 
 - La URL de `stream` debe aceptar peticiones HTTP con `Range` (Melomango pide el audio en trozos de 1 MiB).
   Puede redirigir. Las cabeceras de `headers` se envían en cada petición.
 - Si una URL caduca, Melomango vuelve a llamar a `stream` automáticamente.
+
+## Plugins de biblioteca (`"library"`)
+
+Traen **metadatos** de otro servicio (por ejemplo, las playlists de Spotify) sin reproducir nada. Melomango importa
+sus colecciones como playlists propias y, al reproducir una canción, la busca en las fuentes de música instaladas
+(YouTube primero), recordando el resultado.
+
+```text
+<executable> status            → {"connected": true, "user": "Nombre"}
+<executable> connect           → igual que status, cuando el usuario termina de iniciar sesión (hasta 10 min)
+<executable> disconnect        → {"connected": false}
+<executable> collections       → {"collections": [Collection, ...]}
+<executable> tracks <id>       → {"tracks": [Track, ...]}
+```
+
+`Collection`:
+
+```json
+{ "id": "playlist:37i9dQZF1DX", "name": "Para correr", "kind": "playlist", "owner": "Xavi",
+  "trackCount": 58, "artworkUrl": "https://...", "importable": true }
+```
+
+- `kind`: `liked`, `playlist`, `album`… (decide el icono). `importable: false` si el servicio no deja leerla.
+- `connect` debe guiar al usuario por su cuenta (normalmente, abriendo el navegador) y no terminar hasta que acabe.
+- Los `Track` llevan `title`, `artist` y `durationSecs` fiables: se usan para encontrar la canción en otras fuentes.
+
+## Datos del plugin
+
+Cada llamada recibe la variable de entorno **`MELOMANGO_DATA_DIR`**: una carpeta propia del plugin
+(`<datos de la app>/plugin-data/<id>/`) para guardar ajustes y sesiones. Sobrevive a las actualizaciones del plugin
+y se borra al desinstalarlo.
 
 ## Errores
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { DEFAULT_SOURCE, listSources, searchTracks, trendingTracks, type SourceInfo, type Track } from "./lib/api";
+import { DEFAULT_SOURCE, listPlugins, listSources, searchTracks, trendingTracks, type SourceInfo, type Track } from "./lib/api";
 import { useLibrary } from "./lib/library";
 import { usePlayer, type Player } from "./hooks/usePlayer";
 import { useUpdater } from "./hooks/useUpdater";
@@ -7,6 +7,7 @@ import { UpdateCard } from "./components/UpdateCard";
 import { TrackList } from "./components/TrackList";
 import { PlayerBar } from "./components/PlayerBar";
 import { PluginsDialog } from "./components/PluginsDialog";
+import { ServicesDialog } from "./components/ServicesDialog";
 import { Sidebar } from "./components/Sidebar";
 import { LikesView, PlaylistView } from "./components/LibraryViews";
 import { LyricsPanel } from "./components/LyricsPanel";
@@ -44,6 +45,8 @@ export default function App() {
   const updater = useUpdater();
   const { toast } = useLibrary();
   const [sources, setSources] = useState<SourceInfo[]>([]);
+  const [plugins, setPlugins] = useState<SourceInfo[]>([]);
+  const [showServices, setShowServices] = useState(false);
   const [sourceId, setSourceId] = useState(savedSource);
   const [showPlugins, setShowPlugins] = useState(false);
   const [query, setQuery] = useState("");
@@ -57,11 +60,13 @@ export default function App() {
       .then((list) => {
         setSources(list);
         setSourceId((current) => {
-          const wanted = selectId ?? current;
+          // Only switch to a newly installed plugin if it is a playable source.
+          const wanted = selectId && list.some((s) => s.id === selectId) ? selectId : current;
           return list.some((s) => s.id === wanted) ? wanted : DEFAULT_SOURCE;
         });
       })
       .catch(() => {});
+    listPlugins().then(setPlugins).catch(() => {});
   }, []);
 
   useEffect(() => refreshSources(), [refreshSources]);
@@ -127,7 +132,7 @@ export default function App() {
         </button>
       </header>
 
-      <Sidebar view={view} onNavigate={setView} updater={updater} />
+      <Sidebar view={view} onNavigate={setView} updater={updater} onImport={() => setShowServices(true)} />
 
       <main className="content">
         {view.kind === "likes" && <LikesView player={player} />}
@@ -152,7 +157,21 @@ export default function App() {
       )}
 
       {showPlugins && (
-        <PluginsDialog sources={sources} onChanged={refreshSources} onClose={() => setShowPlugins(false)} />
+        <PluginsDialog sources={plugins} onChanged={refreshSources} onClose={() => setShowPlugins(false)} />
+      )}
+
+      {showServices && (
+        <ServicesDialog
+          onClose={() => setShowServices(false)}
+          onOpenPlugins={() => {
+            setShowServices(false);
+            setShowPlugins(true);
+          }}
+          onOpenPlaylist={(id) => {
+            setShowServices(false);
+            setView({ kind: "playlist", id });
+          }}
+        />
       )}
     </div>
   );
