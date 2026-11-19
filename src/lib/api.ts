@@ -75,6 +75,10 @@ export const removeRegistry = (url: string) => invoke<RegistryInfo[]>("remove_re
 /** URL of the Rust `stream://` protocol that proxies the track's audio. */
 export const streamUrl = (track: Track) => convertFileSrc(`${track.source}/${track.id}`, "stream");
 
+/** Resolves the track's audio in the background so it starts right away when played. */
+export const prefetchStream = (track: Track) =>
+  invoke("prefetch_stream", { source: track.source, id: track.id }).catch(() => {});
+
 export function formatTime(secs: number) {
   if (!Number.isFinite(secs) || secs < 0) return "0:00";
   const s = Math.floor(secs);

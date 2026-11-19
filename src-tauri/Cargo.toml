@@ -1,6 +1,6 @@
 [package]
 name = "melomango"
-version = "0.3.1"
+version = "0.3.2"
 description = "Reproductor de música en streaming gratuito"
 authors = ["you"]
 edition = "2024"

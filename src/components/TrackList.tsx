@@ -1,5 +1,5 @@
-import { useState, type KeyboardEvent } from "react";
-import { formatTime, trackKey, type Track } from "../lib/api";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { formatTime, prefetchStream, trackKey, type Track } from "../lib/api";
 import { useLibrary } from "../lib/library";
 import { AddToPlaylistMenu } from "./AddToPlaylistMenu";
 import { Artwork } from "./Artwork";
@@ -16,10 +16,21 @@ interface Props {
   onMove?: (from: number, to: number) => void;
 }
 
+const PREFETCH_HOVER_MS = 350;
+
 export function TrackList({ tracks, current, isPlaying, onPlay, onRemove, onMove }: Props) {
   const library = useLibrary();
   const [dragFrom, setDragFrom] = useState<number | null>(null);
   const [dragOver, setDragOver] = useState<number | null>(null);
+
+  // Resting on a row for a moment resolves its audio, so clicking it plays sooner.
+  const hoverTimer = useRef<number | undefined>(undefined);
+  const startPrefetch = (track: Track) => {
+    window.clearTimeout(hoverTimer.current);
+    hoverTimer.current = window.setTimeout(() => prefetchStream(track), PREFETCH_HOVER_MS);
+  };
+  const cancelPrefetch = () => window.clearTimeout(hoverTimer.current);
+  useEffect(() => cancelPrefetch, []);
 
   const onKey = (e: KeyboardEvent, i: number) => {
     // Ignore keys typed inside the row's own controls (e.g. the new-playlist input).
@@ -46,6 +57,10 @@ export function TrackList({ tracks, current, isPlaying, onPlay, onRemove, onMove
             tabIndex={0}
             onClick={() => onPlay(i)}
             onKeyDown={(e) => onKey(e, i)}
+            onMouseEnter={() => !active && startPrefetch(track)}
+            onMouseLeave={cancelPrefetch}
+            onFocus={(e) => e.target === e.currentTarget && !active && startPrefetch(track)}
+            onBlur={cancelPrefetch}
             draggable={!!onMove}
             onDragStart={() => setDragFrom(i)}
             onDragOver={(e) => {

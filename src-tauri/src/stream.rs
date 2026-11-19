@@ -16,7 +16,7 @@ use std::{
 use anyhow::{anyhow, bail, Context};
 use percent_encoding::percent_decode_str;
 use tauri::http::{header, Request, Response};
-use tokio::sync::OnceCell;
+use tokio::sync::{OnceCell, Semaphore};
 
 use crate::{
     library::Library,
@@ -26,16 +26,26 @@ use crate::{
 };
 
 const CHUNK: u64 = 1024 * 1024;
-const PROBE_RETRIES: u32 = 6;
-const PROBE_RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(750);
+/// Up to ~5 s waiting for a fresh URL to start answering, polling every 250 ms.
+const PROBE_RETRIES: u32 = 20;
+const PROBE_RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(250);
+/// Background resolutions running at once (each may start a plugin process).
+const PREFETCH_LIMIT: usize = 3;
 
 type Slot = Arc<OnceCell<StreamInfo>>;
 
 /// Resolved stream per track. Resolving can be slow (a plugin may take seconds), so
-/// concurrent requests for the same track share a single resolution.
-#[derive(Default)]
+/// concurrent requests for the same track share a single resolution, and the app
+/// resolves likely next tracks ahead of time (see [`prefetch`]).
 pub struct StreamCache {
     slots: Mutex<HashMap<String, Slot>>,
+    prefetching: Semaphore,
+}
+
+impl Default for StreamCache {
+    fn default() -> Self {
+        Self { slots: Mutex::default(), prefetching: Semaphore::new(PREFETCH_LIMIT) }
+    }
 }
 
 impl StreamCache {
@@ -50,6 +60,28 @@ impl StreamCache {
             slots.remove(key);
         }
     }
+}
+
+/// Resolves a track's stream in advance (the next one in the queue, a hovered row) so
+/// that playing it starts right away. Skipped if it is already resolved or too many
+/// prefetches are running.
+pub async fn prefetch(
+    registry: &Registry,
+    library: &Library,
+    http: &reqwest::Client,
+    cache: &StreamCache,
+    source_id: &str,
+    track_id: &str,
+) -> anyhow::Result<()> {
+    let slot = cache.slot(&format!("{source_id}/{track_id}"));
+    if slot.initialized() {
+        return Ok(());
+    }
+    let Ok(_permit) = cache.prefetching.try_acquire() else {
+        return Ok(());
+    };
+    slot.get_or_try_init(|| open(registry, library, http, source_id, track_id)).await?;
+    Ok(())
 }
 
 pub async fn handle(
@@ -82,11 +114,7 @@ async fn serve(
     let (source_id, track_id) = path
         .split_once('/')
         .ok_or_else(|| anyhow!("se esperaba <fuente>/<id>, llegó {path}"))?;
-    // Tracks from metadata-only sources (e.g. Spotify) are matched to a playable one.
-    let open = || async {
-        let (source, play_id) = matcher::resolve(registry, library, source_id, track_id).await?;
-        resolve(http, source.as_ref(), &play_id).await
-    };
+    let open = || open(registry, library, http, source_id, track_id);
 
     let range = capped_range(
         request
@@ -125,6 +153,18 @@ async fn serve(
     Ok(response
         .header(header::CONTENT_LENGTH, body.len())
         .body(body)?)
+}
+
+async fn open(
+    registry: &Registry,
+    library: &Library,
+    http: &reqwest::Client,
+    source_id: &str,
+    track_id: &str,
+) -> anyhow::Result<StreamInfo> {
+    // Tracks from metadata-only sources (e.g. Spotify) are matched to a playable one.
+    let (source, play_id) = matcher::resolve(registry, library, source_id, track_id).await?;
+    resolve(http, source.as_ref(), &play_id).await
 }
 
 /// Asks the source for the stream and follows redirects once, so later chunks go
@@ -221,6 +261,10 @@ mod tests {
         let registry = Arc::new(Registry::new(vec![audius]));
         let library = Library::in_memory();
         let cache = StreamCache::default();
+
+        // Prefetching resolves the stream ahead of time.
+        prefetch(&registry, &library, &http, &cache, "audius", &track.id).await.unwrap();
+        assert!(cache.slot(&format!("audius/{}", track.id)).initialized());
 
         let request = |range: &str| {
             Request::builder()

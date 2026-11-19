@@ -342,6 +342,17 @@ async fn sync_playlist(state: State<'_, AppState>, id: i64) -> Result<PlaylistSu
     state.library.import_playlist(&link.plugin_id, &link.remote_id, "importada", &tracks).map_err(err)
 }
 
+/// Resolves a track's audio in the background so it starts at once when played.
+#[tauri::command]
+fn prefetch_stream(app: tauri::AppHandle, source: String, id: String) {
+    tauri::async_runtime::spawn(async move {
+        let state = app.state::<AppState>();
+        let registry = state.registry();
+        // Best effort: a failure here is retried (and reported) when the track is played.
+        let _ = stream::prefetch(&registry, &state.library, &state.http, &state.streams, &source, &id).await;
+    });
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -415,7 +426,8 @@ pub fn run() {
             add_to_playlist,
             remove_from_playlist,
             move_in_playlist,
-            get_lyrics
+            get_lyrics,
+            prefetch_stream
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

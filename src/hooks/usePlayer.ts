@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { streamUrl, type Track } from "../lib/api";
+import { prefetchStream, streamUrl, type Track } from "../lib/api";
 
 export function usePlayer() {
   const [audio] = useState(() => new Audio());
@@ -70,6 +70,13 @@ export function usePlayer() {
     audio.play().catch(onPlayRejected);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadKey]);
+
+  // Once the current track is playing, resolve the next one so skipping to it (or
+  // reaching it) starts right away.
+  const upcoming = queue[index + 1] ?? null;
+  useEffect(() => {
+    if (upcoming && isPlaying && !isLoading) prefetchStream(upcoming);
+  }, [upcoming, isPlaying, isLoading]);
 
   useEffect(() => {
     audio.volume = volume;
