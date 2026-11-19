@@ -97,7 +97,7 @@ pregunta qué falta y, si el plugin sabe instalarlo, se lo pide; la pestaña *In
   "installed": false, "installable": true }
 ```
 
-`installable: true` significa que el plugin puede instalarlo solo (por ejemplo, con `winget`). Si no, Melomango
+`installable: true` significa que el plugin puede instalarlo solo (por ejemplo, descargándolo o con `winget`). Si no, Melomango
 avisa para que el usuario lo instale a mano.
 
 ## Datos del plugin

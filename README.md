@@ -99,10 +99,9 @@ sigues ni las editoriales como «Éxitos de hoy»).
 ### YouTube
 
 En Melomango: **Plugins → Explorar**, busca «youtube» y pulsa **Instalar**. El plugin necesita
-[yt-dlp](https://github.com/yt-dlp/yt-dlp): si no lo tienes, Melomango lo instala a continuación con `winget`
-(en *Instalados* verás «Necesita: yt-dlp ✓»). Sin winget, instálalo a mano o deja `yt-dlp.exe` en la carpeta del plugin.
-
-Si YouTube cambia algo y deja de funcionar, actualiza yt-dlp: `yt-dlp -U` (o `winget upgrade yt-dlp.yt-dlp`).
+[yt-dlp](https://github.com/yt-dlp/yt-dlp): el plugin descarga su propia copia desde las releases oficiales de
+yt-dlp (comprobando la huella SHA-256), en la versión en carpeta, que arranca más rápido, y la actualiza solo una vez
+al día. En *Instalados* verás «Necesita: yt-dlp ✓». Si la descarga falla, lo instala con `winget`.
 
 > ⚖️ Reproducir YouTube fuera de su reproductor va contra sus Términos de Servicio. Por eso es un plugin
 > opcional e independiente de la app: úsalo para uso personal y bajo tu responsabilidad.
