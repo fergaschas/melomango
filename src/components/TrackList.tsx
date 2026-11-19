@@ -123,7 +123,7 @@ export function TrackList({ tracks, current, isPlaying, onPlay, onRemove, onMove
                 </button>
               )}
             </span>
-            <span className="track-dur">{formatTime(track.durationSecs)}</span>
+            <span className="track-dur">{track.durationSecs > 0 ? formatTime(track.durationSecs) : "–"}</span>
           </li>
         );
       })}

@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { open } from "@tauri-apps/plugin-dialog";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   connectLibrary,
   disconnectLibrary,
   importCollection,
+  importSpotifyExport,
+  type PlaylistSummary,
   libraryCollections,
   libraryConnections,
   type CollectionView,
@@ -47,17 +51,21 @@ export function ServicesDialog({ onClose, onOpenPlugins, onOpenPlaylist }: Props
 
         {error && <p className="notice error">{error}</p>}
         {!connections && !error && <p className="status">Comprobando conexiones…</p>}
+        {connections?.map((c) => (
+          <ServicePanel key={c.pluginId} connection={c} onChanged={load} onOpenPlaylist={onOpenPlaylist} />
+        ))}
+        <SpotifyExportPanel onOpenPlaylist={onOpenPlaylist} />
         {connections?.length === 0 && (
           <div className="empty-services">
-            <p>No tienes ningún plugin de servicios. Instala el de <strong>Spotify</strong> desde Plugins → Explorar.</p>
-            <button className="btn primary" onClick={onOpenPlugins}>
+            <p>
+              ¿Tienes Spotify Premium? Con el plugin de <strong>Spotify</strong> importas y sincronizas al momento
+              (necesita crear tu propia app de desarrollador).
+            </p>
+            <button className="btn ghost" onClick={onOpenPlugins}>
               Buscar plugins
             </button>
           </div>
         )}
-        {connections?.map((c) => (
-          <ServicePanel key={c.pluginId} connection={c} onChanged={load} onOpenPlaylist={onOpenPlaylist} />
-        ))}
       </section>
     </div>
   );
@@ -205,6 +213,90 @@ function ServicePanel({
             ))}
           </ul>
         </>
+      )}
+    </div>
+  );
+}
+
+const SPOTIFY_PRIVACY_URL = "https://www.spotify.com/account/privacy/";
+
+/** Imports Spotify's data export: no developer app nor Premium needed. */
+function SpotifyExportPanel({ onOpenPlaylist }: { onOpenPlaylist: (id: number) => void }) {
+  const library = useLibrary();
+  const [importing, setImporting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [imported, setImported] = useState<PlaylistSummary[] | null>(null);
+
+  async function choose() {
+    const picked = await open({
+      multiple: true,
+      title: "Elige la exportación de Spotify",
+      filters: [{ name: "Exportación de Spotify", extensions: ["zip", "json"] }],
+    });
+    const paths = picked === null ? [] : Array.isArray(picked) ? picked : [picked];
+    if (paths.length === 0) return;
+    setImporting(true);
+    setError(null);
+    try {
+      const playlists = await importSpotifyExport(paths);
+      await library.refresh();
+      const songs = playlists.reduce((n, p) => n + p.trackCount, 0);
+      library.notify(`${playlists.length} playlists importadas de Spotify (${songs} canciones)`);
+      setImported(playlists);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  return (
+    <div className="service">
+      <div className="service-head">
+        <div>
+          <strong>Exportación de datos de Spotify</strong>
+          <span className="service-status">Sin cuenta de desarrollador ni Premium</span>
+        </div>
+        <button className="btn primary small" onClick={choose} disabled={importing}>
+          {importing ? "Importando…" : "Elegir archivo…"}
+        </button>
+      </div>
+      <ol className="export-steps">
+        <li>
+          Entra en{" "}
+          <a
+            href={SPOTIFY_PRIVACY_URL}
+            onClick={(e) => {
+              e.preventDefault();
+              openUrl(SPOTIFY_PRIVACY_URL);
+            }}
+          >
+            spotify.com → Cuenta → Privacidad
+          </a>
+          , marca <em>Datos de la cuenta</em> y pide «Descargar tus datos».
+        </li>
+        <li>Spotify te enviará un correo con el enlace (puede tardar unos días). Descarga el zip.</li>
+        <li>Pulsa «Elegir archivo…» y elige ese zip: se importan tus playlists y tus Me gusta.</li>
+      </ol>
+      <p className="muted-note">
+        Para actualizarlas, pide otra exportación e impórtala: las playlists se reemplazan, no se duplican.
+      </p>
+      {error && <p className="notice error">{error}</p>}
+      {imported && (
+        <ul className="source-list collection-list">
+          {imported.map((p) => (
+            <li key={p.id}>
+              <PlaylistCover artworkUrls={p.artworkUrls} size={44} />
+              <div className="source-text">
+                <span className="source-name">{p.name}</span>
+                <span className="source-desc">{p.trackCount} canciones</span>
+              </div>
+              <button className="btn ghost small" onClick={() => onOpenPlaylist(p.id)}>
+                Abrir
+              </button>
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );

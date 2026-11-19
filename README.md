@@ -82,9 +82,23 @@ la app descarga el zip, comprueba su SHA-256 y lo instala. Sin reiniciar, aparec
 
 ### Spotify (importar playlists)
 
-El plugin **Spotify** importa tus playlists, tus «Canciones que te gustan» y tus álbumes guardados. Solo lee
-metadatos: al reproducir, Melomango busca cada canción en YouTube (por artista, título y duración) y recuerda el
-resultado, así que conviene tener también el plugin de YouTube.
+Hay dos formas. En las dos solo se copian los datos de las canciones: al reproducir, Melomango busca cada una en
+YouTube (por artista, título y duración) y recuerda el resultado, así que conviene tener el plugin de YouTube.
+
+#### Con tu exportación de datos (sin cuenta de desarrollador ni Premium)
+
+1. En [spotify.com → Cuenta → Privacidad](https://www.spotify.com/account/privacy/), marca *Datos de la cuenta* y
+   pide «Descargar tus datos». Spotify envía un correo con el zip (puede tardar unos días).
+2. En Melomango, **⬇ Importar playlists → Exportación de datos de Spotify → Elegir archivo…** y elige el zip.
+
+Se importan tus playlists y tus Me gusta (no los álbumes: la exportación no trae sus canciones). Como la exportación no
+trae duraciones, Melomango las consulta en LRCLIB al reproducir para elegir la versión correcta. Para actualizar,
+pide otra exportación e impórtala: las playlists se reemplazan, no se duplican.
+
+#### Con el plugin (al momento y con sincronización; necesita Premium)
+
+El plugin **Spotify** importa tus playlists, tus «Canciones que te gustan» y tus álbumes guardados usando la API de
+Spotify. Desde febrero de 2026, Spotify exige que el dueño de la app de desarrollador tenga **Premium**.
 
 1. **Plugins → Explorar**, busca «spotify» e instálalo.
 2. En la barra lateral, junto a *Playlists*, pulsa **⬇ Importar playlists → Conectar Spotify**.

@@ -4,6 +4,7 @@ mod lyrics;
 mod matcher;
 mod models;
 mod sources;
+mod spotify_export;
 mod stream;
 
 use std::{
@@ -342,6 +343,21 @@ async fn sync_playlist(state: State<'_, AppState>, id: i64) -> Result<PlaylistSu
     state.library.import_playlist(&link.plugin_id, &link.remote_id, "importada", &tracks).map_err(err)
 }
 
+/// Imports the playlists and liked songs of a Spotify data export (zip or its JSON files).
+#[tauri::command]
+fn import_spotify_export(state: State<'_, AppState>, paths: Vec<String>) -> Result<Vec<PlaylistSummary>, String> {
+    let collections = spotify_export::read(&paths).map_err(err)?;
+    collections
+        .iter()
+        .map(|c| {
+            state
+                .library
+                .import_playlist(spotify_export::ORIGIN, &c.remote_id, &c.name, &c.tracks)
+                .map_err(err)
+        })
+        .collect()
+}
+
 /// Resolves a track's audio in the background so it starts at once when played.
 #[tauri::command]
 fn prefetch_stream(app: tauri::AppHandle, source: String, id: String) {
@@ -427,6 +443,7 @@ pub fn run() {
             remove_from_playlist,
             move_in_playlist,
             get_lyrics,
+            import_spotify_export,
             prefetch_stream
         ])
         .run(tauri::generate_context!())

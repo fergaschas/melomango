@@ -354,6 +354,17 @@ impl Library {
 
     // ---------- Track metadata and matches ----------
 
+    /// Fills in the duration of a track imported without one.
+    pub fn set_track_duration(&self, source: &str, id: &str, duration_secs: u32) -> anyhow::Result<()> {
+        self.with(|c| {
+            c.execute(
+                "UPDATE tracks SET duration_secs = ?3 WHERE source = ?1 AND id = ?2 AND duration_secs = 0",
+                params![source, id, duration_secs],
+            )?;
+            Ok(())
+        })
+    }
+
     pub fn track(&self, source: &str, id: &str) -> anyhow::Result<Option<Track>> {
         self.with(|c| {
             c.query_row(
@@ -428,8 +439,11 @@ fn upsert_track(c: &Connection, t: &Track) -> rusqlite::Result<()> {
         "INSERT INTO tracks (source, id, title, artist, duration_secs, artwork_url, genre)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
          ON CONFLICT (source, id) DO UPDATE SET
-           title = excluded.title, artist = excluded.artist, duration_secs = excluded.duration_secs,
-           artwork_url = excluded.artwork_url, genre = excluded.genre",
+           title = excluded.title, artist = excluded.artist,
+           -- Some imports (e.g. Spotify's data export) lack durations and covers: keep known ones.
+           duration_secs = CASE WHEN excluded.duration_secs > 0 THEN excluded.duration_secs ELSE tracks.duration_secs END,
+           artwork_url = COALESCE(excluded.artwork_url, tracks.artwork_url),
+           genre = COALESCE(excluded.genre, tracks.genre)",
         params![t.source, t.id, t.title, t.artist, t.duration_secs, t.artwork_url, t.genre],
     )?;
     Ok(())
@@ -619,6 +633,18 @@ mod tests {
         // Deleting the playlist drops the link too.
         lib.delete_playlist(first.id).unwrap();
         assert!(lib.imported_from("spotify").unwrap().is_empty());
+    }
+
+    #[test]
+    fn imports_without_duration_keep_known_metadata() {
+        let lib = Library::in_memory();
+        let full = Track { source: "spotify".into(), ..track("x") };
+        lib.import_playlist("spotify", "liked", "Me gusta de Spotify", &[full.clone()]).unwrap();
+        let bare = Track { duration_secs: 0, artwork_url: None, ..full.clone() };
+        lib.import_playlist("spotify-export", "liked", "Me gusta de Spotify", &[bare]).unwrap();
+        let stored = lib.track("spotify", "x").unwrap().unwrap();
+        assert_eq!(stored.duration_secs, full.duration_secs);
+        assert_eq!(stored.artwork_url, full.artwork_url);
     }
 
     #[test]

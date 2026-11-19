@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { ask } from "@tauri-apps/plugin-dialog";
-import { formatTotal, getPlaylist, likedTracks, syncPlaylist, type Playlist, type Track } from "../lib/api";
+import { formatTotal, getPlaylist, likedTracks, SPOTIFY_EXPORT, syncPlaylist, type Playlist, type Track } from "../lib/api";
 import { useLibrary } from "../lib/library";
 import type { Player } from "../hooks/usePlayer";
 import { PlayIcon, SyncIcon, TrashIcon } from "./Icons";
@@ -126,8 +126,11 @@ export function PlaylistView({ id, player, onDeleted }: { id: number; player: Pl
           <span className="eyebrow">
             Playlist
             {playlist.link && (
-              <span className="linked" title={`Última sincronización: ${new Date(playlist.link.syncedAt).toLocaleString()}`}>
-                · de {playlist.link.pluginId === "spotify" ? "Spotify" : playlist.link.pluginId}
+              <span
+                className="linked"
+                title={`${playlist.link.pluginId === SPOTIFY_EXPORT ? "Importada" : "Última sincronización"}: ${new Date(playlist.link.syncedAt).toLocaleString()}`}
+              >
+                · de {linkLabel(playlist.link.pluginId)}
               </span>
             )}
           </span>
@@ -162,7 +165,7 @@ export function PlaylistView({ id, player, onDeleted }: { id: number; player: Pl
           </p>
           <div className="collection-actions">
             <PlayAllButton tracks={playlist.tracks} player={player} />
-            {playlist.link && (
+            {playlist.link && playlist.link.pluginId !== SPOTIFY_EXPORT && (
               <button className="btn ghost" onClick={onSync} disabled={syncing}>
                 <SyncIcon size={16} /> {syncing ? "Sincronizando…" : "Sincronizar"}
               </button>
@@ -192,4 +195,9 @@ export function PlaylistView({ id, player, onDeleted }: { id: number; player: Pl
       )}
     </>
   );
+}
+
+function linkLabel(pluginId: string) {
+  if (pluginId === SPOTIFY_EXPORT) return "tu exportación de Spotify";
+  return pluginId === "spotify" ? "Spotify" : pluginId;
 }

@@ -2,7 +2,8 @@
 //!
 //! When such a track is played, we search the playable sources for "artist title",
 //! score the candidates by title, artist and duration, and remember the winner in the
-//! library so the search only happens once per track.
+//! library so the search only happens once per track. Tracks imported without a
+//! duration (Spotify's data export) get the durations LRCLIB knows for the song.
 
 use std::sync::Arc;
 
@@ -10,6 +11,7 @@ use anyhow::{anyhow, bail};
 
 use crate::{
     library::Library,
+    lyrics,
     models::{trim_featuring, Track},
     sources::{MusicSource, Registry},
 };
@@ -24,11 +26,14 @@ const OTHER_VERSIONS: &[&str] = &[
 ];
 /// Below this score a candidate is probably another song.
 const MIN_SCORE: f64 = 0.45;
+/// Without any known duration, longer results are usually concerts, mixes or TV shows.
+const LONG_SECS: u32 = 8 * 60;
 
 /// The source and id to stream for `source/track_id`, matching it if needed.
 pub async fn resolve(
     registry: &Registry,
     library: &Library,
+    http: &reqwest::Client,
     source_id: &str,
     track_id: &str,
 ) -> anyhow::Result<(Arc<dyn MusicSource>, String)> {
@@ -50,10 +55,20 @@ pub async fn resolve(
     if sources.is_empty() {
         bail!("no hay ninguna fuente para reproducir «{}»", track.title);
     }
+    let durations = if track.duration_secs > 0 {
+        vec![track.duration_secs]
+    } else {
+        // Best effort: without it we judge by title and artist alone.
+        let found = lyrics::known_durations(http, &track).await.unwrap_or_default();
+        if let Some(&most_common) = found.first() {
+            library.set_track_duration(source_id, track_id, most_common)?;
+        }
+        found
+    };
     let query = format!("{} {}", main_artist(&track.artist), trim_featuring(&track.title));
     for source in sources {
         let Ok(candidates) = source.search(&query).await else { continue };
-        if let Some(best) = best_match(&track, &candidates) {
+        if let Some(best) = best_match_among(&track, &durations, &candidates) {
             library.set_track_match(source_id, track_id, &best.source, &best.id)?;
             return Ok((source, best.id.clone()));
         }
@@ -73,17 +88,24 @@ fn playback_order(registry: &Registry) -> Vec<Arc<dyn MusicSource>> {
 }
 
 /// The candidate that best matches `wanted`, if any is good enough.
+#[cfg(test)]
 pub fn best_match<'a>(wanted: &Track, candidates: &'a [Track]) -> Option<&'a Track> {
+    let durations: Vec<u32> = (wanted.duration_secs > 0).then_some(wanted.duration_secs).into_iter().collect();
+    best_match_among(wanted, &durations, candidates)
+}
+
+/// Like `best_match`, accepting any of several durations (versions) of the song.
+pub fn best_match_among<'a>(wanted: &Track, durations: &[u32], candidates: &'a [Track]) -> Option<&'a Track> {
     candidates
         .iter()
-        .map(|c| (score(wanted, c), c))
+        .map(|c| (score(wanted, durations, c), c))
         .filter(|(s, _)| *s >= MIN_SCORE)
         .max_by(|a, b| a.0.total_cmp(&b.0))
         .map(|(_, c)| c)
 }
 
 /// 0..1: how likely `candidate` is the same recording as `wanted`.
-fn score(wanted: &Track, candidate: &Track) -> f64 {
+fn score(wanted: &Track, durations: &[u32], candidate: &Track) -> f64 {
     let wanted_title = words(trim_featuring(&wanted.title));
     let candidate_text = words(&format!("{} {}", candidate.artist, candidate.title));
     if wanted_title.is_empty() {
@@ -97,9 +119,12 @@ fn score(wanted: &Track, candidate: &Track) -> f64 {
     let artist_words = words(main_artist(&wanted.artist));
     let artist = if !artist_words.is_empty() && artist_words.iter().all(|w| candidate_text.contains(w)) { 1.0 } else { 0.0 };
 
-    // Duration: same length ≈ 1, a minute off ≈ 0. Videos often have a few extra seconds.
-    let diff = (wanted.duration_secs as f64 - candidate.duration_secs as f64).abs();
-    let duration = (1.0 - diff / 60.0).max(0.0);
+    // Duration: same length ≈ 1, a minute off ≈ 0 (videos often have a few extra seconds),
+    // against the closest known version. None known: judge by title and artist alone.
+    let duration = durations
+        .iter()
+        .map(|d| (1.0 - (*d as f64 - candidate.duration_secs as f64).abs() / 60.0).max(0.0))
+        .reduce(f64::max);
 
     // Penalise live versions, covers, remixes... unless the original is one too.
     let wanted_all = words(&wanted.title);
@@ -107,12 +132,18 @@ fn score(wanted: &Track, candidate: &Track) -> f64 {
         .iter()
         .any(|w| candidate_text.iter().any(|c| c == w) && !wanted_all.iter().any(|t| t == w));
 
-    let mut s = 0.5 * title + 0.25 * artist + 0.25 * duration;
+    let mut s = match duration {
+        Some(duration) => 0.5 * title + 0.25 * artist + 0.25 * duration,
+        None => (0.5 * title + 0.25 * artist) / 0.75,
+    };
     if title < 0.5 {
         s *= 0.5; // a different song by the same artist
     }
     if other_version {
         s -= 0.3;
+    }
+    if duration.is_none() && candidate.duration_secs > LONG_SECS {
+        s -= 0.2;
     }
     s
 }
@@ -183,6 +214,31 @@ mod tests {
         let wanted = t("spotify", "1", "Rosalía", "Despechá", 157);
         let candidates = vec![t("youtube", "x", "Otro", "Algo distinto", 157)];
         assert!(best_match(&wanted, &candidates).is_none());
+    }
+
+    #[test]
+    fn matches_without_a_known_duration() {
+        // Spotify's data export has no durations.
+        let wanted = t("spotify", "1", "Rosalía", "Saoko", 0);
+        let candidates = vec![
+            t("youtube", "live", "Rosalía", "Saoko (Live)", 160),
+            t("youtube", "ok", "ROSALÍA", "SAOKO (Official Video)", 137),
+        ];
+        assert_eq!(best_match(&wanted, &candidates).unwrap().id, "ok");
+        let unrelated = vec![t("youtube", "x", "Otro", "Algo distinto", 137)];
+        assert!(best_match(&wanted, &unrelated).is_none());
+    }
+
+    #[test]
+    fn accepts_any_known_version_length() {
+        let wanted = t("spotify", "1", "Bad Bunny", "Tití Me Preguntó", 0);
+        let candidates = vec![
+            t("youtube", "tv", "Bad Bunny", "Tití Me Preguntó (Darwin) | The Voice", 703),
+            t("youtube", "ok", "Bad Bunny", "Tití Me Preguntó (Video Oficial)", 290),
+        ];
+        assert_eq!(best_match_among(&wanted, &[244, 290], &candidates).unwrap().id, "ok");
+        // Even with no known duration, a 12-minute video loses to a song-length one.
+        assert_eq!(best_match_among(&wanted, &[], &candidates).unwrap().id, "ok");
     }
 
     #[test]

@@ -163,7 +163,7 @@ async fn open(
     track_id: &str,
 ) -> anyhow::Result<StreamInfo> {
     // Tracks from metadata-only sources (e.g. Spotify) are matched to a playable one.
-    let (source, play_id) = matcher::resolve(registry, library, source_id, track_id).await?;
+    let (source, play_id) = matcher::resolve(registry, library, http, source_id, track_id).await?;
     resolve(http, source.as_ref(), &play_id).await
 }
 

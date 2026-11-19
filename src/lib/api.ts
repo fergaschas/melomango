@@ -145,6 +145,13 @@ export interface Lyrics {
 
 export const getLyrics = (track: Track) => invoke<Lyrics>("get_lyrics", { track });
 
+/** Plugin id of playlists imported from Spotify's data export (they can't be synced). */
+export const SPOTIFY_EXPORT = "spotify-export";
+
+/** Imports the playlists and liked songs of a Spotify data export (its zip or JSON files). */
+export const importSpotifyExport = (paths: string[]) =>
+  invoke<PlaylistSummary[]>("import_spotify_export", { paths });
+
 // ---------- Services (library plugins such as Spotify) ----------
 
 export interface LibraryConnection {

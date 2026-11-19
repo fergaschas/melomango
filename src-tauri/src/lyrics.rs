@@ -79,8 +79,9 @@ impl LyricsService {
         let artist = main_artist(&track.artist);
         let duration = track.duration_secs.to_string();
 
-        // 1. Exact match (LRCLIB allows ±2 s on the duration).
-        for artist_name in dedup([track.artist.as_str(), artist]) {
+        // 1. Exact match (LRCLIB allows ±2 s on the duration), if the duration is known.
+        let artists = if track.duration_secs > 0 { dedup([track.artist.as_str(), artist]) } else { Vec::new() };
+        for artist_name in artists {
             let response = self
                 .http
                 .get(format!("{API}/get"))
@@ -110,6 +111,34 @@ impl LyricsService {
     }
 }
 
+/// Durations (in seconds) of the recordings LRCLIB knows for this song, most common
+/// first, at most three. Used to match tracks imported without a duration.
+pub async fn known_durations(http: &reqwest::Client, track: &Track) -> anyhow::Result<Vec<u32>> {
+    let results: Vec<Record> = http
+        .get(format!("{API}/search"))
+        .query(&[("track_name", trim_featuring(&track.title)), ("artist_name", main_artist(&track.artist))])
+        .timeout(std::time::Duration::from_secs(6))
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    Ok(common_durations(results.iter().filter_map(|r| r.duration)))
+}
+
+/// Groups durations within ±2 s and returns the most frequent groups (at most three).
+fn common_durations(durations: impl Iterator<Item = f64>) -> Vec<u32> {
+    let mut groups: Vec<(u32, usize)> = Vec::new();
+    for d in durations.filter(|d| *d > 0.0).map(|d| d.round() as u32) {
+        match groups.iter_mut().find(|(g, _)| g.abs_diff(d) <= 2) {
+            Some(group) => group.1 += 1,
+            None => groups.push((d, 1)),
+        }
+    }
+    groups.sort_by(|a, b| b.1.cmp(&a.1));
+    groups.into_iter().take(3).map(|(d, _)| d).collect()
+}
+
 fn dedup<'a>(items: [&'a str; 2]) -> Vec<&'a str> {
     if items[0] == items[1] { vec![items[0]] } else { items.to_vec() }
 }
@@ -131,7 +160,8 @@ fn pick_best(results: Vec<Record>, duration: f64) -> Option<Record> {
     results
         .into_iter()
         .filter(|r| r.has_synced() || r.plain_lyrics.is_some() || r.instrumental)
-        .filter(|r| diff(r) <= MAX_DURATION_DIFF)
+        // Unknown duration (e.g. imported from Spotify's data export): any version will do.
+        .filter(|r| duration <= 0.0 || diff(r) <= MAX_DURATION_DIFF)
         .min_by(|a, b| {
             b.has_synced()
                 .cmp(&a.has_synced())
@@ -253,5 +283,12 @@ mod tests {
         let lyrics = service.get(&track).await.unwrap();
         assert!(lyrics.found);
         assert!(lyrics.synced.len() > 10, "{lyrics:?}");
+    }
+
+    #[test]
+    fn groups_common_durations() {
+        let found = common_durations([244.0, 290.0, 243.6, 245.0, 290.4, 703.0].into_iter());
+        assert_eq!(found, [244, 290, 703]);
+        assert!(common_durations([0.0].into_iter()).is_empty());
     }
 }
