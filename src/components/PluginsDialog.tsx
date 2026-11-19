@@ -14,6 +14,8 @@ import {
   type RegistryInfo,
   type SourceInfo,
 } from "../lib/api";
+import { installPluginRequirement, pluginRequirements, type Requirement } from "../lib/api";
+import { setupRequirements } from "../lib/requirements";
 import { CloseIcon, SearchIcon } from "./Icons";
 
 interface Props {
@@ -23,12 +25,25 @@ interface Props {
 }
 
 type Tab = "explore" | "installed";
-type Notice = { kind: "ok" | "error"; text: string } | null;
+type Notice = { kind: "ok" | "error" | "info"; text: string } | null;
 
 export function PluginsDialog({ sources, onChanged, onClose }: Props) {
   const [tab, setTab] = useState<Tab>("explore");
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice>(null);
+
+  /** After installing a plugin: install what it needs (yt-dlp…) and report. */
+  async function afterInstall(info: SourceInfo) {
+    onChanged(info.id);
+    const extras = await setupRequirements(info, (text) => setNotice({ kind: "info", text }));
+    const also = extras.length ? ` (y ${extras.join(", ")})` : "";
+    setNotice({
+      kind: "ok",
+      text: info.isLibrary
+        ? `${info.name} ${info.version ?? ""} instalado${also}. Conéctalo con el botón «Importar playlists» (⬇) de la barra lateral.`
+        : `${info.name} ${info.version ?? ""} instalado${also}. Ya aparece junto a las demás fuentes.`,
+    });
+  }
 
   async function run(key: string, action: () => Promise<void>) {
     setBusy(key);
@@ -66,17 +81,16 @@ export function PluginsDialog({ sources, onChanged, onClose }: Props) {
         </p>
 
         {tab === "explore" ? (
-          <ExploreTab sources={sources} busy={busy} run={run} onInstalled={(info) => {
-            setNotice({
-              kind: "ok",
-              text: info.isLibrary
-                ? `${info.name} ${info.version ?? ""} instalado. Conéctalo con el botón «Importar playlists» (⬇) de la barra lateral.`
-                : `${info.name} ${info.version ?? ""} instalado. Ya aparece junto a las demás fuentes.`,
-            });
-            onChanged(info.id);
-          }} />
+          <ExploreTab sources={sources} busy={busy} run={run} onInstalled={afterInstall} />
         ) : (
-          <InstalledTab sources={sources} busy={busy} run={run} onChanged={onChanged} setNotice={setNotice} />
+          <InstalledTab
+            sources={sources}
+            busy={busy}
+            run={run}
+            onChanged={onChanged}
+            setNotice={setNotice}
+            afterInstall={afterInstall}
+          />
         )}
 
         {notice && <p className={`notice ${notice.kind}`}>{notice.text}</p>}
@@ -96,7 +110,7 @@ function ExploreTab({
   sources: SourceInfo[];
   busy: string | null;
   run: Run;
-  onInstalled: (info: SourceInfo) => void;
+  onInstalled: (info: SourceInfo) => Promise<void>;
 }) {
   const [catalog, setCatalog] = useState<Catalog | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -120,7 +134,10 @@ function ExploreTab({
   }, [catalog, filter]);
 
   const install = (p: CatalogPlugin) =>
-    run(`install:${p.registry}:${p.id}`, async () => onInstalled(await installCatalogPlugin(p.registry, p.id)));
+    run(`install:${p.registry}:${p.id}`, async () => {
+      const info = await installCatalogPlugin(p.registry, p.id);
+      await onInstalled(info);
+    });
 
   return (
     <>
@@ -241,20 +258,20 @@ function InstalledTab({
   run,
   onChanged,
   setNotice,
+  afterInstall,
 }: {
   sources: SourceInfo[];
   busy: string | null;
   run: Run;
   onChanged: (selectId?: string) => void;
   setNotice: (n: Notice) => void;
+  afterInstall: (info: SourceInfo) => Promise<void>;
 }) {
   const onInstallFolder = () =>
     run("folder", async () => {
       const dir = await open({ directory: true, title: "Elige la carpeta del plugin (la que contiene plugin.json)" });
       if (typeof dir !== "string") return;
-      const info = await installPlugin(dir);
-      setNotice({ kind: "ok", text: `${info.name} ${info.version ?? ""} instalado.` });
-      onChanged(info.id);
+      await afterInstall(await installPlugin(dir));
     });
 
   const onUninstall = (source: SourceInfo) =>
@@ -278,6 +295,7 @@ function InstalledTab({
                 <span className={`badge ${s.kind}`}>{s.kind === "builtin" ? "Integrada" : "Plugin"}</span>
               </span>
               {s.description && <span className="source-desc">{s.description}</span>}
+              {s.kind === "plugin" && <RequirementsLine plugin={s} busy={busy} run={run} />}
             </div>
             {s.kind === "plugin" && (
               <button className="btn ghost" onClick={() => onUninstall(s)} disabled={busy !== null}>
@@ -296,5 +314,45 @@ function InstalledTab({
         </button>
       </footer>
     </>
+  );
+}
+
+/** "Necesita: yt-dlp ✓" or "falta" with a button to install it. */
+function RequirementsLine({ plugin, busy, run }: { plugin: SourceInfo; busy: string | null; run: Run }) {
+  const [requirements, setRequirements] = useState<Requirement[]>([]);
+
+  useEffect(() => {
+    pluginRequirements(plugin.id).then(setRequirements).catch(() => setRequirements([]));
+  }, [plugin.id, plugin.version]);
+
+  if (requirements.length === 0) return null;
+  return (
+    <span className="requirements">
+      Necesita:
+      {requirements.map((r) =>
+        r.installed ? (
+          <span key={r.id} className="req ok">
+            {r.name} ✓
+          </span>
+        ) : (
+          <span key={r.id} className="req missing">
+            {r.name} (falta)
+            {r.installable && (
+              <button
+                className="link-btn"
+                disabled={busy !== null}
+                onClick={() =>
+                  run(`req:${plugin.id}:${r.id}`, async () => {
+                    setRequirements(await installPluginRequirement(plugin.id, r.id));
+                  })
+                }
+              >
+                {busy === `req:${plugin.id}:${r.id}` ? "Instalando…" : "Instalar"}
+              </button>
+            )}
+          </span>
+        ),
+      )}
+    </span>
   );
 }

@@ -1382,3 +1382,34 @@ input[type="range"]:disabled {
   font-weight: 600;
   margin-left: 4px;
 }
+
+/* ---------- Plugin requirements ---------- */
+.notice.info {
+  background: var(--surface-soft);
+  color: var(--accent-text);
+}
+
+.requirements {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.req {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.req.ok {
+  color: #2e7d32;
+}
+
+.req.missing {
+  color: #c62828;
+  font-weight: 600;
+}

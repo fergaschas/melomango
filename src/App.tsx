@@ -3,6 +3,7 @@ import { DEFAULT_SOURCE, listPlugins, listSources, searchTracks, trendingTracks,
 import { useLibrary } from "./lib/library";
 import { usePlayer, type Player } from "./hooks/usePlayer";
 import { useUpdater } from "./hooks/useUpdater";
+import { setupRequirements } from "./lib/requirements";
 import { UpdateCard } from "./components/UpdateCard";
 import { TrackList } from "./components/TrackList";
 import { PlayerBar } from "./components/PlayerBar";
@@ -189,6 +190,20 @@ function BrowseView({
   const [tracks, setTracks] = useState<Track[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [retry, setRetry] = useState(0);
+  const [fixing, setFixing] = useState<string | null>(null);
+
+  async function fixRequirements() {
+    if (!source) return;
+    try {
+      await setupRequirements(source, setFixing);
+      setRetry((r) => r + 1);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setFixing(null);
+    }
+  }
 
   useEffect(() => {
     if (!source) return;
@@ -208,7 +223,7 @@ function BrowseView({
     return () => {
       cancelled = true;
     };
-  }, [view, source]);
+  }, [view, source, retry]);
 
   const sourceName = source?.name ?? "…";
   const emptyMessage =
@@ -223,6 +238,11 @@ function BrowseView({
 
       {loading && <p className="status">Pelando mangos…</p>}
       {error && <p className="status error">Algo ha fallado: {error}</p>}
+      {error && source?.kind === "plugin" && /yt-dlp|requisito/i.test(error) && (
+        <button className="btn primary" onClick={fixRequirements} disabled={fixing !== null}>
+          {fixing ?? "Instalar lo que falta"}
+        </button>
+      )}
       {!loading && !error && tracks.length === 0 && <p className="status">{emptyMessage}</p>}
       {!loading && !error && tracks.length > 0 && (
         <TrackList

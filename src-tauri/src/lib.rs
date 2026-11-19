@@ -21,7 +21,7 @@ use lyrics::{Lyrics, LyricsService};
 use models::{SourceInfo, Track};
 use sources::{
     audius::Audius,
-    plugin::{self, Collection, LibraryStatus, PluginSource},
+    plugin::{self, Collection, LibraryStatus, PluginSource, Requirement},
     MusicSource, Registry,
 };
 use stream::StreamCache;
@@ -241,6 +241,22 @@ fn move_in_playlist(state: State<'_, AppState>, id: i64, from: usize, to: usize)
     state.library.move_in_playlist(id, from, to).map_err(lib_err)
 }
 
+/// What the plugin needs installed on the computer, and whether it is there.
+#[tauri::command]
+async fn plugin_requirements(state: State<'_, AppState>, plugin_id: String) -> Result<Vec<Requirement>, String> {
+    state.plugin(&plugin_id)?.requirements().await.map_err(err)
+}
+
+/// Lets the plugin install a requirement (e.g. yt-dlp with winget).
+#[tauri::command]
+async fn install_plugin_requirement(
+    state: State<'_, AppState>,
+    plugin_id: String,
+    requirement_id: String,
+) -> Result<Vec<Requirement>, String> {
+    state.plugin(&plugin_id)?.install_requirement(&requirement_id).await.map_err(err)
+}
+
 // ---------- Services (library plugins such as Spotify) ----------
 
 #[derive(Serialize)]
@@ -370,6 +386,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             list_sources,
             list_plugins,
+            plugin_requirements,
+            install_plugin_requirement,
             library_connections,
             connect_library,
             disconnect_library,

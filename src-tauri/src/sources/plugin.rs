@@ -17,6 +17,13 @@
 //! <executable> tracks <collection id>            -> {"tracks": [Track, ...]}
 //! ```
 //!
+//! Plugins with the "requirements" capability can install what they need (e.g. yt-dlp):
+//!
+//! ```text
+//! <executable> requirements               -> {"requirements": [Requirement, ...]}
+//! <executable> install-requirement <id>   -> {"requirements": [Requirement, ...]}
+//! ```
+//!
 //! Every call gets `MELOMANGO_DATA_DIR`: a folder of its own that survives plugin updates.
 
 use std::{
@@ -35,8 +42,8 @@ use crate::models::{SourceInfo, SourceKind, StreamInfo, Track};
 pub const PROTOCOL_VERSION: u32 = 1;
 const MANIFEST: &str = "plugin.json";
 const CALL_TIMEOUT: Duration = Duration::from_secs(60);
-/// `connect` waits for the user to log in in the browser.
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+/// `connect` waits for the user to log in; `install-requirement` may download software.
+const LONG_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 /// Ids taken by built-in sources.
 const RESERVED_IDS: &[&str] = &["audius"];
 
@@ -95,6 +102,20 @@ fn yes() -> bool {
     true
 }
 
+/// Something a plugin needs installed on the computer (e.g. yt-dlp).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Requirement {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    pub installed: bool,
+    /// The plugin can install it by itself (e.g. with winget).
+    #[serde(default)]
+    pub installable: bool,
+}
+
 impl PluginSource {
     /// Reads and validates the plugin in `dir`.
     pub fn load(dir: &Path) -> anyhow::Result<Self> {
@@ -145,7 +166,10 @@ impl PluginSource {
     }
 
     async fn call<T: DeserializeOwned>(&self, command: &str, arg: Option<&str>) -> anyhow::Result<T> {
-        let timeout = if command == "connect" { CONNECT_TIMEOUT } else { CALL_TIMEOUT };
+        let timeout = match command {
+            "connect" | "install-requirement" => LONG_TIMEOUT,
+            _ => CALL_TIMEOUT,
+        };
         let mut cmd = tokio::process::Command::new(&self.exe);
         cmd.args(&self.manifest.args)
             .arg(command)
@@ -188,6 +212,27 @@ impl PluginSource {
                 t
             })
             .collect())
+    }
+
+    // ---------- Requirements ----------
+
+    pub async fn requirements(&self) -> anyhow::Result<Vec<Requirement>> {
+        if !self.has("requirements") {
+            return Ok(Vec::new());
+        }
+        #[derive(Deserialize)]
+        struct List {
+            requirements: Vec<Requirement>,
+        }
+        Ok(self.call::<List>("requirements", None).await?.requirements)
+    }
+
+    pub async fn install_requirement(&self, id: &str) -> anyhow::Result<Vec<Requirement>> {
+        #[derive(Deserialize)]
+        struct List {
+            requirements: Vec<Requirement>,
+        }
+        Ok(self.call::<List>("install-requirement", Some(id)).await?.requirements)
     }
 
     // ---------- Library plugins ----------
@@ -382,6 +427,39 @@ mod tests {
 
         uninstall("demo", &plugins, &root.join("data")).unwrap();
         assert!(discover(&plugins, &root.join("data")).is_empty());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// A fake plugin (a .cmd script) that needs "yt-dlp" and can install it.
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn reads_and_installs_requirements() {
+        let root = temp_dir("reqs");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(
+            root.join(MANIFEST),
+            r#"{"id":"demo","name":"Demo","version":"1","protocol":1,"executable":"bin.cmd","capabilities":["search","requirements"]}"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("bin.cmd"),
+            "@echo off\r\n\
+             if \"%1\"==\"requirements\" echo {\"requirements\":[{\"id\":\"yt-dlp\",\"name\":\"yt-dlp\",\"installed\":false,\"installable\":true}]}\r\n\
+             if \"%1\"==\"install-requirement\" echo {\"requirements\":[{\"id\":\"%2\",\"name\":\"yt-dlp\",\"installed\":true,\"installable\":true}]}\r\n",
+        )
+        .unwrap();
+
+        let plugin = PluginSource::load(&root).unwrap();
+        let before = plugin.requirements().await.unwrap();
+        assert_eq!(before[0].id, "yt-dlp");
+        assert!(!before[0].installed && before[0].installable);
+        let after = plugin.install_requirement("yt-dlp").await.unwrap();
+        assert!(after[0].installed);
+
+        // Without the capability the plugin is not even asked.
+        let manifest = fs::read_to_string(root.join(MANIFEST)).unwrap().replace(",\"requirements\"", "");
+        fs::write(root.join(MANIFEST), manifest).unwrap();
+        assert!(PluginSource::load(&root).unwrap().requirements().await.unwrap().is_empty());
         let _ = fs::remove_dir_all(&root);
     }
 

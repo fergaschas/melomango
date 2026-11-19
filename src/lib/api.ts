@@ -174,3 +174,17 @@ export const libraryCollections = (pluginId: string) => invoke<CollectionView[]>
 export const importCollection = (pluginId: string, collectionId: string, name: string) =>
   invoke<PlaylistSummary>("import_collection", { pluginId, collectionId, name });
 export const syncPlaylist = (id: number) => invoke<PlaylistSummary>("sync_playlist", { id });
+
+// ---------- Plugin requirements (e.g. yt-dlp for YouTube) ----------
+
+export interface Requirement {
+  id: string;
+  name: string;
+  description: string | null;
+  installed: boolean;
+  installable: boolean;
+}
+
+export const pluginRequirements = (pluginId: string) => invoke<Requirement[]>("plugin_requirements", { pluginId });
+export const installPluginRequirement = (pluginId: string, requirementId: string) =>
+  invoke<Requirement[]>("install_plugin_requirement", { pluginId, requirementId });

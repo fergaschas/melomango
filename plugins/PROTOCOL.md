@@ -31,7 +31,7 @@ Al instalarlo, Melomango copia la carpeta a `%APPDATA%\com.melomango.app\plugins
 | `protocol` | sí | Debe ser `1`. |
 | `executable` | sí | Ruta relativa dentro de la carpeta. En Windows se prueba con `.exe` si no tiene extensión. |
 | `args` | no | Argumentos que se anteponen a cada comando. |
-| `capabilities` | no | `"trending"` si implementa ese comando. `"library"` para plugins de biblioteca (ver abajo). En los plugins de música, `search` y `stream` son obligatorios. |
+| `capabilities` | no | `"trending"` si implementa ese comando. `"library"` para plugins de biblioteca y `"requirements"` si necesita programas externos (ver abajo). En los plugins de música, `search` y `stream` son obligatorios. |
 | `description` | no | Texto corto para la lista de plugins. |
 | `author`, `homepage`, `tags` | no | Metadatos para el buscador de plugins (los usa el script de publicación del índice). |
 
@@ -81,6 +81,24 @@ sus colecciones como playlists propias y, al reproducir una canción, la busca e
 - `kind`: `liked`, `playlist`, `album`… (decide el icono). `importable: false` si el servicio no deja leerla.
 - `connect` debe guiar al usuario por su cuenta (normalmente, abriendo el navegador) y no terminar hasta que acabe.
 - Los `Track` llevan `title`, `artist` y `durationSecs` fiables: se usan para encontrar la canción en otras fuentes.
+
+## Requisitos (`"requirements"`)
+
+Para plugins que necesitan un programa externo (el de YouTube necesita yt-dlp). Tras instalar el plugin, Melomango
+pregunta qué falta y, si el plugin sabe instalarlo, se lo pide; la pestaña *Instalados* muestra el estado.
+
+```text
+<executable> requirements               → {"requirements": [Requirement, ...]}
+<executable> install-requirement <id>   → la misma lista, cuando ha terminado (hasta 10 min)
+```
+
+```json
+{ "id": "yt-dlp", "name": "yt-dlp", "description": "Obtiene el audio de YouTube.",
+  "installed": false, "installable": true }
+```
+
+`installable: true` significa que el plugin puede instalarlo solo (por ejemplo, con `winget`). Si no, Melomango
+avisa para que el usuario lo instale a mano.
 
 ## Datos del plugin
 

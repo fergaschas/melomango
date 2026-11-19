@@ -98,8 +98,9 @@ sigues ni las editoriales como «Éxitos de hoy»).
 
 ### YouTube
 
-1. Instala yt-dlp: `winget install yt-dlp.yt-dlp` (o deja `yt-dlp.exe` dentro de la carpeta del plugin).
-2. En Melomango: **Plugins → Explorar**, busca «youtube» y pulsa **Instalar**.
+En Melomango: **Plugins → Explorar**, busca «youtube» y pulsa **Instalar**. El plugin necesita
+[yt-dlp](https://github.com/yt-dlp/yt-dlp): si no lo tienes, Melomango lo instala a continuación con `winget`
+(en *Instalados* verás «Necesita: yt-dlp ✓»). Sin winget, instálalo a mano o deja `yt-dlp.exe` en la carpeta del plugin.
 
 Si YouTube cambia algo y deja de funcionar, actualiza yt-dlp: `yt-dlp -U` (o `winget upgrade yt-dlp.yt-dlp`).
 
