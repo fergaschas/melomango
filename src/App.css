@@ -81,8 +81,10 @@ button:disabled {
 }
 
 .logo-mark {
-  font-size: 1.6rem;
-  color: initial; /* the emoji keeps its own colours */
+  display: block;
+  width: 34px;
+  height: 34px;
+  filter: drop-shadow(0 2px 4px rgba(180, 100, 20, 0.2));
 }
 
 .search {

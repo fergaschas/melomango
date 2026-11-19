@@ -9,6 +9,7 @@ import { Sidebar } from "./components/Sidebar";
 import { LikesView, PlaylistView } from "./components/LibraryViews";
 import { LyricsPanel } from "./components/LyricsPanel";
 import { PuzzleIcon, SearchIcon } from "./components/Icons";
+import logo from "../app-icon.svg";
 import "./App.css";
 
 export type View =
@@ -94,7 +95,7 @@ export default function App() {
     <div className={`app${lyricsOpen ? " with-lyrics" : ""}`}>
       <header className="topbar">
         <button className="logo" onClick={() => setView({ kind: "trending" })}>
-          <span className="logo-mark">🥭</span> Melomango
+          <img className="logo-mark" src={logo} alt="" width={34} height={34} /> Melomango
         </button>
         <form className="search" onSubmit={onSearch}>
           <SearchIcon size={18} />

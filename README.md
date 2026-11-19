@@ -1,7 +1,11 @@
-# 🥭 Melomango
+<p align="center"><img src="app-icon.svg" width="128" alt="Melomango"></p>
+
+# Melomango
 
 Reproductor de música en streaming gratuito para escritorio, hecho con **Tauri v2 + React + TypeScript + Rust**.
 Sin pagar ni un mango.
+
+Playlists, Me gusta, letras sincronizadas (LRCLIB) y fuentes ampliables con plugins.
 
 Fuentes:
 
@@ -10,6 +14,26 @@ Fuentes:
 - Cualquier otra que alguien escriba como plugin: ver [plugins/PROTOCOL.md](plugins/PROTOCOL.md).
 
 Los plugins oficiales viven en [fergaschas/melomango-plugins](https://github.com/fergaschas/melomango-plugins).
+
+## Instalar
+
+Descarga el instalador de la página de [Releases](https://github.com/fergaschas/melomango/releases):
+
+- **`Melomango_<versión>_x64-setup.exe`** (recomendado): se instala para tu usuario, sin pedir permisos de administrador.
+- **`Melomango_<versión>_x64_es-ES.msi`**: para instalaciones gestionadas o para todos los usuarios.
+
+Windows SmartScreen puede avisar de que la app no está firmada: pulsa *Más información → Ejecutar de todas formas*.
+
+## Crear el instalador
+
+```powershell
+npm run tauri build
+```
+
+Los instaladores quedan en `src-tauri/target/release/bundle/` (`nsis/` y `msi/`). La primera vez Tauri descarga NSIS y WiX.
+En macOS genera `.app`/`.dmg` y en Linux `.deb`/`.AppImage` (hay que compilar en cada sistema).
+
+El icono sale de [`app-icon.svg`](app-icon.svg): si lo cambias, regenera todos los tamaños con `npx tauri icon app-icon.svg`.
 
 ## Desarrollo
 
@@ -76,9 +100,9 @@ Los plugins instalados viven en `%APPDATA%\com.melomango.app\plugins\<id>\`.
 
 ## Siguientes pasos
 
-- [ ] Playlists y "me gusta" en SQLite (`tauri-plugin-sql`)
+- [x] Playlists y Me gusta (SQLite)
 - [ ] Caché de audio en disco / modo offline
 - [ ] Vistas de artista y álbum
-- [ ] Letras sincronizadas con LRCLIB
+- [x] Letras sincronizadas con LRCLIB
 - [ ] Más plugins: SoundCloud, Jamendo, Subsonic/Navidrome, archivos locales
-- [ ] Icono propio: `npm run tauri icon ruta/al/logo.png`
+- [x] Icono propio e instalador
