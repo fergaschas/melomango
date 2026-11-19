@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { DEFAULT_SOURCE, listSources, searchTracks, trendingTracks, type SourceInfo, type Track } from "./lib/api";
 import { useLibrary } from "./lib/library";
 import { usePlayer, type Player } from "./hooks/usePlayer";
+import { useUpdater } from "./hooks/useUpdater";
+import { UpdateCard } from "./components/UpdateCard";
 import { TrackList } from "./components/TrackList";
 import { PlayerBar } from "./components/PlayerBar";
 import { PluginsDialog } from "./components/PluginsDialog";
@@ -39,6 +41,7 @@ function savedSource() {
 
 export default function App() {
   const player = usePlayer();
+  const updater = useUpdater();
   const { toast } = useLibrary();
   const [sources, setSources] = useState<SourceInfo[]>([]);
   const [sourceId, setSourceId] = useState(savedSource);
@@ -124,7 +127,7 @@ export default function App() {
         </button>
       </header>
 
-      <Sidebar view={view} onNavigate={setView} />
+      <Sidebar view={view} onNavigate={setView} updater={updater} />
 
       <main className="content">
         {view.kind === "likes" && <LikesView player={player} />}
@@ -139,6 +142,8 @@ export default function App() {
       {lyricsOpen && <LyricsPanel player={player} onClose={() => setLyricsOpen(false)} />}
 
       <PlayerBar player={player} lyricsOpen={lyricsOpen} onToggleLyrics={() => setLyricsOpen((o) => !o)} />
+
+      <UpdateCard updater={updater} />
 
       {toast && (
         <div className="toast" role="status">

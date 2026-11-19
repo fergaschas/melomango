@@ -1,10 +1,20 @@
 import { useState, type FormEvent } from "react";
 import { useLibrary } from "../lib/library";
 import type { View } from "../App";
+import type { Updater } from "../hooks/useUpdater";
+import { updateStatusText } from "./UpdateCard";
 import { HomeIcon, PlusIcon } from "./Icons";
 import { PlaylistCover } from "./PlaylistCover";
 
-export function Sidebar({ view, onNavigate }: { view: View; onNavigate: (v: View) => void }) {
+export function Sidebar({
+  view,
+  onNavigate,
+  updater,
+}: {
+  view: View;
+  onNavigate: (v: View) => void;
+  updater: Updater;
+}) {
   const library = useLibrary();
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
@@ -77,6 +87,19 @@ export function Sidebar({ view, onNavigate }: { view: View; onNavigate: (v: View
           </button>
         ))}
       </div>
+
+      <footer className="sidebar-footer">
+        <span>Melomango {updater.version ? `v${updater.version}` : ""}</span>
+        <button
+          className="link-btn"
+          onClick={() => (updater.state.kind === "available" ? updater.install() : updater.checkNow(true))}
+          disabled={["checking", "downloading", "installing"].includes(updater.state.kind)}
+          title={updater.state.kind === "error" ? updater.state.message : undefined}
+        >
+          {updater.state.kind === "available" ? "Actualizar ahora" : "Buscar actualizaciones"}
+        </button>
+        {updateStatusText(updater) && <span className="update-status">{updateStatusText(updater)}</span>}
+      </footer>
     </nav>
   );
 }

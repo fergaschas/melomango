@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Melomango",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "identifier": "com.melomango.app",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -25,7 +25,14 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis", "msi", "app", "dmg", "deb", "appimage"],
+    "targets": [
+      "nsis",
+      "msi",
+      "app",
+      "dmg",
+      "deb",
+      "appimage"
+    ],
     "publisher": "Melomango",
     "copyright": "© 2026 Melomango",
     "category": "Music",
@@ -42,12 +49,30 @@
     "windows": {
       "nsis": {
         "installMode": "currentUser",
-        "languages": ["Spanish", "English"],
+        "languages": [
+          "Spanish",
+          "English"
+        ],
         "displayLanguageSelector": false,
         "installerIcon": "icons/icon.ico"
       },
       "wix": {
-        "language": ["es-ES", "en-US"]
+        "language": [
+          "es-ES",
+          "en-US"
+        ]
+      }
+    },
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDk2QkMxNUFGQkUwQzJBNEQKUldSTktneStyeFc4bHZQYkxQdTZoTW8wMGdUTTBaNzIxa0Q3VlRvRjJ5TCtpMkI2YzdHOW1RRjEK",
+      "endpoints": [
+        "https://github.com/fergaschas/melomango/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
       }
     }
   }

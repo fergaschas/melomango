@@ -24,14 +24,31 @@ Descarga el instalador de la página de [Releases](https://github.com/fergaschas
 
 Windows SmartScreen puede avisar de que la app no está firmada: pulsa *Más información → Ejecutar de todas formas*.
 
-## Crear el instalador
+## Actualizaciones automáticas
 
-```powershell
-npm run tauri build
-```
+Desde la versión 0.2.0, Melomango busca actualizaciones al arrancar (y con **Buscar actualizaciones**, abajo en la
+barra lateral). Si hay una versión nueva, ofrece instalarla: la descarga, comprueba su **firma** y se reinicia.
 
-Los instaladores quedan en `src-tauri/target/release/bundle/` (`nsis/` y `msi/`). La primera vez Tauri descarga NSIS y WiX.
-En macOS genera `.app`/`.dmg` y en Linux `.deb`/`.AppImage` (hay que compilar en cada sistema).
+Lee `latest.json` de la última release de GitHub. Solo acepta paquetes firmados con la clave privada del proyecto
+(la clave pública está en `src-tauri/tauri.conf.json`).
+
+> Quien tenga la 0.1.0 debe instalar la 0.2.0 a mano una vez: esa versión todavía no traía el actualizador.
+
+## Publicar una versión
+
+1. Sube el número de versión en `package.json`, `src-tauri/Cargo.toml` y `src-tauri/tauri.conf.json` (los tres iguales).
+2. Haz commit y push.
+3. Publica:
+
+   ```powershell
+   npm run release -- --publish --notes "Qué hay de nuevo"
+   ```
+
+El script compila los instaladores firmados, genera `latest.json` y crea la release `v<versión>` con todo.
+Sin `--publish` solo compila (los archivos quedan en `src-tauri/target/release/bundle/`).
+
+**Clave de firma:** `~/.tauri/melomango.key` (o la variable `TAURI_SIGNING_PRIVATE_KEY`). Guárdala con copia de
+seguridad y no la subas nunca al repo: sin ella no se pueden publicar actualizaciones para quien ya tiene la app.
 
 El icono sale de [`app-icon.svg`](app-icon.svg): si lo cambias, regenera todos los tamaños con `npx tauri icon app-icon.svg`.
 

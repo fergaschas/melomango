@@ -1207,3 +1207,104 @@ input[type="range"]:disabled {
   }
 }
 
+/* ---------- Updates ---------- */
+.sidebar-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: auto;
+  padding: 12px 10px 0;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.link-btn {
+  align-self: flex-start;
+  padding: 0;
+  color: var(--accent-text);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.link-btn:not(:disabled):hover {
+  text-decoration: underline;
+}
+
+.update-status {
+  font-size: 0.75rem;
+}
+
+.update-card {
+  position: fixed;
+  right: 20px;
+  bottom: calc(var(--player-h) + 16px);
+  z-index: 15;
+  width: min(340px, calc(100vw - 40px));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: 0 16px 40px rgba(120, 60, 0, 0.22);
+  animation: toast-in 0.2s ease-out;
+}
+
+.update-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.update-notes {
+  margin: 0;
+  max-height: 120px;
+  overflow-y: auto;
+  white-space: pre-line;
+  color: var(--muted);
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+.update-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.update-sub {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.progress {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--surface-soft);
+  overflow: hidden;
+}
+
+.progress-bar {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--mango-gradient);
+  transition: width 0.2s;
+}
+
+.progress-bar.indeterminate {
+  width: 35%;
+  animation: progress-slide 1.1s ease-in-out infinite;
+}
+
+@keyframes progress-slide {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(300%);
+  }
+}
+
