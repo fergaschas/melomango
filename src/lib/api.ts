@@ -112,3 +112,20 @@ export function formatTotal(secs: number) {
   const mins = Math.round(secs / 60);
   return mins < 60 ? `${mins} min` : `${Math.floor(mins / 60)} h ${mins % 60} min`;
 }
+
+// ---------- Lyrics ----------
+
+export interface LyricLine {
+  timeMs: number;
+  text: string;
+}
+
+export interface Lyrics {
+  found: boolean;
+  instrumental: boolean;
+  synced: LyricLine[];
+  plain: string | null;
+  matchedDurationSecs: number | null;
+}
+
+export const getLyrics = (track: Track) => invoke<Lyrics>("get_lyrics", { track });

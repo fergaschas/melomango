@@ -2,9 +2,15 @@ import { formatTime } from "../lib/api";
 import type { Player } from "../hooks/usePlayer";
 import { Artwork } from "./Artwork";
 import { useLibrary } from "../lib/library";
-import { HeartFilledIcon, HeartIcon, NextIcon, PauseIcon, PlayIcon, PrevIcon, VolumeIcon } from "./Icons";
+import { HeartFilledIcon, HeartIcon, MicIcon, NextIcon, PauseIcon, PlayIcon, PrevIcon, VolumeIcon } from "./Icons";
 
-export function PlayerBar({ player }: { player: Player }) {
+interface Props {
+  player: Player;
+  lyricsOpen: boolean;
+  onToggleLyrics: () => void;
+}
+
+export function PlayerBar({ player, lyricsOpen, onToggleLyrics }: Props) {
   const { current, isPlaying, isLoading, time, duration, volume, error, hasNext } = player;
   const library = useLibrary();
   const liked = current ? library.isLiked(current) : false;
@@ -58,6 +64,15 @@ export function PlayerBar({ player }: { player: Player }) {
       </div>
 
       <div className="volume">
+        <button
+          className={`icon-btn lyrics-toggle${lyricsOpen ? " on" : ""}`}
+          onClick={onToggleLyrics}
+          aria-pressed={lyricsOpen}
+          aria-label="Letra"
+          title="Letra"
+        >
+          <MicIcon size={18} />
+        </button>
         <VolumeIcon size={18} />
         <input
           type="range"

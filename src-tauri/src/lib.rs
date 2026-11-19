@@ -1,5 +1,6 @@
 mod catalog;
 mod library;
+mod lyrics;
 mod models;
 mod sources;
 mod stream;
@@ -14,6 +15,7 @@ use tauri_plugin_opener::OpenerExt;
 
 use catalog::{Catalog, RegistryInfo, Registries};
 use library::{Library, Playlist, PlaylistSummary};
+use lyrics::{Lyrics, LyricsService};
 use models::{SourceInfo, Track};
 use sources::{audius::Audius, plugin, MusicSource, Registry};
 use stream::StreamCache;
@@ -25,6 +27,7 @@ struct AppState {
     plugins_dir: PathBuf,
     registries: Registries,
     library: Library,
+    lyrics: LyricsService,
     http: reqwest::Client,
     streams: StreamCache,
 }
@@ -122,6 +125,11 @@ fn open_plugins_dir(app: tauri::AppHandle, state: State<'_, AppState>) -> Result
         .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+async fn get_lyrics(state: State<'_, AppState>, track: Track) -> Result<Lyrics, String> {
+    state.lyrics.get(&track).await.map_err(|e| format!("{e:#}"))
+}
+
 // ---------- Library ----------
 
 fn lib_err(e: anyhow::Error) -> String {
@@ -207,6 +215,7 @@ pub fn run() {
                 plugins_dir,
                 registries: Registries::new(data_dir.join("registries.json")),
                 library: Library::open(&data_dir.join("library.db"))?,
+                lyrics: LyricsService::new(http.clone()),
                 http,
                 streams: StreamCache::default(),
             };
@@ -245,7 +254,8 @@ pub fn run() {
             get_playlist,
             add_to_playlist,
             remove_from_playlist,
-            move_in_playlist
+            move_in_playlist,
+            get_lyrics
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

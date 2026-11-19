@@ -7,6 +7,7 @@ import { PlayerBar } from "./components/PlayerBar";
 import { PluginsDialog } from "./components/PluginsDialog";
 import { Sidebar } from "./components/Sidebar";
 import { LikesView, PlaylistView } from "./components/LibraryViews";
+import { LyricsPanel } from "./components/LyricsPanel";
 import { PuzzleIcon, SearchIcon } from "./components/Icons";
 import "./App.css";
 
@@ -17,6 +18,15 @@ export type View =
   | { kind: "playlist"; id: number };
 
 const SOURCE_KEY = "melomango.source";
+const LYRICS_KEY = "melomango.lyricsOpen";
+
+function savedLyricsOpen() {
+  try {
+    return localStorage.getItem(LYRICS_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
 
 function savedSource() {
   try {
@@ -34,6 +44,7 @@ export default function App() {
   const [showPlugins, setShowPlugins] = useState(false);
   const [query, setQuery] = useState("");
   const [view, setView] = useState<View>({ kind: "trending" });
+  const [lyricsOpen, setLyricsOpen] = useState(savedLyricsOpen);
 
   const source = sources.find((s) => s.id === sourceId) ?? null;
 
@@ -50,6 +61,14 @@ export default function App() {
   }, []);
 
   useEffect(() => refreshSources(), [refreshSources]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(LYRICS_KEY, lyricsOpen ? "1" : "0");
+    } catch {
+      /* storage unavailable: not important */
+    }
+  }, [lyricsOpen]);
 
   useEffect(() => {
     try {
@@ -72,7 +91,7 @@ export default function App() {
   }
 
   return (
-    <div className="app">
+    <div className={`app${lyricsOpen ? " with-lyrics" : ""}`}>
       <header className="topbar">
         <button className="logo" onClick={() => setView({ kind: "trending" })}>
           <span className="logo-mark">🥭</span> Melomango
@@ -116,7 +135,9 @@ export default function App() {
         )}
       </main>
 
-      <PlayerBar player={player} />
+      {lyricsOpen && <LyricsPanel player={player} onClose={() => setLyricsOpen(false)} />}
+
+      <PlayerBar player={player} lyricsOpen={lyricsOpen} onToggleLyrics={() => setLyricsOpen((o) => !o)} />
 
       {toast && (
         <div className="toast" role="status">

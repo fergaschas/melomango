@@ -46,3 +46,26 @@ pub struct SourceInfo {
     pub description: Option<String>,
     pub supports_trending: bool,
 }
+
+/// "Song (feat. Someone)" -> "Song". Lyrics databases usually list the bare title.
+pub fn trim_featuring(title: &str) -> &str {
+    let lower = title.to_ascii_lowercase();
+    ["(feat", "(ft.", "[feat", "[ft.", " feat. ", " ft. "]
+        .iter()
+        .filter_map(|marker| lower.find(marker))
+        .min()
+        .map_or(title, |cut| title[..cut].trim_end())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::trim_featuring;
+
+    #[test]
+    fn trims_featuring() {
+        assert_eq!(trim_featuring("MIA (feat. Drake)"), "MIA");
+        assert_eq!(trim_featuring("Song [Ft. X]"), "Song");
+        assert_eq!(trim_featuring("Song feat. X"), "Song");
+        assert_eq!(trim_featuring("Feather"), "Feather");
+    }
+}
