@@ -7,7 +7,7 @@ use serde::Deserialize;
 use tokio::sync::OnceCell;
 
 use super::MusicSource;
-use crate::models::Track;
+use crate::models::{SourceInfo, SourceKind, StreamInfo, Track};
 
 const APP_NAME: &str = "melomango";
 const DISCOVERY_URL: &str = "https://api.audius.co";
@@ -76,8 +76,15 @@ impl Audius {
 
 #[async_trait]
 impl MusicSource for Audius {
-    fn id(&self) -> &'static str {
-        "audius"
+    fn info(&self) -> SourceInfo {
+        SourceInfo {
+            id: "audius".into(),
+            name: "Audius".into(),
+            kind: SourceKind::Builtin,
+            version: None,
+            description: Some("Música independiente, gratis y legal.".into()),
+            supports_trending: true,
+        }
     }
 
     async fn search(&self, query: &str) -> anyhow::Result<Vec<Track>> {
@@ -88,12 +95,15 @@ impl MusicSource for Audius {
         self.tracks("/tracks/trending", &[("limit", "50")]).await
     }
 
-    async fn stream_url(&self, track_id: &str) -> anyhow::Result<String> {
+    async fn stream(&self, track_id: &str) -> anyhow::Result<StreamInfo> {
         if track_id.is_empty() || !track_id.chars().all(|c| c.is_ascii_alphanumeric()) {
             bail!("id de pista no válido: {track_id}");
         }
         let host = self.host().await?;
-        Ok(format!("{host}/v1/tracks/{track_id}/stream?app_name={APP_NAME}"))
+        Ok(StreamInfo {
+            url: format!("{host}/v1/tracks/{track_id}/stream?app_name={APP_NAME}"),
+            headers: Default::default(),
+        })
     }
 }
 

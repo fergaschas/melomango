@@ -1,0 +1,9 @@
+{
+  "id": "youtube",
+  "name": "YouTube",
+  "version": "0.1.0",
+  "protocol": 1,
+  "description": "Todo el catálogo de YouTube, vía yt-dlp.",
+  "executable": "melomango-youtube",
+  "capabilities": ["search", "trending"]
+}

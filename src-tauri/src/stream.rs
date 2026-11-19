@@ -2,47 +2,59 @@
 //!
 //! The frontend asks for `stream://localhost/<source>/<track_id>` (on Windows
 //! `http://stream.localhost/...`). We forward the browser's Range header so seeking
-//! works, and avoid CORS and odd upstream headers.
+//! works, add whatever headers the source requires, and avoid CORS issues.
 //!
 //! Tauri protocol responses carry the whole body in memory, so open-ended ranges
 //! (`bytes=N-`) are capped at `CHUNK` bytes: the media element simply asks for the
 //! next piece when it needs it.
 
-use std::{collections::HashMap, sync::Mutex};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 
-use anyhow::{anyhow, Context};
+use anyhow::{anyhow, bail, Context};
 use percent_encoding::percent_decode_str;
 use tauri::http::{header, Request, Response};
+use tokio::sync::OnceCell;
 
-use crate::sources::Registry;
+use crate::{
+    models::StreamInfo,
+    sources::{MusicSource, Registry},
+};
 
 const CHUNK: u64 = 1024 * 1024;
 
-/// Final (post-redirect) audio URL per track, so each chunk skips the redirect chain.
+type Slot = Arc<OnceCell<StreamInfo>>;
+
+/// Resolved stream per track. Resolving can be slow (a plugin may take seconds), so
+/// concurrent requests for the same track share a single resolution.
 #[derive(Default)]
 pub struct StreamCache {
-    urls: Mutex<HashMap<String, String>>,
+    slots: Mutex<HashMap<String, Slot>>,
 }
 
 impl StreamCache {
-    fn get(&self, key: &str) -> Option<String> {
-        self.urls.lock().unwrap().get(key).cloned()
+    fn slot(&self, key: &str) -> Slot {
+        self.slots.lock().unwrap().entry(key.to_string()).or_default().clone()
     }
-    fn insert(&self, key: String, url: String) {
-        self.urls.lock().unwrap().insert(key, url);
-    }
-    fn remove(&self, key: &str) {
-        self.urls.lock().unwrap().remove(key);
+
+    /// Drops `slot` unless someone already replaced it with a fresher one.
+    fn invalidate(&self, key: &str, slot: &Slot) {
+        let mut slots = self.slots.lock().unwrap();
+        if slots.get(key).is_some_and(|s| Arc::ptr_eq(s, slot)) {
+            slots.remove(key);
+        }
     }
 }
 
 pub async fn handle(
-    registry: &Registry,
+    registry: Arc<Registry>,
     http: &reqwest::Client,
     cache: &StreamCache,
     request: Request<Vec<u8>>,
 ) -> Response<Vec<u8>> {
-    match serve(registry, http, cache, &request).await {
+    match serve(&registry, http, cache, &request).await {
         Ok(response) => response,
         Err(e) => Response::builder()
             .status(502)
@@ -74,21 +86,23 @@ async fn serve(
     );
 
     let key = format!("{source_id}/{track_id}");
-    let cached = cache.get(&key);
-    let url = match &cached {
-        Some(url) => url.clone(),
-        None => source.stream_url(track_id).await?,
-    };
-    let mut upstream = http.get(&url).header(header::RANGE, &range).send().await?;
+    let slot = cache.slot(&key);
+    let was_cached = slot.initialized();
+    let info = slot
+        .get_or_try_init(|| resolve(http, source.as_ref(), track_id))
+        .await?
+        .clone();
+    let mut upstream = fetch(http, &info, &range).await?;
 
-    // Signed URLs expire: if the cached one fails, resolve again from the source.
-    if !upstream.status().is_success() && cached.is_some() {
-        cache.remove(&key);
-        let url = source.stream_url(track_id).await?;
-        upstream = http.get(&url).header(header::RANGE, &range).send().await?;
-    }
-    if upstream.status().is_success() {
-        cache.insert(key, upstream.url().to_string());
+    // Signed URLs expire: if a cached one fails, resolve again from the source.
+    if !upstream.status().is_success() && was_cached {
+        cache.invalidate(&key, &slot);
+        let slot = cache.slot(&key);
+        let info = slot
+            .get_or_try_init(|| resolve(http, source.as_ref(), track_id))
+            .await?
+            .clone();
+        upstream = fetch(http, &info, &range).await?;
     }
 
     let mut response = Response::builder()
@@ -104,6 +118,32 @@ async fn serve(
     Ok(response
         .header(header::CONTENT_LENGTH, body.len())
         .body(body)?)
+}
+
+/// Asks the source for the stream and follows redirects once, so later chunks go
+/// straight to the final server.
+async fn resolve(
+    http: &reqwest::Client,
+    source: &dyn MusicSource,
+    track_id: &str,
+) -> anyhow::Result<StreamInfo> {
+    let mut info = source.stream(track_id).await?;
+    let probe = fetch(http, &info, "bytes=0-0").await?;
+    if !probe.status().is_success() {
+        bail!("el servidor de audio respondió {}", probe.status());
+    }
+    info.url = probe.url().to_string();
+    Ok(info)
+}
+
+async fn fetch(http: &reqwest::Client, info: &StreamInfo, range: &str) -> anyhow::Result<reqwest::Response> {
+    let mut request = http.get(&info.url);
+    for (name, value) in &info.headers {
+        if !name.eq_ignore_ascii_case("range") && !name.eq_ignore_ascii_case("host") {
+            request = request.header(name, value);
+        }
+    }
+    Ok(request.header(header::RANGE, range).send().await?)
 }
 
 /// Turns the browser's Range header into one requesting at most `CHUNK` bytes.
@@ -143,17 +183,27 @@ mod tests {
         assert_eq!(capped_range(Some("bytes=-500")), format!("bytes=0-{}", CHUNK - 1));
     }
 
+    #[test]
+    fn invalidate_keeps_a_newer_slot() {
+        let cache = StreamCache::default();
+        let old = cache.slot("a");
+        cache.invalidate("a", &old);
+        let new = cache.slot("a");
+        assert!(!Arc::ptr_eq(&old, &new));
+        cache.invalidate("a", &old); // stale handle: must not drop `new`
+        assert!(Arc::ptr_eq(&new, &cache.slot("a")));
+    }
+
     /// End-to-end against the real Audius API: `cargo test -- --ignored`
     #[tokio::test]
     #[ignore = "necesita red"]
     async fn streams_a_trending_audius_track() {
-        use crate::sources::{audius::Audius, MusicSource};
-        use std::sync::Arc;
+        use crate::sources::audius::Audius;
 
         let http = reqwest::Client::new();
         let audius = Arc::new(Audius::new(http.clone()));
         let track = audius.trending().await.unwrap().into_iter().next().expect("sin tendencias");
-        let registry = Registry::new(vec![audius]);
+        let registry = Arc::new(Registry::new(vec![audius]));
         let cache = StreamCache::default();
 
         let request = |range: &str| {
@@ -164,13 +214,13 @@ mod tests {
                 .unwrap()
         };
 
-        let first = handle(&registry, &http, &cache, request("bytes=0-")).await;
+        let first = handle(registry.clone(), &http, &cache, request("bytes=0-")).await;
         assert_eq!(first.status(), 206, "{}", String::from_utf8_lossy(first.body()));
         assert_eq!(first.body().len() as u64, CHUNK);
         assert!(first.headers()[header::CONTENT_TYPE].to_str().unwrap().starts_with("audio/"));
 
         // Second chunk comes from the cached final URL.
-        let second = handle(&registry, &http, &cache, request("bytes=1048576-")).await;
+        let second = handle(registry, &http, &cache, request("bytes=1048576-")).await;
         assert_eq!(second.status(), 206);
         assert!(
             second.headers()[header::CONTENT_RANGE]
@@ -178,5 +228,43 @@ mod tests {
                 .unwrap()
                 .starts_with("bytes 1048576-")
         );
+    }
+
+    /// Installs the packaged YouTube plugin and streams through it.
+    /// Needs network, yt-dlp and `npm run plugin:build -- youtube`: `cargo test -- --ignored`
+    #[tokio::test]
+    #[ignore = "necesita red, yt-dlp y el plugin empaquetado"]
+    async fn streams_through_the_youtube_plugin() {
+        use crate::sources::plugin;
+
+        let dist = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../plugins/dist/youtube");
+        let plugins_dir = std::env::temp_dir().join(format!("melomango-e2e-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&plugins_dir);
+        plugin::install(&dist, &plugins_dir).expect("ejecuta `npm run plugin:build -- youtube`");
+
+        let youtube: Arc<dyn MusicSource> = Arc::new(plugin::discover(&plugins_dir).pop().unwrap());
+        let track = youtube.search("shakira dai dai").await.unwrap().into_iter().next().unwrap();
+        assert_eq!(track.source, "youtube");
+
+        let http = reqwest::Client::new();
+        let registry = Arc::new(Registry::new(vec![youtube]));
+        let cache = StreamCache::default();
+        let request = |range: &str| {
+            Request::builder()
+                .uri(format!("http://stream.localhost/youtube%2F{}", track.id))
+                .header(header::RANGE, range)
+                .body(Vec::new())
+                .unwrap()
+        };
+
+        let first = handle(registry.clone(), &http, &cache, request("bytes=0-")).await;
+        assert_eq!(first.status(), 206, "{}", String::from_utf8_lossy(first.body()));
+        assert_eq!(first.body().len() as u64, CHUNK);
+        assert!(first.headers()[header::CONTENT_TYPE].to_str().unwrap().starts_with("audio/"));
+
+        let second = handle(registry, &http, &cache, request("bytes=1048576-")).await;
+        assert_eq!(second.status(), 206);
+
+        let _ = std::fs::remove_dir_all(&plugins_dir);
     }
 }

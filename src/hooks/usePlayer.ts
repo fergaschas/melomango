@@ -8,6 +8,7 @@ export function usePlayer() {
   // Bumped on every explicit play so replaying the same track reloads it.
   const [loadKey, setLoadKey] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const [time, setTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(0.8);
@@ -20,6 +21,7 @@ export function usePlayer() {
     if (e instanceof DOMException && e.name === "AbortError") return;
     setError("No se pudo reproducir esta canción");
     setIsPlaying(false);
+    setIsLoading(false);
   }, []);
 
   const playQueue = useCallback((tracks: Track[], start: number) => {
@@ -64,6 +66,7 @@ export function usePlayer() {
     setTime(0);
     setDuration(current.durationSecs);
     setError(null);
+    setIsLoading(true);
     audio.play().catch(onPlayRejected);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadKey]);
@@ -80,12 +83,20 @@ export function usePlayer() {
       ["play", () => setIsPlaying(true)],
       ["pause", () => setIsPlaying(false)],
       ["ended", next],
-      ["playing", () => setError(null)],
+      [
+        "playing",
+        () => {
+          setError(null);
+          setIsLoading(false);
+        },
+      ],
+      ["waiting", () => setIsLoading(true)],
       [
         "error",
         () => {
           setError("No se pudo reproducir esta canción");
           setIsPlaying(false);
+          setIsLoading(false);
         },
       ],
     ];
@@ -117,6 +128,7 @@ export function usePlayer() {
     queue,
     index,
     isPlaying,
+    isLoading,
     time,
     duration,
     volume,

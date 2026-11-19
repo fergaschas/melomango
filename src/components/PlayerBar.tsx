@@ -4,7 +4,7 @@ import { Artwork } from "./Artwork";
 import { NextIcon, PauseIcon, PlayIcon, PrevIcon, VolumeIcon } from "./Icons";
 
 export function PlayerBar({ player }: { player: Player }) {
-  const { current, isPlaying, time, duration, volume, error, hasNext } = player;
+  const { current, isPlaying, isLoading, time, duration, volume, error, hasNext } = player;
 
   return (
     <footer className="player">
@@ -12,7 +12,7 @@ export function PlayerBar({ player }: { player: Player }) {
         <Artwork src={current?.artworkUrl} />
         <div className="track-text">
           <span className="track-title">{current?.title ?? "Nada sonando"}</span>
-          <span className="track-artist">{error ?? current?.artist ?? "Elige algo, melómano"}</span>
+          <span className="track-artist">{error ?? (isLoading ? "Cargando…" : current?.artist) ?? "Elige algo, melómano"}</span>
         </div>
       </div>
 

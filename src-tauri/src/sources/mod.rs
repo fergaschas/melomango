@@ -1,41 +1,46 @@
 pub mod audius;
+pub mod plugin;
 
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use anyhow::anyhow;
 use async_trait::async_trait;
 
-use crate::models::Track;
+use crate::models::{SourceInfo, StreamInfo, Track};
 
 /// A place music comes from. Each source provides both its catalogue and the audio.
 ///
-/// To add a new backend (Jamendo, Subsonic/Navidrome, Internet Archive...), implement
-/// this trait and register it in `lib.rs`. A source that only provides audio for an
-/// external catalogue would need a matcher in front of it.
+/// Built-in sources implement this directly (see `audius.rs`). Installable plugins are
+/// external programs wrapped by `plugin::PluginSource` (protocol in `plugins/PROTOCOL.md`).
 #[async_trait]
 pub trait MusicSource: Send + Sync {
-    fn id(&self) -> &'static str;
+    fn info(&self) -> SourceInfo;
     async fn search(&self, query: &str) -> anyhow::Result<Vec<Track>>;
     async fn trending(&self) -> anyhow::Result<Vec<Track>>;
-    /// URL serving the track's audio. It may redirect and must accept HTTP Range requests.
-    async fn stream_url(&self, track_id: &str) -> anyhow::Result<String>;
+    /// Where to get the track's audio. The URL may redirect and must accept HTTP Range requests.
+    async fn stream(&self, track_id: &str) -> anyhow::Result<StreamInfo>;
 }
 
+/// The sources currently available, in display order.
+#[derive(Default)]
 pub struct Registry {
-    sources: HashMap<&'static str, Arc<dyn MusicSource>>,
+    sources: Vec<Arc<dyn MusicSource>>,
 }
 
 impl Registry {
     pub fn new(sources: Vec<Arc<dyn MusicSource>>) -> Self {
-        Self {
-            sources: sources.into_iter().map(|s| (s.id(), s)).collect(),
-        }
+        Self { sources }
     }
 
     pub fn get(&self, id: &str) -> anyhow::Result<Arc<dyn MusicSource>> {
         self.sources
-            .get(id)
+            .iter()
+            .find(|s| s.info().id == id)
             .cloned()
             .ok_or_else(|| anyhow!("fuente desconocida: {id}"))
+    }
+
+    pub fn list(&self) -> Vec<SourceInfo> {
+        self.sources.iter().map(|s| s.info()).collect()
     }
 }
