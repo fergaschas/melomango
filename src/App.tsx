@@ -106,8 +106,8 @@ export default function App() {
 
   const goBack = useCallback(() => {
     const stack = backRef.current;
-    if (!stack.length) return;
     const prev = stack[stack.length - 1];
+    if (!prev) return;
     backRef.current = stack.slice(0, -1);
     setBackStack(backRef.current);
     viewRef.current = prev;
@@ -443,7 +443,6 @@ function BrowseView({
       cancelled = true;
     };
     // Changing the search tab keeps the same songs.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view.kind, query, source, retry]);
 
   const sourceName = source?.name ?? "…";

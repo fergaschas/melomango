@@ -96,7 +96,8 @@ export function SearchBox({ value, onChange, onSearch, onOpenArtist, onPlayTrack
       );
     } else if (e.key === "Enter") {
       e.preventDefault();
-      if (open && active >= 0 && active < items.length) choose(items[active]);
+      const item = open ? items[active] : undefined;
+      if (item) choose(item);
       else choose({ kind: "search", text: typed });
     } else if (e.key === "Escape") {
       if (open) setOpen(false);

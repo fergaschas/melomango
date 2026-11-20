@@ -69,12 +69,12 @@ test("play next, add to queue, move, remove and clear", () => {
   s = q.move(s, 4, 1);
   assert.deepEqual(ids(s), ["a", "z", "x", "b", "c"]);
   assert.deepEqual(ids(q.move(s, 0, 2)), ids(s), "the current track can't be moved");
-  s = q.remove(s, s.items[2].uid);
+  s = q.remove(s, s.items[2]!.uid);
   assert.deepEqual(ids(s), ["a", "z", "b", "c"]);
-  assert.deepEqual(ids(q.remove(s, s.items[0].uid)), ids(s), "the current track can't be removed");
-  s = q.jump(s, s.items[2].uid);
+  assert.deepEqual(ids(q.remove(s, s.items[0]!.uid)), ids(s), "the current track can't be removed");
+  s = q.jump(s, s.items[2]!.uid);
   assert.equal(current(s), "b");
-  s = q.remove(s, s.items[0].uid);
+  s = q.remove(s, s.items[0]!.uid);
   assert.equal(current(s), "b", "removing a played track keeps the current one");
   assert.deepEqual(ids(q.clearUpcoming(s)), ["z", "b"]);
 });
@@ -83,7 +83,7 @@ test("queue actions while shuffled also land in the original order", () => {
   let s = q.setShuffle(q.play(q.emptyQueue, [t("a"), t("b"), t("c")], 0), true, reverse);
   s = q.playNext(s, t("x"));
   s = q.addToQueue(s, t("z"));
-  assert.equal(q.upcoming(s)[0].track.id, "x");
+  assert.equal(q.upcoming(s)[0]!.track.id, "x");
   assert.deepEqual(ids(q.setShuffle(s, false)), ["a", "x", "b", "c", "z"]);
 });
 
@@ -108,7 +108,7 @@ test("big queues are trimmed around the current track when saved", () => {
   const at4000 = { ...s, index: 4000 };
   const saved = q.serialize(at4000);
   assert.equal(saved.tracks.length, 3000);
-  assert.equal(saved.tracks[saved.index].id, "4000");
+  assert.equal(saved.tracks[saved.index]!.id, "4000");
 });
 
 test("ignores a corrupt saved index", () => {
@@ -129,7 +129,7 @@ test("the radio appends marked songs, also to the pre-shuffle order", () => {
 
 test("radio results for a seed that left the queue are dropped", () => {
   const old = q.play(q.emptyQueue, [t("a"), t("b")], 1);
-  const seed = old.items[1].uid;
+  const seed = old.items[1]!.uid;
   assert.deepEqual(ids(q.appendRadioFor(old, seed, [t("r1")])!), ["a", "b", "r1"]);
   // Meanwhile the user played something else: a new queue with new entries.
   const chosen = q.play(old, [t("x")], 0);

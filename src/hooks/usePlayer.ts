@@ -198,7 +198,7 @@ export function usePlayer() {
       release(f.old);
       nextRef.current(true);
     }
-  }, []);
+  }, [clock]);
 
   /** Plays the queue's current entry, from `resumeAt` seconds or the start. */
   const start = useCallback(
@@ -363,7 +363,7 @@ export function usePlayer() {
       audio.currentTime = secs;
       clock.set(secs);
     },
-    [audio],
+    [audio, clock],
   );
 
   const seekBy = useCallback(
@@ -542,7 +542,7 @@ export function usePlayer() {
     const guarded = listeners.map(([ev, fn]): [string, () => void] => [ev, () => audio === mainRef.current && fn()]);
     guarded.forEach(([ev, fn]) => audio.addEventListener(ev, fn));
     return () => guarded.forEach(([ev, fn]) => audio.removeEventListener(ev, fn));
-  }, [audio, next, beginFade, rampFade, endFade, abandonFade]);
+  }, [audio, next, beginFade, rampFade, endFade, abandonFade, clock]);
 
   // Remember the queue, position and volume for next time. The queue (up to thousands of
   // songs) is written only when it changes; while music plays, only the position.

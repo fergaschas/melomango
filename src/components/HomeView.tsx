@@ -23,11 +23,19 @@ export function HomeView({
   const library = useLibrary();
   const nav = useNav();
   const [plays, setPlays] = useState<Play[]>([]);
+  /** When the plays were loaded: "this month" and "a while ago" are measured from it. */
+  const [loadedAt, setLoadedAt] = useState(0);
   const [liked, setLiked] = useState<Track[]>([]);
   const [trending, setTrending] = useState<Track[] | null>(null);
 
   useEffect(() => {
-    const load = () => recentPlays(3000).then(setPlays).catch(() => {});
+    const load = () =>
+      recentPlays(3000)
+        .then((p) => {
+          setPlays(p);
+          setLoadedAt(Date.now());
+        })
+        .catch(() => {});
     load();
     window.addEventListener(HISTORY_EVENT, load);
     return () => window.removeEventListener(HISTORY_EVENT, load);
@@ -52,10 +60,9 @@ export function HomeView({
     };
   }, [source]);
 
-  const now = Date.now();
   const recent = useMemo(() => recentTracks(plays, 8), [plays]);
-  const again = useMemo(() => playAgain(plays, now, 8), [plays]); // eslint-disable-line react-hooks/exhaustive-deps
-  const artists = useMemo(() => topArtists(plays, now - MONTH, 6), [plays]); // eslint-disable-line react-hooks/exhaustive-deps
+  const again = useMemo(() => playAgain(plays, loadedAt, 8), [plays, loadedAt]);
+  const artists = useMemo(() => topArtists(plays, loadedAt - MONTH, 6), [plays, loadedAt]);
   const mixes = useMemo(() => likedMixes(liked, 5), [liked]);
 
   const trackCards = (tracks: Track[]): Card[] =>

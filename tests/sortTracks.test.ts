@@ -42,5 +42,5 @@ test("filters by title or artist, every word, without accents", () => {
   assert.deepEqual(ids(arrange(tracks, addedAt, "angel alvaro", { key: "custom", desc: false })), ["c"]);
   assert.deepEqual(ids(arrange(tracks, addedAt, "zzz", { key: "custom", desc: false })), []);
   const rows = arrange(tracks, addedAt, "queen", { key: "custom", desc: false });
-  assert.equal(rows[0].index, 3, "rows keep their position in the list");
+  assert.equal(rows[0]!.index, 3, "rows keep their position in the list");
 });

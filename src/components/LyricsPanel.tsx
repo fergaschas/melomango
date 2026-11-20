@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { getLyrics, trackKey, type Lyrics } from "../lib/api";
+import { getLyrics, trackKey, type LyricLine, type Lyrics } from "../lib/api";
 import type { Player } from "../hooks/usePlayer";
 import { CloseIcon } from "./Icons";
 import { usePlaybackTime } from "../lib/clock";
+
+/** No synced lines (the same list every time, so memos depending on it stay put). */
+const NO_LINES: LyricLine[] = [];
 
 const OFFSET_STEP_MS = 500;
 /** After the user scrolls by hand, stop following the song for a moment. */
@@ -41,12 +44,15 @@ export function LyricsPanel({ player, onClose }: { player: Player; onClose: () =
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
-  const synced = state.kind === "ready" ? state.lyrics.synced : [];
+  const synced = state.kind === "ready" ? state.lyrics.synced : NO_LINES;
 
   const activeIndex = useMemo(() => {
     const now = time * 1000 + offsetMs;
     let index = -1;
-    for (let i = 0; i < synced.length && synced[i].timeMs <= now; i++) index = i;
+    for (const [i, line] of synced.entries()) {
+      if (line.timeMs > now) break;
+      index = i;
+    }
     return index;
   }, [synced, time, offsetMs]);
 

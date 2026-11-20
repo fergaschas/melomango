@@ -84,7 +84,6 @@ export function SearchResults({
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query, attempt]);
 
   const data = catalog.kind === "ready" ? catalog.data : null;

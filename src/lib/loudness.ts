@@ -24,7 +24,10 @@ const SETTING_KEY = "melomango.normalize";
 /** RMS level of a block of samples, in dBFS. */
 export function rmsDb(samples: ArrayLike<number>): number {
   let sum = 0;
-  for (let i = 0; i < samples.length; i++) sum += samples[i] * samples[i];
+  for (let i = 0; i < samples.length; i++) {
+    const v = samples[i] ?? 0;
+    sum += v * v;
+  }
   const rms = Math.sqrt(sum / Math.max(1, samples.length));
   return rms > 0 ? 20 * Math.log10(rms) : -Infinity;
 }

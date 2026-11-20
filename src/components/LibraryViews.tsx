@@ -157,9 +157,10 @@ export function PlaylistView({ id, player, onDeleted }: { id: number; player: Pl
       if (!p) return p;
       const tracks = [...p.tracks];
       const [item] = tracks.splice(from, 1);
-      tracks.splice(to, 0, item);
       const addedAt = [...p.addedAt];
       const [when] = addedAt.splice(from, 1);
+      if (item === undefined || when === undefined) return p;
+      tracks.splice(to, 0, item);
       addedAt.splice(to, 0, when);
       return { ...p, tracks, addedAt };
     });

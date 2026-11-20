@@ -26,7 +26,8 @@ export interface QueueState {
 export const emptyQueue: QueueState = { items: [], index: -1, original: null, shuffle: false, repeat: "off" };
 
 let nextUid = 1;
-export const toItems = (tracks: Track[]): QueueItem[] => tracks.map((track) => ({ uid: nextUid++, track }));
+const toItem = (track: Track): QueueItem => ({ uid: nextUid++, track });
+export const toItems = (tracks: Track[]): QueueItem[] => tracks.map(toItem);
 
 export type Random = () => number;
 
@@ -34,7 +35,8 @@ function shuffled<T>(list: T[], random: Random): T[] {
   const out = list.slice();
   for (let i = out.length - 1; i > 0; i--) {
     const j = Math.floor(random() * (i + 1));
-    [out[i], out[j]] = [out[j], out[i]];
+    // Both indexes are within the list (j ≤ i < length).
+    [out[i], out[j]] = [out[j]!, out[i]!];
   }
   return out;
 }
@@ -47,6 +49,7 @@ export function play(s: QueueState, tracks: Track[], start: number, random: Rand
   const items = toItems(tracks);
   if (!s.shuffle || items.length === 0) return { ...s, items, index: items.length ? start : -1, original: null };
   const first = items[start];
+  if (!first) return { ...s, items, index: 0, original: null };
   const rest = shuffled(items.filter((_, i) => i !== start), random);
   return { ...s, items: [first, ...rest], index: 0, original: items };
 }
@@ -67,7 +70,7 @@ export function setShuffle(s: QueueState, on: boolean, random: Random = Math.ran
 
 export function cycleRepeat(s: QueueState): QueueState {
   const order: Repeat[] = ["off", "all", "one"];
-  return { ...s, repeat: order[(order.indexOf(s.repeat) + 1) % order.length] };
+  return { ...s, repeat: order[(order.indexOf(s.repeat) + 1) % order.length] ?? "off" };
 }
 
 /**
@@ -93,13 +96,14 @@ export function back(s: QueueState): QueueState {
 /** The track that `advance` would play next, if any (for prefetching). */
 export function peekNext(s: QueueState): Track | null {
   if (s.index < 0) return null;
-  if (s.index + 1 < s.items.length) return s.items[s.index + 1].track;
+  const next = s.items[s.index + 1];
+  if (next) return next.track;
   return s.repeat === "all" && !s.shuffle ? (s.items[0]?.track ?? null) : null;
 }
 
 /** Inserts `track` right after the current one. */
 export function playNext(s: QueueState, track: Track): QueueState {
-  const [item] = toItems([track]);
+  const item = toItem(track);
   if (s.index < 0) return { ...s, items: [item], index: 0, original: s.shuffle ? [item] : null };
   const items = [...s.items.slice(0, s.index + 1), item, ...s.items.slice(s.index + 1)];
   return { ...s, items, original: insertAfterCurrent(s, item) };
@@ -107,7 +111,7 @@ export function playNext(s: QueueState, track: Track): QueueState {
 
 /** Appends `track` to the end of the queue. */
 export function addToQueue(s: QueueState, track: Track): QueueState {
-  const [item] = toItems([track]);
+  const item = toItem(track);
   if (s.index < 0) return { ...s, items: [item], index: 0, original: s.shuffle ? [item] : null };
   return { ...s, items: [...s.items, item], original: s.original ? [...s.original, item] : null };
 }
@@ -163,6 +167,7 @@ export function move(s: QueueState, from: number, to: number): QueueState {
   if (from === to || from <= s.index || to <= s.index || from >= s.items.length || to >= s.items.length) return s;
   const items = s.items.slice();
   const [item] = items.splice(from, 1);
+  if (!item) return s;
   items.splice(to, 0, item);
   return { ...s, items };
 }
@@ -215,7 +220,9 @@ export function deserialize(saved: SavedQueue): QueueState {
   const radio = new Set(saved.radio ?? []);
   const items = toItems(saved.tracks).map((item, i) => (radio.has(i) ? { ...item, radio: true } : item));
   const index = saved.index >= 0 && saved.index < items.length ? saved.index : items.length ? 0 : -1;
-  const original = saved.original?.every((p) => items[p]) ? saved.original.map((p) => items[p]) : null;
+  // The pre-shuffle order, if every position in it still exists.
+  const picked = saved.original?.flatMap((p) => items[p] ?? []);
+  const original = picked && picked.length === saved.original?.length ? picked : null;
   const repeat: Repeat = ["off", "all", "one"].includes(saved.repeat) ? saved.repeat : "off";
   return { items, index, original: saved.shuffle ? original : null, shuffle: !!saved.shuffle, repeat };
 }

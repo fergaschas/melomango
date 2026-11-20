@@ -86,7 +86,8 @@ export function shuffled<T>(list: T[], random: () => number = Math.random): T[] 
   const out = list.slice();
   for (let i = out.length - 1; i > 0; i--) {
     const j = Math.floor(random() * (i + 1));
-    [out[i], out[j]] = [out[j], out[i]];
+    // Both indexes are within the list (j ≤ i < length).
+    [out[i], out[j]] = [out[j]!, out[i]!];
   }
   return out;
 }
