@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { formatTime, prefetchStream, trackKey, type Track } from "../lib/api";
 import { useLibrary } from "../lib/library";
+import { useDownloads } from "../lib/downloads";
+import { percent } from "../lib/downloadState";
 import { AddToPlaylistMenu, type QueueActions } from "./AddToPlaylistMenu";
 import { Artwork } from "./Artwork";
 import { ArtistLinks } from "./ArtistLinks";
-import { CloseIcon, HeartFilledIcon, HeartIcon, PauseIcon, PlayIcon } from "./Icons";
+import { CloseIcon, DownloadDoneIcon, DownloadIcon, HeartFilledIcon, HeartIcon, PauseIcon, PlayIcon } from "./Icons";
 
 interface Props {
   tracks: Track[];
@@ -13,6 +15,8 @@ interface Props {
   onPlay: (index: number) => void;
   /** Shows a "remove" button on each row (e.g. inside a playlist). */
   onRemove?: (track: Track, index: number) => void;
+  /** What the remove button says (by default, removing from the playlist). */
+  removeLabel?: string;
   /** Enables drag & drop reordering. */
   onMove?: (from: number, to: number) => void;
   /** Adds "play next" and "add to queue" to each row's menu. */
@@ -21,8 +25,9 @@ interface Props {
 
 const PREFETCH_HOVER_MS = 350;
 
-export function TrackList({ tracks, current, isPlaying, onPlay, onRemove, onMove, queue }: Props) {
+export function TrackList({ tracks, current, isPlaying, onPlay, onRemove, removeLabel, onMove, queue }: Props) {
   const library = useLibrary();
+  const downloads = useDownloads();
   const [dragFrom, setDragFrom] = useState<number | null>(null);
   const [dragOver, setDragOver] = useState<number | null>(null);
 
@@ -49,6 +54,8 @@ export function TrackList({ tracks, current, isPlaying, onPlay, onRemove, onMove
       {tracks.map((track, i) => {
         const active = current !== null && trackKey(current) === trackKey(track);
         const liked = library.isLiked(track);
+        const downloaded = downloads.isDownloaded(track);
+        const loading = downloads.progressOf(track);
         const classes = ["track", active && "active", dragOver === i && dragFrom !== i && "drop-target"]
           .filter(Boolean)
           .join(" ");
@@ -95,6 +102,16 @@ export function TrackList({ tracks, current, isPlaying, onPlay, onRemove, onMove
               <span className="track-text">
                 <span className="track-title">{track.title}</span>
                 <span className="track-artist">
+                  {downloaded ? (
+                    <span className="dl-badge" title="Descargada: suena sin conexión" aria-label="Descargada">
+                      <DownloadDoneIcon size={12} />
+                    </span>
+                  ) : loading && loading.state !== "failed" ? (
+                    <span className="dl-badge pending" title="Descargando">
+                      <DownloadIcon size={12} />
+                      {percent(loading) !== null && ` ${percent(loading)} %`}
+                    </span>
+                  ) : null}
                   <ArtistLinks artist={track.artist} />
                 </span>
               </span>
@@ -121,8 +138,8 @@ export function TrackList({ tracks, current, isPlaying, onPlay, onRemove, onMove
                     e.stopPropagation();
                     onRemove(track, i);
                   }}
-                  aria-label="Quitar de la playlist"
-                  title="Quitar de la playlist"
+                  aria-label={removeLabel ?? "Quitar de la playlist"}
+                  title={removeLabel ?? "Quitar de la playlist"}
                 >
                   <CloseIcon size={18} />
                 </button>

@@ -1,9 +1,11 @@
 import { useState, type FormEvent } from "react";
 import { useLibrary } from "../lib/library";
+import { useDownloads } from "../lib/downloads";
+import { songs } from "../lib/downloadState";
 import type { View } from "../App";
 import type { Updater } from "../hooks/useUpdater";
 import { updateStatusText } from "./UpdateCard";
-import { ChartIcon, ClockIcon, HomeIcon, ImportIcon, KeyboardIcon, PlusIcon, SettingsIcon } from "./Icons";
+import { ChartIcon, ClockIcon, DownloadDoneIcon, HomeIcon, ImportIcon, KeyboardIcon, PlusIcon, SettingsIcon } from "./Icons";
 import { PlaylistCover } from "./PlaylistCover";
 
 export function Sidebar({
@@ -22,6 +24,7 @@ export function Sidebar({
   onShowSettings: () => void;
 }) {
   const library = useLibrary();
+  const downloads = useDownloads();
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
 
@@ -62,6 +65,22 @@ export function Sidebar({
           <ClockIcon size={18} />
         </span>
         Historial
+      </button>
+      <button
+        className={`nav-item${view.kind === "downloads" ? " active" : ""}`}
+        onClick={() => onNavigate({ kind: "downloads" })}
+      >
+        <span className="nav-icon history-icon">
+          <DownloadDoneIcon size={18} />
+        </span>
+        <span className="nav-text">
+          <span>Descargas</span>
+          <span className="nav-sub">
+            {downloads.active > 0
+              ? `Descargando ${downloads.active}…`
+              : songs(downloads.downloaded.size)}
+          </span>
+        </span>
       </button>
       <button
         className={`nav-item${view.kind === "summary" ? " active" : ""}`}

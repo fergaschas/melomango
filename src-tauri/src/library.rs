@@ -88,6 +88,40 @@ CREATE TABLE plays (
 CREATE INDEX plays_recent ON plays (played_at);
 ";
 
+/// Tables that older versions simply ignore are created without bumping the version, so
+/// going back to an older Melomango still opens the library.
+const ADDITIVE: &str = "
+CREATE TABLE IF NOT EXISTS downloads (
+    source        TEXT NOT NULL,
+    id            TEXT NOT NULL,
+    file          TEXT NOT NULL,
+    mime          TEXT NOT NULL,
+    size          INTEGER NOT NULL,
+    -- 'download': kept until the user removes it; 'cache': saved on its own, may be dropped.
+    kind          TEXT NOT NULL DEFAULT 'download',
+    downloaded_at INTEGER NOT NULL,
+    PRIMARY KEY (source, id),
+    FOREIGN KEY (source, id) REFERENCES tracks (source, id)
+);
+";
+
+/// A song saved to listen without a connection.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Download {
+    pub track: Track,
+    pub size: u64,
+    pub downloaded_at: i64,
+}
+
+/// Where a downloaded song's audio is (file name inside the downloads folder).
+#[derive(Debug, Clone, PartialEq)]
+pub struct DownloadFile {
+    pub file: String,
+    pub mime: String,
+    pub size: u64,
+}
+
 /// A track the user listened to, and when (milliseconds since the epoch).
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -190,6 +224,7 @@ impl Library {
         if version < 3 {
             conn.execute_batch(SCHEMA_V3)?;
         }
+        conn.execute_batch(ADDITIVE)?;
         conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         Ok(Self { conn: Mutex::new(conn) })
     }
@@ -236,6 +271,67 @@ impl Library {
                 )?;
             }
             tx.commit()
+        })
+    }
+
+    // ---------- Downloads ----------
+
+    pub fn add_download(&self, track: &Track, file: &DownloadFile) -> anyhow::Result<()> {
+        self.with(|c| {
+            let tx = c.transaction()?;
+            upsert_track(&tx, track)?;
+            tx.execute(
+                "INSERT OR REPLACE INTO downloads (source, id, file, mime, size, kind, downloaded_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, 'download', ?6)",
+                params![track.source, track.id, file.file, file.mime, file.size, now()],
+            )?;
+            tx.commit()
+        })
+    }
+
+    /// Downloaded songs, newest first.
+    pub fn downloads(&self) -> anyhow::Result<Vec<Download>> {
+        self.with(|c| {
+            let mut stmt = c.prepare(
+                "SELECT t.*, d.size, d.downloaded_at FROM downloads d JOIN tracks t USING (source, id)
+                 WHERE d.kind = 'download' ORDER BY d.downloaded_at DESC, d.rowid DESC",
+            )?;
+            let rows = stmt.query_map([], |r| {
+                Ok(Download { track: track_from_row(r)?, size: r.get("size")?, downloaded_at: r.get("downloaded_at")? })
+            })?;
+            rows.collect()
+        })
+    }
+
+    /// "source/id" of every downloaded song.
+    pub fn downloaded_keys(&self) -> anyhow::Result<Vec<String>> {
+        self.with(|c| {
+            let mut stmt = c.prepare("SELECT source || '/' || id FROM downloads WHERE kind = 'download'")?;
+            let rows = stmt.query_map([], |r| r.get(0))?;
+            rows.collect()
+        })
+    }
+
+    pub fn download_file(&self, source: &str, id: &str) -> anyhow::Result<Option<DownloadFile>> {
+        self.with(|c| {
+            c.query_row(
+                "SELECT file, mime, size FROM downloads WHERE source = ?1 AND id = ?2",
+                params![source, id],
+                |r| Ok(DownloadFile { file: r.get(0)?, mime: r.get(1)?, size: r.get(2)? }),
+            )
+            .optional()
+        })
+    }
+
+    /// Forgets a download; returns its file name so the caller can delete it.
+    pub fn remove_download(&self, source: &str, id: &str) -> anyhow::Result<Option<String>> {
+        self.with(|c| {
+            c.query_row(
+                "DELETE FROM downloads WHERE source = ?1 AND id = ?2 RETURNING file",
+                params![source, id],
+                |r| r.get(0),
+            )
+            .optional()
         })
     }
 
@@ -996,5 +1092,27 @@ mod tests {
         for suffix in ["", "-wal", "-shm"] {
             let _ = std::fs::remove_file(format!("{}{suffix}", path.display()));
         }
+    }
+
+    #[test]
+    fn downloads_are_listed_found_and_removed() {
+        let lib = Library::in_memory();
+        let file = |name: &str| DownloadFile { file: name.into(), mime: "audio/webm".into(), size: 1234 };
+        lib.add_download(&track("a"), &file("a.webm")).unwrap();
+        lib.add_download(&track("b"), &file("b.webm")).unwrap();
+        let listed = lib.downloads().unwrap();
+        assert_eq!(listed.len(), 2);
+        assert_eq!(listed[0].size, 1234);
+        let mut keys = lib.downloaded_keys().unwrap();
+        keys.sort();
+        assert_eq!(keys, ["audius/a", "audius/b"]);
+        assert_eq!(lib.download_file("audius", "a").unwrap(), Some(file("a.webm")));
+        assert_eq!(lib.download_file("audius", "zzz").unwrap(), None);
+        assert_eq!(lib.remove_download("audius", "a").unwrap().as_deref(), Some("a.webm"));
+        assert_eq!(lib.remove_download("audius", "a").unwrap(), None);
+        assert_eq!(ids(&lib.downloads().unwrap().into_iter().map(|d| d.track).collect::<Vec<_>>()), ["b"]);
+        // Downloading again replaces the entry.
+        lib.add_download(&track("b"), &file("b2.webm")).unwrap();
+        assert_eq!(lib.download_file("audius", "b").unwrap().unwrap().file, "b2.webm");
     }
 }

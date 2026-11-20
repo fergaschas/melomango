@@ -42,3 +42,5 @@ export const SettingsIcon = svg("M19.14 12.94a7.07 7.07 0 0 0 0-1.88l2.03-1.58a.
 export const ChartIcon = svg("M5 9.2h3V19H5V9.2zM10.6 5h2.8v14h-2.8V5zm5.6 8H19v6h-2.8v-6z");
 export const MiniIcon = svg("M19 11h-8v6h8v-6zm4 8V4.98C23 3.88 22.1 3 21 3H3c-1.1 0-2 .88-2 1.98V19c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2zm-2 .02H3V4.97h18v14.05z");
 export const ExpandIcon = svg("M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z");
+export const DownloadIcon = svg("M5 20h14v-2H5v2zM19 9h-4V3H9v6H5l7 7 7-7z");
+export const DownloadDoneIcon = svg("M5 18h14v2H5v-2zm4.6-2.7L5 10.7l2-1.9 2.6 2.6L17 4l2 2-9.4 9.3z");

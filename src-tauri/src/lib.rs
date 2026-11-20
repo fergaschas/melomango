@@ -1,6 +1,7 @@
 mod artists;
 mod catalog;
 mod discord;
+mod downloads;
 mod exportify;
 mod library;
 mod links;
@@ -20,12 +21,12 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use tauri::{Manager, State};
+use tauri::{Emitter, Manager, State};
 use tauri_plugin_opener::OpenerExt;
 
 use artists::{AlbumPage, ArtistPage, ArtistService, CatalogSearch, PlaylistPage, Suggestions};
 use catalog::{Catalog, RegistryInfo, Registries};
-use library::{Library, MonthSummary, Play, Playlist, PlaylistSummary};
+use library::{Download, Library, MonthSummary, Play, Playlist, PlaylistSummary};
 use serde::Serialize;
 use lyrics::{Lyrics, LyricsService};
 use models::{SourceInfo, Track};
@@ -51,6 +52,7 @@ struct AppState {
     discord: discord::Presence,
     http: reqwest::Client,
     streams: StreamCache,
+    downloads: downloads::Downloads,
 }
 
 impl AppState {
@@ -590,7 +592,47 @@ fn choose_match(
     state.source(&play_source)?;
     state.library.set_track_match(&source, &id, &play_source, &play_id).map_err(err)?;
     state.streams.forget(&format!("{source}/{id}"));
+    // A download of the old recording would keep playing it.
+    state.downloads.remove(&state.library, &source, &id).map_err(err)?;
     Ok(())
+}
+
+// ---------- Downloads ----------
+
+const DOWNLOAD_EVENT: &str = "download-progress";
+
+/// Downloads songs in the background; progress arrives as `download-progress` events.
+#[tauri::command]
+fn download_tracks(app: tauri::AppHandle, tracks: Vec<Track>) {
+    for track in tracks {
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            let state = app.state::<AppState>();
+            let registry = state.registry();
+            state
+                .downloads
+                .download(&registry, &state.library, &state.http, &track, |progress| {
+                    let _ = app.emit(DOWNLOAD_EVENT, progress);
+                })
+                .await;
+        });
+    }
+}
+
+/// Cancels a download in progress or deletes a downloaded song.
+#[tauri::command]
+fn remove_download(state: State<'_, AppState>, source: String, id: String) -> Result<(), String> {
+    state.downloads.remove(&state.library, &source, &id).map_err(err)
+}
+
+#[tauri::command]
+fn list_downloads(state: State<'_, AppState>) -> Result<Vec<Download>, String> {
+    state.library.downloads().map_err(err)
+}
+
+#[tauri::command]
+fn downloaded_keys(state: State<'_, AppState>) -> Result<Vec<String>, String> {
+    state.library.downloaded_keys().map_err(err)
 }
 
 /// Resolves a track's audio in the background so it starts at once when played.
@@ -637,6 +679,7 @@ pub fn run() {
                 discord,
                 http,
                 streams: StreamCache::default(),
+                downloads: downloads::Downloads::new(data_dir.join("downloads")),
             };
             state.reload();
             app.manage(state);
@@ -663,8 +706,15 @@ pub fn run() {
             let app = ctx.app_handle().clone();
             tauri::async_runtime::spawn(async move {
                 let state = app.state::<AppState>();
-                let response =
-                    stream::handle(state.registry(), &state.library, &state.http, &state.streams, request).await;
+                let response = stream::handle(
+                    state.registry(),
+                    &state.library,
+                    &state.http,
+                    &state.streams,
+                    &state.downloads,
+                    request,
+                )
+                .await;
                 responder.respond(response);
             });
         })
@@ -718,6 +768,10 @@ pub fn run() {
             discord_status,
             tray_update,
             set_mini_mode,
+            download_tracks,
+            remove_download,
+            list_downloads,
+            downloaded_keys,
             set_close_to_tray,
             recent_plays,
             clear_history,

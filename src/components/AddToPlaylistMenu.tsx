@@ -2,7 +2,9 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { Track } from "../lib/api";
 import { useLibrary } from "../lib/library";
 import { useMatchFix } from "../lib/matchFix";
-import { PlayNextIcon, PlusIcon, QueueAddIcon, RadioIcon, SwapIcon } from "./Icons";
+import { useDownloads } from "../lib/downloads";
+import { percent } from "../lib/downloadState";
+import { CloseIcon, DownloadDoneIcon, DownloadIcon, PlayNextIcon, PlusIcon, QueueAddIcon, RadioIcon, SwapIcon } from "./Icons";
 
 export interface QueueActions {
   playNext: (t: Track) => void;
@@ -14,7 +16,11 @@ export interface QueueActions {
 export function AddToPlaylistMenu({ track, queue }: { track: Track; queue?: QueueActions }) {
   const library = useLibrary();
   const matchFix = useMatchFix();
+  const downloads = useDownloads();
   const [open, setOpen] = useState(false);
+  const downloaded = downloads.isDownloaded(track);
+  const loading = downloads.progressOf(track);
+  const inProgress = loading && (loading.state === "queued" || loading.state === "downloading");
   const [newName, setNewName] = useState("");
   const ref = useRef<HTMLDivElement>(null);
 
@@ -99,6 +105,36 @@ export function AddToPlaylistMenu({ track, queue }: { track: Track; queue?: Queu
               <hr className="menu-sep" />
             </>
           )}
+          <button
+            role="menuitem"
+            className="menu-item"
+            onClick={() => {
+              setOpen(false);
+              if (downloaded || inProgress) downloads.remove([track]);
+              else {
+                downloads.download([track]);
+                library.notify(`Descargando «${track.title}»…`);
+              }
+            }}
+          >
+            <span className="menu-icon-label">
+              {downloaded ? (
+                <>
+                  <DownloadDoneIcon size={16} /> Borrar la descarga
+                </>
+              ) : inProgress ? (
+                <>
+                  <CloseIcon size={16} /> Cancelar la descarga
+                  {percent(loading) !== null && ` (${percent(loading)} %)`}
+                </>
+              ) : (
+                <>
+                  <DownloadIcon size={16} /> Descargar
+                </>
+              )}
+            </span>
+          </button>
+          <hr className="menu-sep" />
           {matchFix.canFix(track) && (
             <>
               <button

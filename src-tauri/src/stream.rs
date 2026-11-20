@@ -19,7 +19,8 @@ use tauri::http::{header, Request, Response};
 use tokio::sync::{OnceCell, Semaphore};
 
 use crate::{
-    library::Library,
+    downloads::{self, Downloads},
+    library::{DownloadFile, Library},
     matcher,
     models::StreamInfo,
     sources::{MusicSource, Registry},
@@ -94,9 +95,10 @@ pub async fn handle(
     library: &Library,
     http: &reqwest::Client,
     cache: &StreamCache,
+    downloads: &Downloads,
     request: Request<Vec<u8>>,
 ) -> Response<Vec<u8>> {
-    match serve(&registry, library, http, cache, &request).await {
+    match serve(&registry, library, http, cache, downloads, &request).await {
         Ok(response) => response,
         Err(e) => Response::builder()
             .status(502)
@@ -113,6 +115,7 @@ async fn serve(
     library: &Library,
     http: &reqwest::Client,
     cache: &StreamCache,
+    downloads: &Downloads,
     request: &Request<Vec<u8>>,
 ) -> anyhow::Result<Response<Vec<u8>>> {
     let path = percent_decode_str(request.uri().path().trim_start_matches('/'))
@@ -129,6 +132,11 @@ async fn serve(
             .get(header::RANGE)
             .and_then(|v| v.to_str().ok()),
     );
+
+    // Downloaded: straight from disk, no connection needed.
+    if let Some((path, file)) = downloads.local(library, source_id, track_id) {
+        return serve_file(&path, &file, &range);
+    }
 
     let key = format!("{source_id}/{track_id}");
     let slot = cache.slot(&key);
@@ -162,7 +170,33 @@ async fn serve(
         .body(body)?)
 }
 
-async fn open(
+/// Answers a range request from a downloaded file.
+fn serve_file(path: &std::path::Path, file: &DownloadFile, range: &str) -> anyhow::Result<Response<Vec<u8>>> {
+    let (start, end) = range
+        .strip_prefix("bytes=")
+        .and_then(|r| r.split_once('-'))
+        .and_then(|(s, e)| Some((s.parse::<u64>().ok()?, e.parse::<u64>().ok()?)))
+        .unwrap_or((0, CHUNK - 1));
+    let response = Response::builder()
+        .header(header::ACCEPT_RANGES, "bytes")
+        .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*");
+    if start >= file.size {
+        return Ok(response
+            .status(416)
+            .header(header::CONTENT_RANGE, format!("bytes */{}", file.size))
+            .body(Vec::new())?);
+    }
+    let body = downloads::read_range(path, start, end, file.size)?;
+    let last = start + body.len() as u64 - 1;
+    Ok(response
+        .status(206)
+        .header(header::CONTENT_TYPE, &file.mime)
+        .header(header::CONTENT_RANGE, format!("bytes {start}-{last}/{}", file.size))
+        .header(header::CONTENT_LENGTH, body.len())
+        .body(body)?)
+}
+
+pub(crate) async fn open(
     registry: &Registry,
     library: &Library,
     http: &reqwest::Client,
@@ -198,7 +232,7 @@ async fn resolve(
     }
 }
 
-async fn fetch(http: &reqwest::Client, info: &StreamInfo, range: &str) -> anyhow::Result<reqwest::Response> {
+pub(crate) async fn fetch(http: &reqwest::Client, info: &StreamInfo, range: &str) -> anyhow::Result<reqwest::Response> {
     let mut request = http.get(&info.url);
     for (name, value) in &info.headers {
         if !name.eq_ignore_ascii_case("range") && !name.eq_ignore_ascii_case("host") {
@@ -268,6 +302,7 @@ mod tests {
         let registry = Arc::new(Registry::new(vec![audius]));
         let library = Library::in_memory();
         let cache = StreamCache::default();
+        let downloads = Downloads::new(std::env::temp_dir().join("melomango-test-downloads"));
 
         // Prefetching resolves the stream ahead of time.
         prefetch(&registry, &library, &http, &cache, "audius", &track.id).await.unwrap();
@@ -281,13 +316,13 @@ mod tests {
                 .unwrap()
         };
 
-        let first = handle(registry.clone(), &library, &http, &cache, request("bytes=0-")).await;
+        let first = handle(registry.clone(), &library, &http, &cache, &downloads, request("bytes=0-")).await;
         assert_eq!(first.status(), 206, "{}", String::from_utf8_lossy(first.body()));
         assert_eq!(first.body().len() as u64, CHUNK);
         assert!(first.headers()[header::CONTENT_TYPE].to_str().unwrap().starts_with("audio/"));
 
         // Second chunk comes from the cached final URL.
-        let second = handle(registry, &library, &http, &cache, request("bytes=1048576-")).await;
+        let second = handle(registry, &library, &http, &cache, &downloads, request("bytes=1048576-")).await;
         assert_eq!(second.status(), 206);
         assert!(
             second.headers()[header::CONTENT_RANGE]
@@ -327,6 +362,7 @@ mod tests {
         let registry = Arc::new(Registry::new(vec![youtube]));
         let library = Library::in_memory();
         let cache = StreamCache::default();
+        let downloads = Downloads::new(std::env::temp_dir().join("melomango-test-downloads"));
         let request = |range: &str| {
             Request::builder()
                 .uri(format!("http://stream.localhost/youtube%2F{}", track.id))
@@ -335,12 +371,12 @@ mod tests {
                 .unwrap()
         };
 
-        let first = handle(registry.clone(), &library, &http, &cache, request("bytes=0-")).await;
+        let first = handle(registry.clone(), &library, &http, &cache, &downloads, request("bytes=0-")).await;
         assert_eq!(first.status(), 206, "{}", String::from_utf8_lossy(first.body()));
         assert_eq!(first.body().len() as u64, CHUNK);
         assert!(first.headers()[header::CONTENT_TYPE].to_str().unwrap().starts_with("audio/"));
 
-        let second = handle(registry.clone(), &library, &http, &cache, request("bytes=1048576-")).await;
+        let second = handle(registry.clone(), &library, &http, &cache, &downloads, request("bytes=1048576-")).await;
         assert_eq!(second.status(), 206);
 
         // A track imported from a metadata-only service (as from Spotify) is matched to
@@ -360,7 +396,7 @@ mod tests {
             .header(header::RANGE, "bytes=0-")
             .body(Vec::new())
             .unwrap();
-        let matched = handle(registry, &library, &http, &cache, spotify_request).await;
+        let matched = handle(registry, &library, &http, &cache, &downloads, spotify_request).await;
         assert_eq!(matched.status(), 206, "{}", String::from_utf8_lossy(matched.body()));
         let (play_source, _) = library.track_match("spotify", "4fakeSpotifyId").unwrap().unwrap();
         assert_eq!(play_source, "youtube");

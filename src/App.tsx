@@ -21,6 +21,8 @@ import { ServicesDialog } from "./components/ServicesDialog";
 import { Sidebar } from "./components/Sidebar";
 import { LikesView, PlaylistView } from "./components/LibraryViews";
 import { HistoryView } from "./components/HistoryView";
+import { DownloadsView } from "./components/DownloadsView";
+import { useDownloads } from "./lib/downloads";
 import { SummaryView } from "./components/SummaryView";
 import { HomeView } from "./components/HomeView";
 import { MiniPlayer } from "./components/MiniPlayer";
@@ -42,6 +44,7 @@ export type View =
   | { kind: "search"; query: string; filter?: SearchFilter }
   | { kind: "likes" }
   | { kind: "history" }
+  | { kind: "downloads" }
   | { kind: "summary" }
   | { kind: "artist"; name: string; id?: string }
   | { kind: "album"; id: string }
@@ -152,6 +155,7 @@ export default function App() {
   const [closeToTray, setCloseToTray] = useCloseToTraySetting();
   const [theme, setTheme] = useTheme();
   const [mini, setMini] = useState(false);
+  const downloads = useDownloads();
 
   const toggleMini = useCallback(
     (on: boolean) => {
@@ -188,6 +192,8 @@ export default function App() {
 
   function onMatchChosen(track: Track) {
     setFixing(null);
+    // A download of the old version was deleted.
+    downloads.refresh().catch(() => {});
     library.notify(`Hecho: «${track.title}» sonará siempre con la versión que has elegido`);
     if (player.current && trackKey(player.current) === trackKey(track)) player.reloadCurrent();
   }
@@ -299,6 +305,7 @@ export default function App() {
               <HomeView source={source} player={player} onSeeTrending={() => setView({ kind: "trending" })} />
             )}
             {view.kind === "history" && <HistoryView player={player} />}
+            {view.kind === "downloads" && <DownloadsView player={player} />}
             {view.kind === "summary" && <SummaryView player={player} />}
             {view.kind === "artist" && (
               <ArtistView key={view.id ?? view.name} name={view.name} id={view.id} player={player} />

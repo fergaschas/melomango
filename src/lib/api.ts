@@ -268,6 +268,21 @@ export const HISTORY_EVENT = "melomango:history";
 
 export const recordPlay = (track: Track) =>
   invoke<void>("record_play", { track }).then(() => window.dispatchEvent(new Event(HISTORY_EVENT)));
+// ---------- Downloads ----------
+
+export interface Download {
+  track: Track;
+  size: number;
+  /** Milliseconds since the epoch. */
+  downloadedAt: number;
+}
+
+/** Starts downloading in the background; progress comes as `download-progress` events. */
+export const downloadTracks = (tracks: Track[]) => invoke<void>("download_tracks", { tracks });
+export const removeDownload = (t: Track) => invoke<void>("remove_download", { source: t.source, id: t.id });
+export const listDownloads = () => invoke<Download[]>("list_downloads");
+export const downloadedKeys = () => invoke<string[]>("downloaded_keys");
+
 export const recentPlays = (limit?: number) => invoke<Play[]>("recent_plays", { limit: limit ?? null });
 export const clearHistory = () => invoke<void>("clear_history");
 

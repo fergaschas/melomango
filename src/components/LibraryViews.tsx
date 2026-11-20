@@ -6,6 +6,7 @@ import type { Player } from "../hooks/usePlayer";
 import { PlayIcon, SyncIcon, TrashIcon } from "./Icons";
 import { PlaylistCover } from "./PlaylistCover";
 import { TrackList } from "./TrackList";
+import { DownloadCollectionButton } from "./DownloadsView";
 import { TrackTools, useArrangement } from "./TrackTools";
 import type { SortKey } from "../lib/sortTracks";
 
@@ -54,7 +55,10 @@ export function LikesView({ player }: { player: Player }) {
           <p className="subtitle">
             {tracks ? `${tracks.length} canciones · ${formatTotal(total)}` : "…"}
           </p>
-          <div className="collection-actions">{tracks && <PlayAllButton tracks={arranged.visible} player={player} />}</div>
+          <div className="collection-actions">
+            {tracks && <PlayAllButton tracks={arranged.visible} player={player} />}
+            {tracks && <DownloadCollectionButton tracks={tracks} />}
+          </div>
         </div>
       </header>
       {error && <p className="status error">{error}</p>}
@@ -204,6 +208,7 @@ export function PlaylistView({ id, player, onDeleted }: { id: number; player: Pl
           </p>
           <div className="collection-actions">
             <PlayAllButton tracks={arranged.visible} player={player} />
+            <DownloadCollectionButton tracks={playlist.tracks} />
             {playlist.link && playlist.link.pluginId !== SPOTIFY_EXPORT && (
               <button className="btn ghost" onClick={onSync} disabled={syncing}>
                 <SyncIcon size={16} /> {syncing ? "Sincronizando…" : "Sincronizar"}
