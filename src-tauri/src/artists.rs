@@ -138,15 +138,19 @@ impl ArtistService {
 
     /// The page of the artist with Deezer id `id`, or else the best match for `name`.
     pub async fn artist(&self, name: &str, id: Option<&str>) -> anyhow::Result<ArtistPage> {
+        // Cached by name only when the artist was looked up by name: an id chosen elsewhere
+        // (a search result) may be a lesser-known namesake, not "the" artist with that name.
+        let by_name = match id {
+            Some(_) => None,
+            None if name.trim().is_empty() => bail!("falta el nombre del artista"),
+            None => Some(format!("name:{}", normalize(name))),
+        };
+        if let Some(page) = by_name.as_ref().and_then(|key| self.artists.lock().unwrap().get(key).cloned()) {
+            return Ok(page);
+        }
         let id = match id {
             Some(id) => id.to_string(),
-            None => {
-                let key = format!("name:{}", normalize(name));
-                if let Some(page) = self.artists.lock().unwrap().get(&key) {
-                    return Ok(page.clone());
-                }
-                self.find_artist(name).await?
-            }
+            None => self.find_artist(name).await?,
         };
         if let Some(page) = self.artists.lock().unwrap().get(&format!("id:{id}")) {
             return Ok(page.clone());
@@ -179,7 +183,9 @@ impl ArtistService {
             cache.clear();
         }
         cache.insert(format!("id:{id}"), page.clone());
-        cache.insert(format!("name:{}", normalize(name)), page.clone());
+        if let Some(key) = by_name {
+            cache.insert(key, page.clone());
+        }
         Ok(page)
     }
 
@@ -589,6 +595,32 @@ mod tests {
         .unwrap();
         assert_eq!(full.summary.user.as_ref().unwrap().name, "dmarinster");
         assert_eq!(full.tracks.data.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn an_empty_name_is_an_error_even_with_a_cache() {
+        let service = ArtistService::new(reqwest::Client::new());
+        let page = ArtistPage {
+            artist: ArtistRef { id: "1".into(), name: "Alguien".into(), picture_url: None },
+            fans: 0,
+            top: Vec::new(),
+            albums: Vec::new(),
+            related: Vec::new(),
+        };
+        service.artists.lock().unwrap().insert(format!("name:{}", normalize("")), page);
+        let err = service.artist("  ", None).await.err().expect("must fail");
+        assert!(err.to_string().contains("falta el nombre"), "{err}");
+    }
+
+    /// Against the real Deezer API: `cargo test -- --ignored artists`
+    #[tokio::test]
+    #[ignore = "necesita red"]
+    async fn opening_a_namesake_does_not_change_who_a_name_points_to() {
+        let service = ArtistService::new(reqwest::Client::builder().user_agent("Melomango-tests").build().unwrap());
+        let found = service.search("rosalía").await.unwrap();
+        let namesake = found.artists.iter().find(|a| a.artist.name != "ROSALÍA").expect("otro artista");
+        service.artist("Rosalía", Some(&namesake.artist.id)).await.unwrap();
+        assert_eq!(service.artist("Rosalía", None).await.unwrap().artist.name, "ROSALÍA");
     }
 
     /// Against the real Deezer API: `cargo test -- --ignored artists`
