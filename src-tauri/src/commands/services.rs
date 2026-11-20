@@ -2,7 +2,7 @@
 
 use super::*;
 
-#[derive(Serialize)]
+#[derive(Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Connection {
     plugin_id: String,
@@ -12,7 +12,7 @@ pub(crate) struct Connection {
     error: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct CollectionView {
     #[serde(flatten)]
@@ -22,6 +22,7 @@ pub(crate) struct CollectionView {
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn library_connections(state: State<'_, AppState>) -> CmdResult<Vec<Connection>> {
     // All at once: each asks its plugin (up to 60 s), one after another added up.
     let mut asking = tokio::task::JoinSet::new();
@@ -47,16 +48,19 @@ pub(crate) async fn library_connections(state: State<'_, AppState>) -> CmdResult
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn connect_library(state: State<'_, AppState>, plugin_id: String) -> CmdResult<LibraryStatus> {
     state.library_plugin(&plugin_id)?.connect().await.map_err(CmdError::from)
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn disconnect_library(state: State<'_, AppState>, plugin_id: String) -> CmdResult<LibraryStatus> {
     state.library_plugin(&plugin_id)?.disconnect().await.map_err(CmdError::from)
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn library_collections(app: tauri::AppHandle, plugin_id: String) -> CmdResult<Vec<CollectionView>> {
     let plugin = app.state::<AppState>().library_plugin(&plugin_id)?;
     let collections = plugin.collections().await?;
@@ -69,6 +73,7 @@ pub(crate) async fn library_collections(app: tauri::AppHandle, plugin_id: String
 
 /// Copies a collection into a Melomango playlist (or refreshes the one it was imported into).
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn import_collection(
     app: tauri::AppHandle,
     plugin_id: String,
@@ -81,6 +86,7 @@ pub(crate) async fn import_collection(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn sync_playlist(app: tauri::AppHandle, id: i64) -> CmdResult<PlaylistSummary> {
     let link = with_library(&app, move |l| l.playlist_link(id))
         .await?
@@ -94,7 +100,7 @@ pub(crate) async fn sync_playlist(app: tauri::AppHandle, id: i64) -> CmdResult<P
     with_library(&app, move |l| l.import_playlist(&link.plugin_id, &link.remote_id, "importada", &tracks)).await
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ImportedLink {
     playlist: PlaylistSummary,
@@ -104,6 +110,7 @@ pub(crate) struct ImportedLink {
 
 /// Imports the playlist or album behind a pasted Spotify, YouTube or Deezer link.
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn import_link(app: tauri::AppHandle, url: String) -> CmdResult<ImportedLink> {
     let link = links::parse(&url).ok_or(
         "no reconozco ese enlace: pega el de una playlist o un álbum de Spotify, YouTube (o YouTube Music) o Deezer",
@@ -119,7 +126,7 @@ pub(crate) async fn import_link(app: tauri::AppHandle, url: String) -> CmdResult
     Ok(ImportedLink { playlist, limited })
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ImportedText {
     playlist: PlaylistSummary,
@@ -129,6 +136,7 @@ pub(crate) struct ImportedText {
 
 /// A new playlist from pasted text, one song per line ("Artista - Título").
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn import_text(app: tauri::AppHandle, name: String, text: String) -> CmdResult<ImportedText> {
     blocking(app, move |state| {
         let parsed = text_import::parse(&text);
@@ -144,6 +152,7 @@ pub(crate) async fn import_text(app: tauri::AppHandle, name: String, text: Strin
 
 /// Imports the playlists and liked songs of a Spotify data export (zip or its JSON files).
 #[tauri::command]
+#[specta::specta]
 pub(crate) async fn import_spotify_export(app: tauri::AppHandle, paths: Vec<String>) -> CmdResult<ImportedExport> {
     blocking(app, move |state| {
         let export = spotify_export::read(&paths)?;
@@ -155,7 +164,7 @@ pub(crate) async fn import_spotify_export(app: tauri::AppHandle, paths: Vec<Stri
     .await
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, specta::Type)]
 pub(crate) struct ImportedExport {
     playlists: Vec<PlaylistSummary>,
     /// Files (or parts of them) that couldn't be read and were skipped, one line each.

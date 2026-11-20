@@ -36,6 +36,9 @@ csv = "1"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 sha2 = "0.10"
 rusqlite = { version = "0.32", features = ["bundled"] }
+specta = "=2.0.0-rc.28"
+specta-typescript = "=0.0.15"
+tauri-specta = { version = "=2.0.0-rc.29", features = ["typescript"] }
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration

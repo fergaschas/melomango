@@ -35,7 +35,7 @@ const OP_PING: u32 = 3;
 const OP_PONG: u32 = 4;
 
 /// What is playing, as the frontend reports it.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct NowPlaying {
     pub title: String,
@@ -46,7 +46,7 @@ pub struct NowPlaying {
     pub position_secs: f64,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, specta::Type)]
 #[serde(tag = "state", rename_all = "camelCase")]
 pub enum Status {
     /// No application id configured.

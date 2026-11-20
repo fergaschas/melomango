@@ -71,7 +71,7 @@ struct Download {
 }
 
 /// A plugin as shown in the in-app browser.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct CatalogPlugin {
     pub id: String,
@@ -87,14 +87,14 @@ pub struct CatalogPlugin {
     pub available: bool,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, specta::Type)]
 pub struct Catalog {
     pub plugins: Vec<CatalogPlugin>,
     /// One message per repository that could not be read.
     pub errors: Vec<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, specta::Type)]
 pub struct RegistryInfo {
     pub url: String,
     pub official: bool,
@@ -111,7 +111,7 @@ pub struct Registries {
     file: PathBuf,
 }
 
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Default, Serialize, Deserialize, specta::Type)]
 struct RegistriesFile {
     extra: Vec<String>,
 }

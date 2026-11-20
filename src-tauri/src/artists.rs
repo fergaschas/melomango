@@ -30,7 +30,7 @@ const MAX_PLAYLIST_PAGES: usize = 12;
 const QUOTA_RETRIES: u32 = 3;
 const QUOTA_WAIT: Duration = Duration::from_millis(1500);
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ArtistRef {
     pub id: String,
@@ -38,7 +38,7 @@ pub struct ArtistRef {
     pub picture_url: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct AlbumSummary {
     pub id: String,
@@ -50,7 +50,7 @@ pub struct AlbumSummary {
     pub kind: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ArtistPage {
     pub artist: ArtistRef,
@@ -60,7 +60,7 @@ pub struct ArtistPage {
     pub related: Vec<ArtistRef>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct AlbumPage {
     #[serde(flatten)]
@@ -70,7 +70,7 @@ pub struct AlbumPage {
     pub duration_secs: u32,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ArtistHit {
     #[serde(flatten)]
@@ -78,7 +78,7 @@ pub struct ArtistHit {
     pub fans: u64,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct AlbumHit {
     #[serde(flatten)]
@@ -87,7 +87,7 @@ pub struct AlbumHit {
 }
 
 /// A public Deezer playlist (made by a user or an editor).
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct PublicPlaylist {
     pub id: String,
@@ -97,7 +97,7 @@ pub struct PublicPlaylist {
     pub track_count: u32,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct PlaylistPage {
     #[serde(flatten)]
@@ -108,7 +108,7 @@ pub struct PlaylistPage {
 }
 
 /// Quick suggestions while typing in the search box.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct Suggestions {
     pub artists: Vec<ArtistRef>,
@@ -116,7 +116,7 @@ pub struct Suggestions {
 }
 
 /// Artists, albums and playlists matching a search.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct CatalogSearch {
     pub artists: Vec<ArtistHit>,

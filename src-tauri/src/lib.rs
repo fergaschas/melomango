@@ -131,6 +131,92 @@ impl AppState {
     }
 }
 
+/// Every command the frontend can call, for Tauri and for the generated TypeScript
+/// bindings (`src/lib/bindings.ts`, see `export_bindings`): one list for both.
+fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
+    tauri_specta::Builder::<tauri::Wry>::new()
+        .commands(tauri_specta::collect_commands![
+            commands::plugins::list_sources,
+            commands::plugins::list_plugins,
+            commands::plugins::plugin_requirements,
+            commands::plugins::install_plugin_requirement,
+            commands::services::library_connections,
+            commands::services::connect_library,
+            commands::services::disconnect_library,
+            commands::services::library_collections,
+            commands::services::import_collection,
+            commands::services::sync_playlist,
+            commands::plugins::search,
+            commands::plugins::trending,
+            commands::plugins::install_plugin,
+            commands::plugins::uninstall_plugin,
+            commands::plugins::browse_plugins,
+            commands::plugins::install_catalog_plugin,
+            commands::plugins::plugin_origin_change,
+            commands::plugins::list_registries,
+            commands::plugins::add_registry,
+            commands::plugins::remove_registry,
+            commands::plugins::open_plugins_dir,
+            commands::library::liked_tracks,
+            commands::library::liked_keys,
+            commands::library::set_liked,
+            commands::library::list_playlists,
+            commands::library::create_playlist,
+            commands::library::rename_playlist,
+            commands::library::delete_playlist,
+            commands::library::get_playlist,
+            commands::library::add_to_playlist,
+            commands::library::remove_from_playlist,
+            commands::library::move_in_playlist,
+            commands::pages::get_lyrics,
+            commands::services::import_spotify_export,
+            commands::services::import_link,
+            commands::services::import_text,
+            commands::library::match_options,
+            commands::library::choose_match,
+            commands::library::record_play,
+            commands::library::radio_tracks,
+            commands::pages::artist_page,
+            commands::pages::album_page,
+            commands::pages::catalog_search,
+            commands::pages::search_suggestions,
+            commands::pages::deezer_playlist,
+            commands::pages::save_deezer_playlist,
+            commands::app::discord_set,
+            commands::app::discord_status,
+            commands::app::tray_update,
+            commands::app::set_mini_mode,
+            commands::downloads::download_tracks,
+            commands::downloads::remove_download,
+            commands::downloads::list_downloads,
+            commands::downloads::downloaded_keys,
+            commands::downloads::set_cache_limit,
+            commands::downloads::cache_usage,
+            commands::downloads::clear_cache,
+            commands::app::set_close_to_tray,
+            commands::library::recent_plays,
+            commands::library::clear_history,
+            commands::library::summary_months,
+            commands::library::month_summary,
+            commands::downloads::prefetch_stream,
+        ])
+        // Pushed as an event, not returned by a command: exported so the frontend shares it.
+        .typ::<downloads::Progress>()
+        // Sizes, millisecond timestamps and SQLite ids, all far below 2^53: plain numbers.
+        .dangerously_cast_bigints_to_number()
+    // Types whose reading and writing differ (fields with #[serde(default)]) come out twice:
+    // `X_Serialize` is what the frontend receives (every field present), `X_Deserialize`
+    // what a command accepts. api.ts names the first one plainly (`Track`).
+}
+
+/// Writes the TypeScript bindings to `path` (`cargo test` keeps the committed file current).
+#[cfg(test)]
+fn export_bindings(path: &std::path::Path) {
+    specta_builder()
+        .export(specta_typescript::Typescript::default(), path)
+        .expect("no se pudieron generar los tipos de TypeScript");
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -222,71 +308,27 @@ pub fn run() {
                 responder.respond(response);
             });
         })
-        .invoke_handler(tauri::generate_handler![
-            commands::plugins::list_sources,
-            commands::plugins::list_plugins,
-            commands::plugins::plugin_requirements,
-            commands::plugins::install_plugin_requirement,
-            commands::services::library_connections,
-            commands::services::connect_library,
-            commands::services::disconnect_library,
-            commands::services::library_collections,
-            commands::services::import_collection,
-            commands::services::sync_playlist,
-            commands::plugins::search,
-            commands::plugins::trending,
-            commands::plugins::install_plugin,
-            commands::plugins::uninstall_plugin,
-            commands::plugins::browse_plugins,
-            commands::plugins::install_catalog_plugin,
-            commands::plugins::plugin_origin_change,
-            commands::plugins::list_registries,
-            commands::plugins::add_registry,
-            commands::plugins::remove_registry,
-            commands::plugins::open_plugins_dir,
-            commands::library::liked_tracks,
-            commands::library::liked_keys,
-            commands::library::set_liked,
-            commands::library::list_playlists,
-            commands::library::create_playlist,
-            commands::library::rename_playlist,
-            commands::library::delete_playlist,
-            commands::library::get_playlist,
-            commands::library::add_to_playlist,
-            commands::library::remove_from_playlist,
-            commands::library::move_in_playlist,
-            commands::pages::get_lyrics,
-            commands::services::import_spotify_export,
-            commands::services::import_link,
-            commands::services::import_text,
-            commands::library::match_options,
-            commands::library::choose_match,
-            commands::library::record_play,
-            commands::library::radio_tracks,
-            commands::pages::artist_page,
-            commands::pages::album_page,
-            commands::pages::catalog_search,
-            commands::pages::search_suggestions,
-            commands::pages::deezer_playlist,
-            commands::pages::save_deezer_playlist,
-            commands::app::discord_set,
-            commands::app::discord_status,
-            commands::app::tray_update,
-            commands::app::set_mini_mode,
-            commands::downloads::download_tracks,
-            commands::downloads::remove_download,
-            commands::downloads::list_downloads,
-            commands::downloads::downloaded_keys,
-            commands::downloads::set_cache_limit,
-            commands::downloads::cache_usage,
-            commands::downloads::clear_cache,
-            commands::app::set_close_to_tray,
-            commands::library::recent_plays,
-            commands::library::clear_history,
-            commands::library::summary_months,
-            commands::library::month_summary,
-            commands::downloads::prefetch_stream,
-        ])
+        .invoke_handler(specta_builder().invoke_handler())
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod bindings_tests {
+    use std::path::Path;
+
+    /// The committed `src/lib/bindings.ts` matches the Rust commands and types. On a change
+    /// this test rewrites it, so it fails once and the new file is ready to commit; the CI
+    /// (which starts from the committed file) fails when someone forgot to.
+    #[test]
+    fn typescript_bindings_are_up_to_date() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/lib/bindings.ts");
+        let before = std::fs::read_to_string(&path).unwrap_or_default();
+        super::export_bindings(&path);
+        let after = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            before.replace("\r\n", "\n") == after.replace("\r\n", "\n"),
+            "src/lib/bindings.ts estaba desactualizado y se acaba de regenerar: revísalo y súbelo"
+        );
+    }
 }

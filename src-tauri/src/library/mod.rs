@@ -149,7 +149,7 @@ impl std::fmt::Display for NewerLibrary {
 impl std::error::Error for NewerLibrary {}
 
 /// A song saved to listen without a connection.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct Download {
     pub track: Track,
@@ -197,7 +197,7 @@ pub struct DownloadFile {
 }
 
 /// A track the user listened to, and when (milliseconds since the epoch).
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct Play {
     pub track: Track,
@@ -205,7 +205,7 @@ pub struct Play {
 }
 
 /// What the user listened to in one month (for "Tu resumen del mes").
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct MonthSummary {
     /// "YYYY-MM", in local time.
@@ -219,14 +219,14 @@ pub struct MonthSummary {
     pub top_artists: Vec<ArtistCount>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct TrackCount {
     pub track: Track,
     pub plays: u32,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ArtistCount {
     pub name: String,
@@ -235,7 +235,7 @@ pub struct ArtistCount {
     pub artwork_url: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct PlaylistSummary {
     pub id: i64,
@@ -246,7 +246,7 @@ pub struct PlaylistSummary {
     pub artwork_urls: Vec<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct Playlist {
     #[serde(flatten)]
@@ -258,7 +258,7 @@ pub struct Playlist {
     pub link: Option<PlaylistLink>,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct PlaylistLink {
     pub plugin_id: String,

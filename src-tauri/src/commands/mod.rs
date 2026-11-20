@@ -13,7 +13,7 @@ pub(crate) mod services;
 
 /// What a failed command answers: its message, as a plain string for the frontend (as
 /// before). Any `anyhow` error, `String` or `&str` converts with `?`, with its causes.
-#[derive(Debug)]
+#[derive(Debug, specta::Type)]
 pub(crate) struct CmdError(String);
 
 pub(crate) type CmdResult<T> = Result<T, CmdError>;

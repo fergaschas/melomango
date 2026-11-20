@@ -18,14 +18,14 @@ const CACHE_LIMIT: usize = 300;
 /// Search results further than this from the track's duration are probably another version.
 const MAX_DURATION_DIFF: f64 = 20.0;
 
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct LyricLine {
     pub time_ms: u32,
     pub text: String,
 }
 
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct Lyrics {
     pub found: bool,

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { formatTime, formatTotal } from "../src/lib/api.ts";
+import { formatTime, formatTotal } from "../src/lib/format.ts";
 
 test("song positions and lengths as m:ss", () => {
   assert.equal(formatTime(0), "0:00");

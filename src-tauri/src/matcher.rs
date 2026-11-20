@@ -47,7 +47,7 @@ const LONG_SECS: u32 = 8 * 60;
 const MAX_OPTIONS: usize = 30;
 
 /// What the user picks from when the automatic match is wrong ("No es esta canción").
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct MatchOptions {
     pub track: Track,
@@ -57,7 +57,7 @@ pub struct MatchOptions {
     pub candidates: Vec<Track>,
 }
 
-#[derive(Debug, Serialize, PartialEq)]
+#[derive(Debug, Serialize, PartialEq, specta::Type)]
 pub struct MatchRef {
     pub source: String,
     pub id: String,

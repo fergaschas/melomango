@@ -35,7 +35,7 @@ const PIECE: u64 = 2 * 1024 * 1024;
 const WAIT_STEP: std::time::Duration = std::time::Duration::from_millis(250);
 
 /// What the UI hears about a download.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct Progress {
     /// "source/id"
@@ -46,7 +46,7 @@ pub struct Progress {
     pub message: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum State {
     Queued,

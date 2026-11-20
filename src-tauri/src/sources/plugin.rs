@@ -76,7 +76,7 @@ pub struct PluginSource {
 }
 
 /// Login state of a library plugin.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct LibraryStatus {
     pub connected: bool,
     #[serde(default)]
@@ -84,7 +84,7 @@ pub struct LibraryStatus {
 }
 
 /// A playlist, album or similar set of tracks offered by a library plugin.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct Collection {
     pub id: String,
@@ -107,7 +107,7 @@ fn yes() -> bool {
 }
 
 /// Something a plugin needs installed on the computer (e.g. yt-dlp).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct Requirement {
     pub id: String,

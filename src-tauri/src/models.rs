@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 /// A playable track, independent of where it comes from.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct Track {
     pub id: String,
@@ -21,14 +21,14 @@ pub struct Track {
 }
 
 /// Where to fetch a track's audio from, plus any headers the server expects.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, specta::Type)]
 pub struct StreamInfo {
     pub url: String,
     #[serde(default)]
     pub headers: HashMap<String, String>,
 }
 
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Copy, Serialize, specta::Type)]
 #[serde(rename_all = "lowercase")]
 pub enum SourceKind {
     /// Built into the app (none today: every source is a plugin).
@@ -38,7 +38,7 @@ pub enum SourceKind {
 }
 
 /// What the UI needs to know about a source.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SourceInfo {
     pub id: String,
