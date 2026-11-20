@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { getLyrics, trackKey, type Lyrics } from "../lib/api";
 import type { Player } from "../hooks/usePlayer";
 import { CloseIcon } from "./Icons";
+import { usePlaybackTime } from "../lib/clock";
 
 const OFFSET_STEP_MS = 500;
 /** After the user scrolls by hand, stop following the song for a moment. */
@@ -14,7 +15,8 @@ type State =
   | { kind: "ready"; lyrics: Lyrics };
 
 export function LyricsPanel({ player, onClose }: { player: Player; onClose: () => void }) {
-  const { current, time } = player;
+  const { current } = player;
+  const time = usePlaybackTime(player.clock);
   const [state, setState] = useState<State>({ kind: "idle" });
   const [offsetMs, setOffsetMs] = useState(0);
   const lineRefs = useRef<(HTMLButtonElement | null)[]>([]);

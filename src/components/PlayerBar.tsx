@@ -6,6 +6,7 @@ import { ArtistLinks } from "./ArtistLinks";
 import { useLibrary } from "../lib/library";
 import { useMatchFix } from "../lib/matchFix";
 import { friendlyError } from "../lib/errors";
+import { usePlaybackTime } from "../lib/clock";
 import {
   HeartFilledIcon,
   HeartIcon,
@@ -40,7 +41,8 @@ const REPEAT_LABEL = {
 } as const;
 
 export function PlayerBar({ player, panel, onTogglePanel, onMini }: Props) {
-  const { current, isPlaying, isLoading, time, duration, volume, muted, error, hasNext, shuffle, repeat } = player;
+  const { current, isPlaying, isLoading, duration, volume, muted, error, hasNext, shuffle, repeat } = player;
+  const time = usePlaybackTime(player.clock);
   const library = useLibrary();
   const matchFix = useMatchFix();
   const liked = current ? library.isLiked(current) : false;

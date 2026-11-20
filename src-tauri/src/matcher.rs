@@ -218,23 +218,13 @@ fn words(text: &str) -> Vec<String> {
     let folded: String = text
         .to_lowercase()
         .chars()
-        .map(|c| match c {
-            'á' | 'à' | 'ä' | 'â' => 'a',
-            'é' | 'è' | 'ë' | 'ê' => 'e',
-            'í' | 'ì' | 'ï' | 'î' => 'i',
-            'ó' | 'ò' | 'ö' | 'ô' => 'o',
-            'ú' | 'ù' | 'ü' | 'û' => 'u',
-            'ñ' => 'n',
-            c if c.is_alphanumeric() => c,
-            _ => ' ',
-        })
+        .map(crate::text::fold)
+        .map(|c| if c.is_alphanumeric() { c } else { ' ' })
         .collect();
     folded.split_whitespace().map(str::to_string).collect()
 }
 
-pub(crate) fn main_artist(artist: &str) -> &str {
-    artist.split([',', '&']).next().unwrap_or(artist).trim()
-}
+pub(crate) use crate::text::main_artist;
 
 #[cfg(test)]
 mod tests {
@@ -262,6 +252,21 @@ mod tests {
             t("youtube", "karaoke", "Sing King", "Shakira - Dai Dai (Karaoke Version)", 224),
         ];
         assert_eq!(best_match(&wanted, &candidates).unwrap().id, "ok");
+    }
+
+    #[test]
+    fn the_artist_counts_when_it_says_feat_and_the_video_says_ft() {
+        // Pasted as «Daft Punk feat. Pharrell Williams - Get Lucky»: the video says «ft.».
+        let wanted = t("lista", "1", "Daft Punk feat. Pharrell Williams", "Get Lucky", 0);
+        let real = t("youtube", "real", "Daft Punk", "Daft Punk ft. Pharrell Williams - Get Lucky", 248);
+        let other = t("youtube", "other", "Otro Grupo", "Get Lucky", 248);
+        assert!(score(&wanted, &[], &real) > score(&wanted, &[], &other) + 0.2);
+        assert_eq!(best_match(&wanted, &[other, real]).unwrap().id, "real");
+    }
+
+    #[test]
+    fn ignores_accents_beyond_spanish() {
+        assert_eq!(words("Ça Não Møre"), ["ca", "nao", "more"]);
     }
 
     #[test]

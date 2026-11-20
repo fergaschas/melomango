@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DEFAULT_SOURCE, listPlugins, listSources, searchTracks, trackKey, trendingTracks, type SourceInfo, type Track } from "./lib/api";
 import { MatchFixContext, type MatchFix } from "./lib/matchFix";
-import { useLibrary } from "./lib/library";
+import { useLibrary, useToast } from "./lib/library";
 import { usePlayer, type Player } from "./hooks/usePlayer";
 import { useUpdater } from "./hooks/useUpdater";
 import { useShortcuts } from "./hooks/useShortcuts";
@@ -79,7 +79,7 @@ export default function App() {
   const player = usePlayer();
   const updater = useUpdater();
   const library = useLibrary();
-  const { toast } = library;
+  const toast = useToast();
   const [sources, setSources] = useState<SourceInfo[]>([]);
   /** False until the first list of sources arrives (so the setup screen doesn't flash). */
   const [sourcesLoaded, setSourcesLoaded] = useState(false);

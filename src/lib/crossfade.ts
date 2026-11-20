@@ -48,3 +48,24 @@ export function fadeGains(t: number, fadeIn: number, fadeOut: number): { in: num
     out: pOut >= 1 ? 0 : Math.cos((pOut * Math.PI) / 2),
   };
 }
+
+/** How long the incoming song may take to start sounding before the blend is given up. */
+export const FADE_START_TIMEOUT_MS = 15_000;
+
+/** The parts of an `<audio>` element that say how much of it is left. */
+export interface Playing {
+  ended: boolean;
+  paused: boolean;
+  currentTime: number;
+  duration: number;
+}
+
+/**
+ * The incoming song of a blend failed: what now. If the old one still has music left it
+ * becomes the current song again and plays to its end ("keep-old"); if it already ran out
+ * nothing is sounding, so move on to the next song ("skip").
+ */
+export function rescueFade(old: Playing): "keep-old" | "skip" {
+  const left = Number.isFinite(old.duration) ? old.duration - old.currentTime : 0;
+  return !old.ended && !old.paused && left > MIN_LEFT ? "keep-old" : "skip";
+}

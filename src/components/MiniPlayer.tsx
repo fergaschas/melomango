@@ -3,11 +3,13 @@ import { useLibrary } from "../lib/library";
 import type { Player } from "../hooks/usePlayer";
 import { Artwork } from "./Artwork";
 import { ExpandIcon, HeartFilledIcon, HeartIcon, NextIcon, PauseIcon, PlayIcon, PrevIcon } from "./Icons";
+import { usePlaybackTime } from "../lib/clock";
 
 /** The small always-on-top player: cover, song, controls and progress. */
 export function MiniPlayer({ player, onExpand }: { player: Player; onExpand: () => void }) {
   const library = useLibrary();
-  const { current, isPlaying, isLoading, time, duration, error, hasNext } = player;
+  const { current, isPlaying, isLoading, duration, error, hasNext } = player;
+  const time = usePlaybackTime(player.clock);
   const liked = current ? library.isLiked(current) : false;
 
   return (

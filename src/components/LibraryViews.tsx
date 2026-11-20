@@ -34,13 +34,13 @@ function PlayAllButton({ tracks, player }: { tracks: Track[]; player: Player }) 
 }
 
 export function LikesView({ player }: { player: Player }) {
-  const { version } = useLibrary();
+  const { likesVersion } = useLibrary();
   const [tracks, setTracks] = useState<Track[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     likedTracks().then(setTracks).catch((e) => setError(String(e)));
-  }, [version]);
+  }, [likesVersion]);
 
   const total = tracks?.reduce((sum, t) => sum + t.durationSecs, 0) ?? 0;
   const arranged = useArrangement("likes", tracks ?? NO_TRACKS);
@@ -115,7 +115,7 @@ export function PlaylistView({ id, player, onDeleted }: { id: number; player: Pl
     return () => {
       cancelled = true;
     };
-  }, [id, library.version]);
+  }, [id, library.playlistsVersion]);
 
   const arranged = useArrangement(`playlist.${id}`, playlist?.tracks ?? NO_TRACKS, playlist?.addedAt);
 

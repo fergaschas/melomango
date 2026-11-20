@@ -1,10 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { prefetchStream, radioTracks, recordPlay, streamUrl, trackKey, type Track } from "../lib/api";
 import * as q from "../lib/queue";
-import { clampCrossfade, fadeGains, loadCrossfade, saveCrossfade, shouldStartFade } from "../lib/crossfade";
+import {
+  clampCrossfade,
+  FADE_START_TIMEOUT_MS,
+  fadeGains,
+  loadCrossfade,
+  rescueFade,
+  saveCrossfade,
+  shouldStartFade,
+} from "../lib/crossfade";
 import { loadNormalize, Loudness, saveNormalize } from "../lib/loudness";
+import { Clock } from "../lib/clock";
 
 const SAVE_KEY = "melomango.player";
+/** The position, saved on its own (often) so the queue is not rewritten every few seconds. */
+const POSITION_KEY = "melomango.player.position";
 const SAVE_EVERY_MS = 5000;
 const SEEK_STEP = 5;
 const CANT_PLAY = "No se pudo reproducir esta canción";
@@ -37,7 +48,12 @@ interface Saved {
 interface Fade {
   old: HTMLAudioElement;
   incoming: HTMLAudioElement;
+  /** The volume ramp, once the incoming song sounds. */
   timer: number | null;
+  /** Gives up waiting if the incoming song never starts (the volume would stay locked). */
+  watchdog: number;
+  /** The queue while the old song was current, to go back to it if the new one fails. */
+  previous: q.QueueState;
 }
 
 /** Stops an element and lets go of its stream. */
@@ -50,7 +66,10 @@ function release(el: HTMLAudioElement) {
 function loadSaved(): Saved | null {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
-    return raw ? (JSON.parse(raw) as Saved) : null;
+    if (!raw) return null;
+    const saved = JSON.parse(raw) as Saved;
+    const position = Number(localStorage.getItem(POSITION_KEY));
+    return Number.isFinite(position) && localStorage.getItem(POSITION_KEY) !== null ? { ...saved, time: position } : saved;
   } catch {
     return null;
   }
@@ -80,7 +99,7 @@ export function usePlayer() {
   const [loadKey, setLoadKey] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [time, setTime] = useState(saved?.time ?? 0);
+  const [clock] = useState(() => new Clock(saved?.time ?? 0));
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(saved?.volume ?? 0.8);
   const [muted, setMuted] = useState(saved?.muted ?? false);
@@ -124,9 +143,12 @@ export function usePlayer() {
     listened.current = { secs: 0, last: null, recorded: false };
   };
 
-  const onPlayRejected = useCallback((e: unknown) => {
+  /** What to do when `el.play()` is rejected. */
+  const onPlayRejected = useCallback((el: HTMLAudioElement) => (e: unknown) => {
     // play() rejects with AbortError when a new track interrupts the previous load: not a failure.
     if (e instanceof DOMException && e.name === "AbortError") return;
+    // An element that is no longer the main one (a blend that was given up) says nothing.
+    if (el !== mainRef.current) return;
     setError(CANT_PLAY);
     setIsPlaying(false);
     setIsLoading(false);
@@ -138,14 +160,51 @@ export function usePlayer() {
     if (!f) return;
     fade.current = null;
     if (f.timer !== null) window.clearInterval(f.timer);
+    window.clearTimeout(f.watchdog);
     if (f.old !== mainRef.current) release(f.old);
     mainRef.current.volume = volumeRef.current;
+  }, []);
+
+  /** Set once `next` exists (it is defined further down and needs what is defined here). */
+  const nextRef = useRef<(auto?: boolean) => void>(() => {});
+  /** An element whose blend into the next song failed: it doesn't try again. */
+  const noFadeFrom = useRef<HTMLAudioElement | null>(null);
+
+  /**
+   * The incoming song of a blend failed to load. Instead of silence: the old song becomes
+   * the current one again and plays to its end, or, if it already ended, on to the next.
+   */
+  const abandonFade = useCallback(() => {
+    const f = fade.current;
+    if (!f) return;
+    fade.current = null;
+    if (f.timer !== null) window.clearInterval(f.timer);
+    window.clearTimeout(f.watchdog);
+    if (rescueFade(f.old) === "keep-old") {
+      release(f.incoming);
+      // Its last seconds would start the same blend again: it just plays to the end.
+      noFadeFrom.current = f.old;
+      mainRef.current = f.old;
+      setAudio(f.old);
+      f.old.volume = volumeRef.current;
+      queueRef.current = f.previous;
+      setQueue(f.previous);
+      setDuration(f.old.duration);
+      clock.set(f.old.currentTime);
+      setIsPlaying(true);
+      setIsLoading(false);
+      setError(null);
+    } else {
+      release(f.old);
+      nextRef.current(true);
+    }
   }, []);
 
   /** Plays the queue's current entry, from `resumeAt` seconds or the start. */
   const start = useCallback(
     (next: q.QueueState, resumeAt: number | null = null, blend = false) => {
       if (!blend) endFade();
+      noFadeFrom.current = null;
       pendingSeek.current = resumeAt;
       userStarted.current = true;
       // Updated right away: what runs next in the same event (e.g. the radio) sees it.
@@ -158,21 +217,27 @@ export function usePlayer() {
 
   /** Starts the next song on the idle element while the current one keeps playing. */
   const beginFade = useCallback(() => {
-    if (fade.current) return;
+    if (fade.current || noFadeFrom.current === mainRef.current) return;
     const result = q.advance(queueRef.current, true);
     if (result === "stop" || result === "same") return; // the radio or a repeat take over at the end
     const old = mainRef.current;
     const incoming = old === elements[0] ? elements[1] : elements[0];
-    fade.current = { old, incoming, timer: null };
+    // If the new song is still silent by then, stop waiting: it plays at full volume
+    // whenever it arrives, and the volume control works again.
+    const watchdog = window.setTimeout(() => {
+      if (fade.current?.incoming === incoming && fade.current.timer === null) endFade();
+    }, FADE_START_TIMEOUT_MS);
+    fade.current = { old, incoming, timer: null, watchdog, previous: queueRef.current };
     mainRef.current = incoming;
     setAudio(incoming);
     start(result, null, true);
-  }, [elements, start]);
+  }, [elements, start, endFade]);
 
   /** Once the new song sounds, blend the two volumes. */
   const rampFade = useCallback(() => {
     const f = fade.current;
     if (!f || f.timer !== null) return;
+    window.clearTimeout(f.watchdog);
     const { old, incoming } = f;
     const left = Number.isFinite(old.duration) ? old.duration - old.currentTime : 0;
     const finished = old.ended || old.paused || left <= 0;
@@ -215,7 +280,7 @@ export function usePlayer() {
       return;
     }
     userStarted.current = true;
-    if (audio.paused) audio.play().catch(onPlayRejected);
+    if (audio.paused) audio.play().catch(onPlayRejected(audio));
     else {
       endFade(); // pausing mid-blend silences both songs
       audio.pause();
@@ -274,13 +339,14 @@ export function usePlayer() {
       if (result === "same") {
         resetListened(); // every repetition is a play
         audio.currentTime = 0;
-        audio.play().catch(onPlayRejected);
+        audio.play().catch(onPlayRejected(audio));
         return;
       }
       start(result);
     },
     [audio, onPlayRejected, start, fillRadio],
   );
+  nextRef.current = next;
 
   const prev = useCallback(() => {
     const s = queueRef.current;
@@ -295,7 +361,7 @@ export function usePlayer() {
   const seek = useCallback(
     (secs: number) => {
       audio.currentTime = secs;
-      setTime(secs);
+      clock.set(secs);
     },
     [audio],
   );
@@ -364,15 +430,18 @@ export function usePlayer() {
       pendingSeek.current = saved?.time ?? null;
       return;
     }
-    setTime(pendingSeek.current ?? 0);
+    clock.set(pendingSeek.current ?? 0);
     setIsLoading(true);
-    audio.play().catch(onPlayRejected);
+    audio.play().catch(onPlayRejected(audio));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadKey]);
 
   useEffect(() => {
-    // Mid-blend the fade sets both volumes (from volumeRef).
-    if (!fade.current) audio.volume = volume;
+    const f = fade.current;
+    if (!f) audio.volume = volume;
+    // Waiting for the new song: the old one is what sounds, so it takes the change.
+    else if (f.timer === null) f.old.volume = volume;
+    // Mid-blend the ramp sets both volumes (from volumeRef).
   }, [audio, volume]);
 
   useEffect(() => {
@@ -398,7 +467,7 @@ export function usePlayer() {
       [
         "timeupdate",
         () => {
-          setTime(audio.currentTime);
+          clock.set(audio.currentTime);
           if (!audio.paused && shouldStartFade(crossfadeRef.current, audio.currentTime, audio.duration)) {
             beginFade();
           }
@@ -451,6 +520,11 @@ export function usePlayer() {
       [
         "error",
         () => {
+          // The song coming in during a blend failed: don't let the music stop.
+          if (fade.current?.incoming === audio) {
+            abandonFade();
+            return;
+          }
           endFade();
           setIsPlaying(false);
           setIsLoading(false);
@@ -468,9 +542,18 @@ export function usePlayer() {
     const guarded = listeners.map(([ev, fn]): [string, () => void] => [ev, () => audio === mainRef.current && fn()]);
     guarded.forEach(([ev, fn]) => audio.addEventListener(ev, fn));
     return () => guarded.forEach(([ev, fn]) => audio.removeEventListener(ev, fn));
-  }, [audio, next, beginFade, rampFade, endFade]);
+  }, [audio, next, beginFade, rampFade, endFade, abandonFade]);
 
-  // Remember the queue, position and volume for next time.
+  // Remember the queue, position and volume for next time. The queue (up to thousands of
+  // songs) is written only when it changes; while music plays, only the position.
+  const savePosition = useCallback(() => {
+    try {
+      localStorage.setItem(POSITION_KEY, String(pendingSeek.current ?? audio.currentTime));
+    } catch {
+      /* storage unavailable: not important */
+    }
+  }, [audio]);
+
   const save = useCallback(() => {
     try {
       const data: Saved = {
@@ -481,23 +564,24 @@ export function usePlayer() {
         autoRadio: autoRadioRef.current,
       };
       localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+      savePosition();
     } catch {
       /* storage unavailable or full: not important */
     }
-  }, [audio]);
+  }, [audio, savePosition]);
 
   useEffect(save, [queue, volume, muted, autoRadio, save]);
 
   useEffect(() => {
-    const timer = window.setInterval(() => !audio.paused && save(), SAVE_EVERY_MS);
-    audio.addEventListener("pause", save);
-    window.addEventListener("beforeunload", save);
+    const timer = window.setInterval(() => !audio.paused && savePosition(), SAVE_EVERY_MS);
+    audio.addEventListener("pause", savePosition);
+    window.addEventListener("beforeunload", savePosition);
     return () => {
       window.clearInterval(timer);
-      audio.removeEventListener("pause", save);
-      window.removeEventListener("beforeunload", save);
+      audio.removeEventListener("pause", savePosition);
+      window.removeEventListener("beforeunload", savePosition);
     };
-  }, [audio, save]);
+  }, [audio, savePosition]);
 
   // Media keys and the OS "now playing" panel (SMTC on Windows) via the Media Session API.
   useEffect(() => {
@@ -528,7 +612,7 @@ export function usePlayer() {
     repeat: queue.repeat,
     isPlaying,
     isLoading,
-    time,
+    clock,
     duration,
     volume,
     muted,
