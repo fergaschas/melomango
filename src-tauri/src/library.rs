@@ -96,6 +96,37 @@ pub struct Play {
     pub played_at: i64,
 }
 
+/// What the user listened to in one month (for "Tu resumen del mes").
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MonthSummary {
+    /// "YYYY-MM", in local time.
+    pub month: String,
+    pub plays: u32,
+    /// Approximate: the length of every song played (unknown lengths count as 0).
+    pub minutes: u32,
+    pub songs: u32,
+    pub artists: u32,
+    pub top_tracks: Vec<TrackCount>,
+    pub top_artists: Vec<ArtistCount>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackCount {
+    pub track: Track,
+    pub plays: u32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtistCount {
+    pub name: String,
+    pub plays: u32,
+    /// Cover of their most played song, to show something.
+    pub artwork_url: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct PlaylistSummary {
@@ -240,6 +271,74 @@ impl Library {
                 Ok(Play { track: track_from_row(r)?, played_at: r.get("played_at")? })
             })?;
             rows.collect()
+        })
+    }
+
+    /// Months ("YYYY-MM", local time) with plays, newest first.
+    pub fn summary_months(&self) -> anyhow::Result<Vec<String>> {
+        self.with(|c| {
+            c.prepare(
+                "SELECT DISTINCT strftime('%Y-%m', played_at / 1000, 'unixepoch', 'localtime') AS m
+                 FROM plays ORDER BY m DESC",
+            )?
+            .query_map([], |r| r.get(0))?
+            .collect()
+        })
+    }
+
+    /// Totals and favourites of `month` ("YYYY-MM", local time).
+    pub fn month_summary(&self, month: &str) -> anyhow::Result<MonthSummary> {
+        const TOP_TRACKS: usize = 10;
+        const TOP_ARTISTS: usize = 5;
+        let rows: Vec<(Track, i64)> = self.with(|c| {
+            c.prepare(
+                "SELECT t.*, p.played_at FROM plays p JOIN tracks t USING (source, id)
+                 WHERE strftime('%Y-%m', p.played_at / 1000, 'unixepoch', 'localtime') = ?1
+                 ORDER BY p.played_at DESC",
+            )?
+            .query_map([month], |r| Ok((track_from_row(r)?, r.get("played_at")?)))?
+            .collect()
+        })?;
+
+        // Per song: plays and the latest one (ties go to the most recent).
+        let mut songs: Vec<(Track, u32)> = Vec::new();
+        let mut artists: Vec<(String, u32, Option<String>)> = Vec::new();
+        let mut minutes_secs: u64 = 0;
+        for (track, _) in &rows {
+            minutes_secs += track.duration_secs as u64;
+            match songs.iter_mut().find(|(t, _)| t.source == track.source && t.id == track.id) {
+                Some((_, n)) => *n += 1,
+                None => songs.push((track.clone(), 1)),
+            }
+            for name in split_artists(&track.artist) {
+                match artists.iter_mut().find(|(a, _, _)| a.to_lowercase() == name.to_lowercase()) {
+                    Some((_, n, art)) => {
+                        *n += 1;
+                        if art.is_none() {
+                            art.clone_from(&track.artwork_url);
+                        }
+                    }
+                    None => artists.push((name.to_string(), 1, track.artwork_url.clone())),
+                }
+            }
+        }
+        let distinct_songs = songs.len() as u32;
+        let distinct_artists = artists.len() as u32;
+        // Stable sorts: equal counts keep the most recent first.
+        songs.sort_by(|a, b| b.1.cmp(&a.1));
+        artists.sort_by(|a, b| b.1.cmp(&a.1));
+        Ok(MonthSummary {
+            month: month.to_string(),
+            plays: rows.len() as u32,
+            minutes: (minutes_secs / 60) as u32,
+            songs: distinct_songs,
+            artists: distinct_artists,
+            top_tracks: songs.into_iter().take(TOP_TRACKS).map(|(track, plays)| TrackCount { track, plays }).collect(),
+            top_artists: artists
+                .into_iter()
+                .take(TOP_ARTISTS)
+                .map(|(name, plays, artwork_url)| ArtistCount { name, plays, artwork_url })
+                .collect(),
         })
     }
 
@@ -606,6 +705,26 @@ fn link(c: &Connection, playlist_id: i64) -> rusqlite::Result<Option<PlaylistLin
     .optional()
 }
 
+/// "Shakira, Burna Boy" / "A & B" / "A feat. B" -> each artist (empty names left out).
+fn split_artists(artist: &str) -> Vec<&str> {
+    let lower = artist.to_lowercase();
+    let mut parts = Vec::new();
+    let mut start = 0;
+    let separators = [", ", ",", " & ", " feat. ", " ft. ", " featuring "];
+    let mut i = 0;
+    while i < artist.len() {
+        if let Some(sep) = separators.iter().find(|s| lower[i..].starts_with(*s)) {
+            parts.push(artist[start..i].trim());
+            i += sep.len();
+            start = i;
+        } else {
+            i += artist[i..].chars().next().map_or(1, char::len_utf8);
+        }
+    }
+    parts.push(artist[start..].trim());
+    parts.into_iter().filter(|p| !p.is_empty()).collect()
+}
+
 fn track_from_row(r: &Row) -> rusqlite::Result<Track> {
     Ok(Track {
         source: r.get("source")?,
@@ -792,6 +911,46 @@ mod tests {
         assert!(lib.recent_plays(10).unwrap().is_empty());
         // The tracks themselves (and likes, playlists…) stay.
         assert!(lib.track("audius", "a").unwrap().is_some());
+    }
+
+    #[test]
+    fn summarises_a_month() {
+        let lib = Library::in_memory();
+        let mut duet = track("d");
+        duet.artist = "Shakira, Burna Boy".into();
+        let mut shakira = track("s");
+        shakira.artist = "Shakira".into();
+        // 2026-11-10 12:00 local-ish (UTC noon keeps the same day in most zones).
+        let nov = 1_794_312_000_000i64;
+        let oct = nov - 31 * 86_400_000;
+        for (t, when) in [(&shakira, nov), (&duet, nov + 1), (&shakira, nov + 2), (&track("a"), nov + 3), (&track("a"), oct)] {
+            lib.record_play_at(t, when).unwrap();
+        }
+        let months = lib.summary_months().unwrap();
+        assert_eq!(months.len(), 2);
+        assert!(months[0] > months[1], "newest first");
+
+        let s = lib.month_summary(&months[0]).unwrap();
+        assert_eq!((s.plays, s.songs), (4, 3));
+        assert_eq!(s.minutes, 4 * 100 / 60, "track() lasts 100 s");
+        assert_eq!(s.top_tracks[0].track.id, "s");
+        assert_eq!(s.top_tracks[0].plays, 2);
+        assert_eq!(s.top_artists[0].name, "Shakira");
+        assert_eq!(s.top_artists[0].plays, 3, "the duet counts for both artists");
+        assert!(s.top_artists.iter().any(|a| a.name == "Burna Boy"));
+        assert_eq!(s.artists, 3);
+
+        let empty = lib.month_summary("1999-01").unwrap();
+        assert_eq!((empty.plays, empty.top_tracks.len()), (0, 0));
+    }
+
+    #[test]
+    fn splits_artist_lines() {
+        assert_eq!(split_artists("Shakira, Burna Boy"), ["Shakira", "Burna Boy"]);
+        assert_eq!(split_artists("Daft Punk feat. Pharrell Williams"), ["Daft Punk", "Pharrell Williams"]);
+        assert_eq!(split_artists("Bad Bunny & Drake"), ["Bad Bunny", "Drake"]);
+        assert_eq!(split_artists("ROSALÍA"), ["ROSALÍA"]);
+        assert!(split_artists("").is_empty());
     }
 
     #[test]

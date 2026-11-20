@@ -20,6 +20,7 @@ import { ServicesDialog } from "./components/ServicesDialog";
 import { Sidebar } from "./components/Sidebar";
 import { LikesView, PlaylistView } from "./components/LibraryViews";
 import { HistoryView } from "./components/HistoryView";
+import { SummaryView } from "./components/SummaryView";
 import { AlbumView, ArtistView, PublicPlaylistView } from "./components/CatalogViews";
 import { SearchResults, type SearchFilter } from "./components/SearchResults";
 import { ErrorNotice } from "./components/ErrorNotice";
@@ -34,6 +35,7 @@ export type View =
   | { kind: "search"; query: string; filter?: SearchFilter }
   | { kind: "likes" }
   | { kind: "history" }
+  | { kind: "summary" }
   | { kind: "artist"; name: string; id?: string }
   | { kind: "album"; id: string }
   | { kind: "publicPlaylist"; id: string }
@@ -275,6 +277,7 @@ export default function App() {
           <main className="content" ref={contentRef}>
             {view.kind === "likes" && <LikesView player={player} />}
             {view.kind === "history" && <HistoryView player={player} />}
+            {view.kind === "summary" && <SummaryView player={player} />}
             {view.kind === "artist" && (
               <ArtistView key={view.id ?? view.name} name={view.name} id={view.id} player={player} />
             )}

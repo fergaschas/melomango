@@ -258,6 +258,21 @@ export const recordPlay = (track: Track) =>
 export const recentPlays = (limit?: number) => invoke<Play[]>("recent_plays", { limit: limit ?? null });
 export const clearHistory = () => invoke<void>("clear_history");
 
+export interface MonthSummary {
+  /** "YYYY-MM" */
+  month: string;
+  plays: number;
+  minutes: number;
+  songs: number;
+  artists: number;
+  topTracks: { track: Track; plays: number }[];
+  topArtists: { name: string; plays: number; artworkUrl: string | null }[];
+}
+
+/** Months with plays ("YYYY-MM"), newest first. */
+export const summaryMonths = () => invoke<string[]>("summary_months");
+export const monthSummary = (month: string) => invoke<MonthSummary>("month_summary", { month });
+
 export interface MatchOptions {
   track: Track;
   query: string;

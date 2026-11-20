@@ -24,7 +24,7 @@ use tauri_plugin_opener::OpenerExt;
 
 use artists::{AlbumPage, ArtistPage, ArtistService, CatalogSearch, PlaylistPage};
 use catalog::{Catalog, RegistryInfo, Registries};
-use library::{Library, Play, Playlist, PlaylistSummary};
+use library::{Library, MonthSummary, Play, Playlist, PlaylistSummary};
 use serde::Serialize;
 use lyrics::{Lyrics, LyricsService};
 use models::{SourceInfo, Track};
@@ -529,6 +529,18 @@ fn recent_plays(state: State<'_, AppState>, limit: Option<u32>) -> Result<Vec<Pl
     state.library.recent_plays(limit.unwrap_or(500).min(5_000)).map_err(err)
 }
 
+/// Months with plays ("YYYY-MM"), newest first.
+#[tauri::command]
+fn summary_months(state: State<'_, AppState>) -> Result<Vec<String>, String> {
+    state.library.summary_months().map_err(err)
+}
+
+/// "Tu resumen del mes": totals and favourites of `month` ("YYYY-MM").
+#[tauri::command]
+fn month_summary(state: State<'_, AppState>, month: String) -> Result<MonthSummary, String> {
+    state.library.month_summary(&month).map_err(err)
+}
+
 #[tauri::command]
 fn clear_history(state: State<'_, AppState>) -> Result<(), String> {
     state.library.clear_history().map_err(err)
@@ -686,6 +698,8 @@ pub fn run() {
             set_close_to_tray,
             recent_plays,
             clear_history,
+            summary_months,
+            month_summary,
             prefetch_stream
         ])
         .run(tauri::generate_context!())

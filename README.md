@@ -39,7 +39,8 @@ el tiempo. Melomango habla con la app de Discord de tu equipo (no envía nada po
 en que se añadió, título, artista o duración (el orden se recuerda en cada lista).
 
 **Historial** (en la barra lateral): lo que has escuchado, por días. Una canción cuenta tras sonar 30 segundos (o la
-mitad, si es más corta). Se guarda solo en tu equipo y se puede borrar.
+mitad, si es más corta). Se guarda solo en tu equipo y se puede borrar. **Tu resumen** muestra cada mes tus escuchas, minutos,
+canciones y artistas, tu canción del mes y tus artistas y canciones más escuchados.
 
 Fuentes:
 

@@ -2232,3 +2232,136 @@ kbd {
 .player-error .link-btn {
   flex-shrink: 0;
 }
+
+/* ---------- Monthly summary ---------- */
+.month-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.summary-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 12px;
+  margin-top: 6px;
+}
+
+.stat {
+  display: grid;
+  gap: 2px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+.stat-value {
+  font-size: 1.8rem;
+  font-weight: 800;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent-deep);
+}
+
+.stat-label {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.song-of-month {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  border-radius: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+.song-of-month > img,
+.song-of-month > .art-placeholder {
+  width: 96px;
+  height: 96px;
+  flex-shrink: 0;
+  border-radius: 12px;
+  object-fit: cover;
+}
+
+.ranking img,
+.ranking .art-placeholder {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  object-fit: cover;
+}
+
+.song-of-month-text {
+  display: grid;
+  justify-items: start;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.summary-columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 0 24px;
+}
+
+.ranking {
+  list-style: none;
+  margin: 0;
+  padding: 6px;
+  border-radius: 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+.ranking li {
+  display: grid;
+  grid-template-columns: 22px 40px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 10px;
+}
+
+.ranking li:hover {
+  background: var(--surface-soft);
+}
+
+.rank {
+  color: var(--muted);
+  font-weight: 700;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.ranking-name,
+.ranking-song {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+
+.ranking-song {
+  display: grid;
+}
+
+.ranking-song .track-title,
+.ranking-song .track-artist {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ranking-count {
+  color: var(--muted);
+  font-size: 0.8rem;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}

@@ -3,7 +3,7 @@ import { useLibrary } from "../lib/library";
 import type { View } from "../App";
 import type { Updater } from "../hooks/useUpdater";
 import { updateStatusText } from "./UpdateCard";
-import { ClockIcon, HomeIcon, ImportIcon, KeyboardIcon, PlusIcon, SettingsIcon } from "./Icons";
+import { ChartIcon, ClockIcon, HomeIcon, ImportIcon, KeyboardIcon, PlusIcon, SettingsIcon } from "./Icons";
 import { PlaylistCover } from "./PlaylistCover";
 
 export function Sidebar({
@@ -62,6 +62,15 @@ export function Sidebar({
           <ClockIcon size={18} />
         </span>
         Historial
+      </button>
+      <button
+        className={`nav-item${view.kind === "summary" ? " active" : ""}`}
+        onClick={() => onNavigate({ kind: "summary" })}
+      >
+        <span className="nav-icon history-icon">
+          <ChartIcon size={18} />
+        </span>
+        Tu resumen
       </button>
 
       <div className="sidebar-section">
