@@ -12,6 +12,7 @@ import {
 } from "../lib/crossfade";
 import { loadNormalize, Loudness, saveNormalize } from "../lib/loudness";
 import { Clock } from "../lib/clock";
+import { freshListen, listenTick, parseSaved, type Listened, type Saved } from "../lib/playerState";
 
 const SAVE_KEY = "melomango.player";
 /** The position, saved on its own (often) so the queue is not rewritten every few seconds. */
@@ -33,16 +34,6 @@ async function streamFailure(src: string): Promise<string | null> {
 }
 /** Queued songs sent to the radio so it doesn't suggest them again (the latest ones). */
 const RADIO_EXCLUDE = 400;
-/** A track counts as listened after this many seconds of actual playback (or half of it, if shorter). */
-const PLAY_COUNTS_AFTER = 30;
-
-interface Saved {
-  queue: q.SavedQueue;
-  time: number;
-  volume: number;
-  muted: boolean;
-  autoRadio?: boolean;
-}
 
 /** A blend in progress: `old` fades out while `incoming` (now the main element) fades in. */
 interface Fade {
@@ -65,13 +56,9 @@ function release(el: HTMLAudioElement) {
 
 function loadSaved(): Saved | null {
   try {
-    const raw = localStorage.getItem(SAVE_KEY);
-    if (!raw) return null;
-    const saved = JSON.parse(raw) as Saved;
-    const position = Number(localStorage.getItem(POSITION_KEY));
-    return Number.isFinite(position) && localStorage.getItem(POSITION_KEY) !== null ? { ...saved, time: position } : saved;
+    return parseSaved(localStorage.getItem(SAVE_KEY), localStorage.getItem(POSITION_KEY));
   } catch {
-    return null;
+    return null; // storage unavailable
   }
 }
 
@@ -127,7 +114,7 @@ export function usePlayer() {
   /** Bumped to make the same track load again from scratch (another recording was chosen). */
   const reloads = useRef(0);
   /** Seconds actually played of the current load (seeking doesn't count), and whether it was recorded. */
-  const listened = useRef({ secs: 0, last: null as number | null, recorded: false });
+  const listened = useRef<Listened>(freshListen());
   const currentRef = useRef<Track | null>(null);
   const autoRadioRef = useRef(autoRadio);
   autoRadioRef.current = autoRadio;
@@ -140,7 +127,7 @@ export function usePlayer() {
   currentRef.current = current;
 
   const resetListened = () => {
-    listened.current = { secs: 0, last: null, recorded: false };
+    listened.current = freshListen();
   };
 
   /** What to do when `el.play()` is rejected. */
@@ -472,20 +459,11 @@ export function usePlayer() {
             beginFade();
           }
           // Count real playback time towards the history.
-          const l = listened.current;
-          const now = audio.currentTime;
-          if (!audio.paused && l.last !== null) {
-            const delta = now - l.last;
-            if (delta > 0 && delta < 2) l.secs += delta;
-          }
-          l.last = now;
           const track = currentRef.current;
           const length = Number.isFinite(audio.duration) ? audio.duration : (track?.durationSecs ?? 0);
-          const needed = Math.min(PLAY_COUNTS_AFTER, length > 0 ? length / 2 : PLAY_COUNTS_AFTER);
-          if (track && !l.recorded && l.secs >= needed) {
-            l.recorded = true;
-            recordPlay(track).catch(() => {});
-          }
+          const { next, counts } = listenTick(listened.current, audio.currentTime, !audio.paused, length);
+          listened.current = next;
+          if (track && counts) recordPlay(track).catch(() => {});
         },
       ],
       [

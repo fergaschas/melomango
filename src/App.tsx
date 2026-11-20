@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useReducer } from "react";
 import { DEFAULT_SOURCE, listPlugins, listSources, searchTracks, trackKey, trendingTracks, type SourceInfo, type Track } from "./lib/api";
 import { MatchFixContext, type MatchFix } from "./lib/matchFix";
 import { useLibrary, useToast } from "./lib/library";
@@ -38,6 +38,7 @@ import { LyricsPanel } from "./components/LyricsPanel";
 import { BackIcon, PuzzleIcon } from "./components/Icons";
 import logo from "../app-icon.svg";
 import "./App.css";
+import { navReducer } from "./lib/navigation";
 
 export type View =
   | { kind: "home" }
@@ -88,31 +89,13 @@ export default function App() {
   const [sourceId, setSourceId] = useState(savedSource);
   const [showPlugins, setShowPlugins] = useState(false);
   const [query, setQuery] = useState("");
-  const [view, setCurrentView] = useState<View>({ kind: "home" });
-  // Views visited before this one, for "Atrás" (kept in refs too so handlers see the latest).
-  const [backStack, setBackStack] = useState<View[]>([]);
-  const viewRef = useRef(view);
-  const backRef = useRef(backStack);
+  // The view shown and the ones before it, for «Atrás» (see lib/navigation).
+  const [navState, dispatchNav] = useReducer(navReducer<View>, { view: { kind: "home" }, back: [] });
+  const { view, back: backStack } = navState;
   const contentRef = useRef<HTMLElement>(null);
 
-  const setView = useCallback((next: View) => {
-    const prev = viewRef.current;
-    if (JSON.stringify(prev) === JSON.stringify(next)) return;
-    backRef.current = [...backRef.current.slice(-49), prev];
-    setBackStack(backRef.current);
-    viewRef.current = next;
-    setCurrentView(next);
-  }, []);
-
-  const goBack = useCallback(() => {
-    const stack = backRef.current;
-    const prev = stack[stack.length - 1];
-    if (!prev) return;
-    backRef.current = stack.slice(0, -1);
-    setBackStack(backRef.current);
-    viewRef.current = prev;
-    setCurrentView(prev);
-  }, []);
+  const setView = useCallback((next: View) => dispatchNav({ type: "go", view: next }), []);
+  const goBack = useCallback(() => dispatchNav({ type: "back" }), []);
 
   const nav = useMemo<Nav>(
     () => ({
