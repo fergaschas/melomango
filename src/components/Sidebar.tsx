@@ -34,15 +34,15 @@ export function Sidebar({
     onNavigate({ kind: "playlist", id: playlist.id });
   }
 
-  const isBrowse = view.kind === "trending" || view.kind === "search";
+  const isBrowse = view.kind === "home" || view.kind === "trending" || view.kind === "search";
 
   return (
     <nav className="sidebar" aria-label="Biblioteca">
-      <button className={`nav-item${isBrowse ? " active" : ""}`} onClick={() => onNavigate({ kind: "trending" })}>
+      <button className={`nav-item${isBrowse ? " active" : ""}`} onClick={() => onNavigate({ kind: "home" })}>
         <span className="nav-icon">
           <HomeIcon size={18} />
         </span>
-        Explorar
+        Inicio
       </button>
       <button
         className={`nav-item${view.kind === "likes" ? " active" : ""}`}

@@ -2365,3 +2365,22 @@ kbd {
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
+
+/* ---------- Home ---------- */
+.home-note {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.album-grid.row {
+  grid-template-columns: none;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(120px, 150px);
+  overflow-x: auto;
+  padding-bottom: 6px;
+  scroll-snap-type: x proximity;
+}
+
+.album-grid.row > li {
+  scroll-snap-align: start;
+}

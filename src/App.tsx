@@ -21,6 +21,7 @@ import { Sidebar } from "./components/Sidebar";
 import { LikesView, PlaylistView } from "./components/LibraryViews";
 import { HistoryView } from "./components/HistoryView";
 import { SummaryView } from "./components/SummaryView";
+import { HomeView } from "./components/HomeView";
 import { AlbumView, ArtistView, PublicPlaylistView } from "./components/CatalogViews";
 import { SearchResults, type SearchFilter } from "./components/SearchResults";
 import { ErrorNotice } from "./components/ErrorNotice";
@@ -31,6 +32,7 @@ import logo from "../app-icon.svg";
 import "./App.css";
 
 export type View =
+  | { kind: "home" }
   | { kind: "trending" }
   | { kind: "search"; query: string; filter?: SearchFilter }
   | { kind: "likes" }
@@ -75,7 +77,7 @@ export default function App() {
   const [sourceId, setSourceId] = useState(savedSource);
   const [showPlugins, setShowPlugins] = useState(false);
   const [query, setQuery] = useState("");
-  const [view, setCurrentView] = useState<View>({ kind: "trending" });
+  const [view, setCurrentView] = useState<View>({ kind: "home" });
   // Views visited before this one, for "Atrás" (kept in refs too so handlers see the latest).
   const [backStack, setBackStack] = useState<View[]>([]);
   const viewRef = useRef(view);
@@ -209,13 +211,13 @@ export default function App() {
   function onSearch(e: FormEvent) {
     e.preventDefault();
     const q = query.trim();
-    setView(q ? { kind: "search", query: q } : { kind: "trending" });
+    setView(q ? { kind: "search", query: q } : { kind: "home" });
   }
 
   function selectSource(id: string) {
     setSourceId(id);
     // Switching source from a library view goes back to browsing.
-    if (view.kind !== "trending" && view.kind !== "search") setView({ kind: "trending" });
+    if (view.kind !== "home" && view.kind !== "trending" && view.kind !== "search") setView({ kind: "home" });
   }
 
   return (
@@ -223,7 +225,7 @@ export default function App() {
       <MatchFixContext.Provider value={matchFix}>
         <div className={`app${panel ? " with-panel" : ""}`}>
           <header className="topbar">
-            <button className="logo" onClick={() => setView({ kind: "trending" })}>
+            <button className="logo" onClick={() => setView({ kind: "home" })}>
               <img className="logo-mark" src={logo} alt="" width={34} height={34} /> Melomango
             </button>
             <button
@@ -276,6 +278,9 @@ export default function App() {
 
           <main className="content" ref={contentRef}>
             {view.kind === "likes" && <LikesView player={player} />}
+            {view.kind === "home" && (
+              <HomeView source={source} player={player} onSeeTrending={() => setView({ kind: "trending" })} />
+            )}
             {view.kind === "history" && <HistoryView player={player} />}
             {view.kind === "summary" && <SummaryView player={player} />}
             {view.kind === "artist" && (

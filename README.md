@@ -38,6 +38,9 @@ el tiempo. Melomango habla con la app de Discord de tu equipo (no envía nada po
 **Ordenar y filtrar**: en tus playlists y en Me gusta puedes filtrar por título o artista y ordenar por tu orden, fecha
 en que se añadió, título, artista o duración (el orden se recuerda en cada lista).
 
+**Inicio**: al abrir Melomango ves lo escuchado hace poco, tus artistas del mes, mezclas de tus Me gusta (una por
+artista, en aleatorio), canciones para volver a escuchar, tus playlists y las tendencias.
+
 **Historial** (en la barra lateral): lo que has escuchado, por días. Una canción cuenta tras sonar 30 segundos (o la
 mitad, si es más corta). Se guarda solo en tu equipo y se puede borrar. **Tu resumen** muestra cada mes tus escuchas, minutos,
 canciones y artistas, tu canción del mes y tus artistas y canciones más escuchados.

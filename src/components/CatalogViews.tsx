@@ -30,9 +30,10 @@ export interface Card {
   onOpen: () => void;
 }
 
-export function CardGrid({ cards }: { cards: Card[] }) {
+/** Tiles in a grid, or in one scrollable `row` (the home page). */
+export function CardGrid({ cards, row }: { cards: Card[]; row?: boolean }) {
   return (
-    <ul className="album-grid">
+    <ul className={`album-grid${row ? " row" : ""}`}>
       {cards.map((c) => (
         <li key={c.key}>
           <button className={`album-card${c.round ? " round" : ""}`} onClick={c.onOpen}>
