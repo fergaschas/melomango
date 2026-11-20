@@ -25,7 +25,7 @@ Al instalarlo, Melomango copia la carpeta a `%APPDATA%\com.melomango.app\plugins
 
 | Campo | Obligatorio | Descripción |
 |---|---|---|
-| `id` | sí | Minúsculas, números, `-` y `_` (máx. 40). `audius` está reservado. |
+| `id` | sí | Minúsculas, números, `-` y `_` (máx. 40). |
 | `name` | sí | Nombre visible en la app. |
 | `version` | sí | Versión del plugin. |
 | `protocol` | sí | Debe ser `1`. |

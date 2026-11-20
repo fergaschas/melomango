@@ -20,7 +20,7 @@ export interface SourceInfo {
   isLibrary: boolean;
 }
 
-export const DEFAULT_SOURCE = "audius";
+export const DEFAULT_SOURCE = "youtube";
 
 export const listSources = () => invoke<SourceInfo[]>("list_sources");
 

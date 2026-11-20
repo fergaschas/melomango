@@ -31,6 +31,8 @@ pub struct StreamInfo {
 #[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SourceKind {
+    /// Built into the app (none today: every source is a plugin).
+    #[allow(dead_code)]
     Builtin,
     Plugin,
 }

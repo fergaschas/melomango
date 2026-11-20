@@ -44,8 +44,6 @@ const MANIFEST: &str = "plugin.json";
 const CALL_TIMEOUT: Duration = Duration::from_secs(60);
 /// `connect` waits for the user to log in; `install-requirement` may download software.
 const LONG_TIMEOUT: Duration = Duration::from_secs(10 * 60);
-/// Ids taken by built-in sources.
-const RESERVED_IDS: &[&str] = &["audius"];
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -126,9 +124,6 @@ impl PluginSource {
             serde_json::from_str(&text).with_context(|| format!("{} no es válido", path.display()))?;
 
         validate_id(&manifest.id)?;
-        if RESERVED_IDS.contains(&manifest.id.as_str()) {
-            bail!("el id \"{}\" está reservado", manifest.id);
-        }
         if manifest.protocol != PROTOCOL_VERSION {
             bail!(
                 "el plugin usa el protocolo {} y Melomango entiende el {PROTOCOL_VERSION}",
@@ -497,7 +492,6 @@ mod tests {
     fn rejects_bad_manifests() {
         let root = temp_dir("reject");
         let cases = [
-            (r#"{"id":"audius","name":"X","version":"1","protocol":1,"executable":"bin"}"#, "reservado"),
             (r#"{"id":"Bad Id","name":"X","version":"1","protocol":1,"executable":"bin"}"#, "no válido"),
             (r#"{"id":"x","name":"X","version":"1","protocol":99,"executable":"bin"}"#, "protocolo"),
             (r#"{"id":"x","name":"X","version":"1","protocol":1,"executable":"../bin"}"#, "dentro"),

@@ -402,21 +402,19 @@ mod tests {
         fs::remove_dir_all(&dir).unwrap();
     }
 
-    /// End-to-end against the real Audius API: downloads a trending song and plays it
-    /// back through the `stream://` protocol, from disk. `cargo test -- --ignored`
+    /// End-to-end against YouTube (plugin from the official repository): downloads a song
+    /// and plays it back through the `stream://` protocol, from disk. `cargo test -- --ignored`
     #[tokio::test]
-    #[ignore]
-    async fn downloads_and_serves_an_audius_track() {
-        use crate::sources::{audius::Audius, MusicSource};
+    #[ignore = "necesita red y yt-dlp"]
+    async fn downloads_and_serves_a_youtube_track() {
+        use crate::sources::MusicSource;
         use crate::stream::{handle, StreamCache};
         use tauri::http::{header, Request};
 
-        let http = reqwest::Client::new();
-        let audius = Arc::new(Audius::new(http.clone()));
-        let mut tracks = audius.trending().await.unwrap();
-        tracks.sort_by_key(|t| t.duration_secs); // the shortest, to be quick
-        let track = tracks.into_iter().find(|t| t.duration_secs > 30).expect("sin tendencias");
-        let registry = Arc::new(Registry::new(vec![audius]));
+        let http = reqwest::Client::builder().user_agent("Melomango-tests").build().unwrap();
+        let (youtube, plugin_dir) = crate::catalog::youtube_for_tests(&http).await;
+        let track = youtube.search("shakira dai dai").await.unwrap().into_iter().next().expect("sin resultados");
+        let registry = Arc::new(Registry::new(vec![youtube]));
         let library = Library::in_memory();
         let dir = std::env::temp_dir().join(format!("melomango-dl-e2e-{}", std::process::id()));
         let downloads = Downloads::new(dir.clone());
@@ -427,7 +425,7 @@ mod tests {
         let last = events.last().unwrap();
         assert_eq!(last.state, State::Done, "{events:?}");
         assert!(events.iter().any(|p| p.state == State::Downloading && p.received > 0));
-        let (path, file) = downloads.local(&library, "audius", &track.id).expect("descargada");
+        let (path, file) = downloads.local(&library, "youtube", &track.id).expect("descargada");
         assert_eq!(fs::metadata(&path).unwrap().len(), file.size);
         assert_eq!(last.total, Some(file.size));
         println!("{} → {} ({} bytes, {})", track.title, path.display(), file.size, file.mime);
@@ -435,7 +433,7 @@ mod tests {
         // Played from disk: an unreachable source would not matter now.
         let offline = Arc::new(Registry::new(Vec::<Arc<dyn MusicSource>>::new()));
         let request = Request::builder()
-            .uri(format!("http://stream.localhost/audius%2F{}", track.id))
+            .uri(format!("http://stream.localhost/youtube%2F{}", track.id))
             .header(header::RANGE, "bytes=100-")
             .body(Vec::new())
             .unwrap();
@@ -444,10 +442,11 @@ mod tests {
         assert_eq!(&response.body()[..10], &fs::read(&path).unwrap()[100..110]);
         assert!(response.headers()[header::CONTENT_RANGE].to_str().unwrap().ends_with(&format!("/{}", file.size)));
 
-        downloads.remove(&library, "audius", &track.id).unwrap();
+        downloads.remove(&library, "youtube", &track.id).unwrap();
         assert!(!path.exists());
-        assert!(downloads.local(&library, "audius", &track.id).is_none());
+        assert!(downloads.local(&library, "youtube", &track.id).is_none());
         fs::remove_dir_all(&dir).ok();
+        fs::remove_dir_all(&plugin_dir).ok();
     }
 
     #[test]
@@ -484,19 +483,15 @@ mod tests {
         fs::remove_dir_all(&dir).ok();
     }
 
-    /// End-to-end against the real Audius API: a song played twice is cached on its own,
-    /// and a later download keeps that copy. `cargo test -- --ignored`
+    /// End-to-end against YouTube: a song played twice is cached on its own, and a later
+    /// download keeps that copy. `cargo test -- --ignored`
     #[tokio::test]
-    #[ignore]
+    #[ignore = "necesita red y yt-dlp"]
     async fn caches_a_song_played_twice() {
-        use crate::sources::{audius::Audius, MusicSource};
-
-        let http = reqwest::Client::new();
-        let audius = Arc::new(Audius::new(http.clone()));
-        let mut tracks = audius.trending().await.unwrap();
-        tracks.sort_by_key(|t| t.duration_secs);
-        let track = tracks.into_iter().find(|t| t.duration_secs > 30).expect("sin tendencias");
-        let registry = Arc::new(Registry::new(vec![audius as Arc<dyn MusicSource>]));
+        let http = reqwest::Client::builder().user_agent("Melomango-tests").build().unwrap();
+        let (youtube, plugin_dir) = crate::catalog::youtube_for_tests(&http).await;
+        let track = youtube.search("vetusta morla copenhague").await.unwrap().into_iter().next().expect("sin resultados");
+        let registry = Arc::new(Registry::new(vec![youtube]));
         let library = Library::in_memory();
         let dir = std::env::temp_dir().join(format!("melomango-cache-e2e-{}", std::process::id()));
         let downloads = Downloads::new(dir.clone());
@@ -504,11 +499,11 @@ mod tests {
         library.record_play(&track).unwrap();
         downloads.set_cache_limit(&library, 1 << 30).unwrap();
         downloads.cache_if_favourite(&registry, &library, &http, &track).await;
-        assert!(downloads.local(&library, "audius", &track.id).is_none(), "played once: not yet");
+        assert!(downloads.local(&library, "youtube", &track.id).is_none(), "played once: not yet");
 
         library.record_play(&track).unwrap();
         downloads.cache_if_favourite(&registry, &library, &http, &track).await;
-        let (_, file) = downloads.local(&library, "audius", &track.id).expect("cacheada");
+        let (_, file) = downloads.local(&library, "youtube", &track.id).expect("cacheada");
         assert_eq!(library.cache_usage().unwrap(), (1, file.size));
         assert!(library.downloaded_keys().unwrap().is_empty(), "not shown as a download");
 
@@ -519,11 +514,12 @@ mod tests {
         assert_eq!(events.len(), 1, "{events:?}");
         assert_eq!(events[0].state, State::Done);
         assert_eq!(library.cache_usage().unwrap(), (0, 0));
-        assert_eq!(library.downloaded_keys().unwrap(), [format!("audius/{}", track.id)]);
+        assert_eq!(library.downloaded_keys().unwrap(), [format!("youtube/{}", track.id)]);
 
         // Turning the cache off doesn't touch downloads.
         downloads.set_cache_limit(&library, 0).unwrap();
-        assert!(downloads.local(&library, "audius", &track.id).is_some());
+        assert!(downloads.local(&library, "youtube", &track.id).is_some());
         fs::remove_dir_all(&dir).ok();
+        fs::remove_dir_all(&plugin_dir).ok();
     }
 }

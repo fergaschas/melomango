@@ -38,7 +38,7 @@
     "category": "Music",
     "homepage": "https://github.com/fergaschas/melomango",
     "shortDescription": "Reproductor de música en streaming gratuito",
-    "longDescription": "Melomango es un reproductor de música en streaming gratuito para escritorio: Audius integrado, plugins instalables (como YouTube), playlists, Me gusta y letras sincronizadas.",
+    "longDescription": "Melomango es un reproductor de música en streaming gratuito para escritorio: suena desde YouTube, con playlists, Me gusta, letras sincronizadas, descargas y plugins instalables.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

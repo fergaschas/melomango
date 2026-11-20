@@ -332,3 +332,19 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 }
+
+/// The YouTube plugin installed from the official repository into a temporary folder,
+/// for tests against the real service. Returns the source and the folder to delete.
+#[cfg(test)]
+pub async fn youtube_for_tests(
+    http: &reqwest::Client,
+) -> (std::sync::Arc<dyn crate::sources::MusicSource>, std::path::PathBuf) {
+    let dir = std::env::temp_dir().join(format!(
+        "melomango-yt-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    install(http, OFFICIAL_INDEX, "youtube", &dir).await.unwrap();
+    let source = crate::sources::plugin::discover(&dir, &dir.join("data")).pop().expect("plugin de YouTube");
+    (std::sync::Arc::new(source), dir)
+}

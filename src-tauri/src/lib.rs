@@ -32,7 +32,6 @@ use serde::Serialize;
 use lyrics::{Lyrics, LyricsService};
 use models::{SourceInfo, Track};
 use sources::{
-    audius::Audius,
     plugin::{self, Collection, LibraryStatus, PluginSource, Requirement},
     MusicSource, Registry,
 };
@@ -43,7 +42,6 @@ struct AppState {
     registry: RwLock<Arc<Registry>>,
     /// Every installed plugin, playable or metadata-only.
     plugins: RwLock<Vec<Arc<PluginSource>>>,
-    builtins: Vec<Arc<dyn MusicSource>>,
     plugins_dir: PathBuf,
     plugin_data_dir: PathBuf,
     registries: Registries,
@@ -66,13 +64,11 @@ impl AppState {
             .into_iter()
             .map(Arc::new)
             .collect();
-        let mut sources = self.builtins.clone();
-        sources.extend(
-            plugins
-                .iter()
-                .filter(|p| p.is_source())
-                .map(|p| p.clone() as Arc<dyn MusicSource>),
-        );
+        let sources: Vec<Arc<dyn MusicSource>> = plugins
+            .iter()
+            .filter(|p| p.is_source())
+            .map(|p| p.clone() as Arc<dyn MusicSource>)
+            .collect();
         *self.registry.write().unwrap() = Arc::new(Registry::new(sources));
         *self.plugins.write().unwrap() = plugins;
     }
@@ -135,12 +131,10 @@ fn list_sources(state: State<'_, AppState>) -> Vec<SourceInfo> {
     state.registry().list()
 }
 
-/// Built-in sources plus every installed plugin (including metadata-only ones).
+/// Every installed plugin (including metadata-only ones).
 #[tauri::command]
 fn list_plugins(state: State<'_, AppState>) -> Vec<SourceInfo> {
-    let mut all: Vec<SourceInfo> = state.builtins.iter().map(|s| s.info()).collect();
-    all.extend(state.plugins.read().unwrap().iter().map(|p| p.info()));
-    all
+    state.plugins.read().unwrap().iter().map(|p| p.info()).collect()
 }
 
 #[tauri::command]
@@ -708,7 +702,6 @@ pub fn run() {
             let state = AppState {
                 registry: Default::default(),
                 plugins: Default::default(),
-                builtins: vec![Arc::new(Audius::new(http.clone()))],
                 plugins_dir,
                 plugin_data_dir,
                 registries: Registries::new(data_dir.join("registries.json")),

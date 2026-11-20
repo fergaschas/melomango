@@ -19,7 +19,7 @@ use crate::{
 
 /// Preferred sources to play imported tracks from, best first. Any other installed
 /// source is tried afterwards.
-const PREFERRED: &[&str] = &["youtube", "audius"];
+const PREFERRED: &[&str] = &["youtube"];
 /// Words that mark another version of the song (unless the original title has them too).
 const OTHER_VERSIONS: &[&str] = &[
     "live", "directo", "vivo", "cover", "karaoke", "instrumental", "remix", "sped", "slowed",

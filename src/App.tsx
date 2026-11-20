@@ -26,6 +26,7 @@ import { useDownloads } from "./lib/downloads";
 import { SummaryView } from "./components/SummaryView";
 import { HomeView } from "./components/HomeView";
 import { MiniPlayer } from "./components/MiniPlayer";
+import { YouTubeSetup } from "./components/YouTubeSetup";
 import { setMiniMode } from "./lib/api";
 import { AlbumView, ArtistView, PublicPlaylistView } from "./components/CatalogViews";
 import { SearchResults, type SearchFilter } from "./components/SearchResults";
@@ -80,6 +81,8 @@ export default function App() {
   const library = useLibrary();
   const { toast } = library;
   const [sources, setSources] = useState<SourceInfo[]>([]);
+  /** False until the first list of sources arrives (so the setup screen doesn't flash). */
+  const [sourcesLoaded, setSourcesLoaded] = useState(false);
   const [plugins, setPlugins] = useState<SourceInfo[]>([]);
   const [showServices, setShowServices] = useState(false);
   const [sourceId, setSourceId] = useState(savedSource);
@@ -202,6 +205,7 @@ export default function App() {
     listSources()
       .then((list) => {
         setSources(list);
+        setSourcesLoaded(true);
         setSourceId((current) => {
           // Only switch to a newly installed plugin if it is a playable source.
           const wanted = selectId && list.some((s) => s.id === selectId) ? selectId : current;
@@ -269,7 +273,7 @@ export default function App() {
             onSearch={runSearch}
             onOpenArtist={nav.openArtist}
             onPlayTrack={(track) => player.playQueue([track], 0)}
-            placeholder={`Busca en ${source?.name ?? "…"}…`}
+            placeholder={source ? `Busca en ${source.name}…` : "Buscar…"}
             inputRef={searchRef}
           />
             <div className="source-tabs" role="tablist" aria-label="Fuente de música">
@@ -300,28 +304,35 @@ export default function App() {
           />
 
           <main className="content" ref={contentRef}>
-            {view.kind === "likes" && <LikesView player={player} />}
-            {view.kind === "home" && (
-              <HomeView source={source} player={player} onSeeTrending={() => setView({ kind: "trending" })} />
-            )}
-            {view.kind === "history" && <HistoryView player={player} />}
-            {view.kind === "downloads" && <DownloadsView player={player} />}
-            {view.kind === "summary" && <SummaryView player={player} />}
-            {view.kind === "artist" && (
-              <ArtistView key={view.id ?? view.name} name={view.name} id={view.id} player={player} />
-            )}
-            {view.kind === "album" && <AlbumView key={view.id} id={view.id} player={player} />}
-            {view.kind === "publicPlaylist" && <PublicPlaylistView key={view.id} id={view.id} player={player} />}
-            {view.kind === "playlist" && (
-              <PlaylistView id={view.id} player={player} onDeleted={() => setView({ kind: "likes" })} />
-            )}
-            {(view.kind === "trending" || view.kind === "search") && (
-              <BrowseView
-                view={view}
-                source={source}
-                player={player}
-                onFilter={(filter) => view.kind === "search" && setView({ ...view, filter })}
-              />
+            {sourcesLoaded && sources.length === 0 ? (
+              // Nothing to play from yet (a fresh install): get YouTube ready first.
+              <YouTubeSetup onReady={refreshSources} />
+            ) : (
+              <>
+                {view.kind === "likes" && <LikesView player={player} />}
+                {view.kind === "home" && (
+                  <HomeView source={source} player={player} onSeeTrending={() => setView({ kind: "trending" })} />
+                )}
+                {view.kind === "history" && <HistoryView player={player} />}
+                {view.kind === "downloads" && <DownloadsView player={player} />}
+                {view.kind === "summary" && <SummaryView player={player} />}
+                {view.kind === "artist" && (
+                  <ArtistView key={view.id ?? view.name} name={view.name} id={view.id} player={player} />
+                )}
+                {view.kind === "album" && <AlbumView key={view.id} id={view.id} player={player} />}
+                {view.kind === "publicPlaylist" && <PublicPlaylistView key={view.id} id={view.id} player={player} />}
+                {view.kind === "playlist" && (
+                  <PlaylistView id={view.id} player={player} onDeleted={() => setView({ kind: "likes" })} />
+                )}
+                {(view.kind === "trending" || view.kind === "search") && (
+                  <BrowseView
+                    view={view}
+                    source={source}
+                    player={player}
+                    onFilter={(filter) => view.kind === "search" && setView({ ...view, filter })}
+                  />
+                )}
+              </>
             )}
           </main>
 

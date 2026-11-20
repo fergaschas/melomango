@@ -63,8 +63,9 @@ volumen** (activado de entrada), para que todas las canciones suenen a un volume
 
 Fuentes:
 
-- **Audius** (integrada): plataforma descentralizada con API abierta y canciones completas, legal y gratis.
-- **YouTube** (plugin instalable desde la app): todo el catálogo de YouTube, vía [yt-dlp](https://github.com/yt-dlp/yt-dlp).
+- **YouTube**: todo el catálogo de YouTube, vía [yt-dlp](https://github.com/yt-dlp/yt-dlp). Es un plugin: la primera vez que
+  abres Melomango se instala solo (con yt-dlp), y se actualiza desde **Plugins**. Las canciones guardadas de Audius,
+  que venía integrado hasta la 0.12, suenan ahora desde YouTube.
 - Cualquier otra que alguien escriba como plugin: ver [plugins/PROTOCOL.md](plugins/PROTOCOL.md).
 
 Los plugins oficiales viven en [fergaschas/melomango-plugins](https://github.com/fergaschas/melomango-plugins).
@@ -117,7 +118,7 @@ Tests:
 
 ```powershell
 cd src-tauri; cargo test                     # unitarios
-cd src-tauri; cargo test -- --include-ignored # + pruebas reales: Audius, y descarga e instalación del plugin de YouTube
+cd src-tauri; cargo test -- --include-ignored # + pruebas reales con el plugin de YouTube (lo descarga e instala)
 ```
 
 ## Plugins
@@ -128,7 +129,7 @@ Un plugin es una carpeta con `plugin.json` y un ejecutable que habla un protocol
 ### Buscar e instalar plugins
 
 **Plugins → Explorar** muestra los plugins de los repositorios configurados, con buscador. Al pulsar **Instalar**,
-la app descarga el zip, comprueba su SHA-256 y lo instala. Sin reiniciar, aparece una pestaña nueva junto a Audius.
+la app descarga el zip, comprueba su SHA-256 y lo instala. Sin reiniciar, aparece una pestaña nueva junto a YouTube.
 
 - El repositorio oficial viene configurado. Puedes añadir otros (cualquier `index.json` servido por HTTPS) en
   **Explorar → Repositorios**. El formato está en [plugins/PROTOCOL.md](plugins/PROTOCOL.md).
@@ -201,7 +202,6 @@ src/                          Frontend (React)
 src-tauri/src/
   lib.rs                      estado, comandos y registro del protocolo
   sources/mod.rs              trait MusicSource + Registry
-  sources/audius.rs           fuente integrada Audius
   sources/plugin.rs           carga, instalación y ejecución de plugins
   catalog.rs                  repositorios de plugins: índice, descarga y verificación SHA-256
   matcher.rs                  empareja canciones importadas (Spotify) con una fuente reproducible

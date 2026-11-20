@@ -1,4 +1,3 @@
-pub mod audius;
 pub mod plugin;
 
 use std::sync::Arc;
@@ -10,7 +9,7 @@ use crate::models::{SourceInfo, StreamInfo, Track};
 
 /// A place music comes from. Each source provides both its catalogue and the audio.
 ///
-/// Built-in sources implement this directly (see `audius.rs`). Installable plugins are
+/// Sources implement this; today all of them are installable plugins, which are
 /// external programs wrapped by `plugin::PluginSource` (protocol in `plugins/PROTOCOL.md`).
 #[async_trait]
 pub trait MusicSource: Send + Sync {

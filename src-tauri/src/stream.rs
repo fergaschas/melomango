@@ -290,48 +290,6 @@ mod tests {
         assert!(Arc::ptr_eq(&new, &cache.slot("a")));
     }
 
-    /// End-to-end against the real Audius API: `cargo test -- --ignored`
-    #[tokio::test]
-    #[ignore = "necesita red"]
-    async fn streams_a_trending_audius_track() {
-        use crate::sources::audius::Audius;
-
-        let http = reqwest::Client::new();
-        let audius = Arc::new(Audius::new(http.clone()));
-        let track = audius.trending().await.unwrap().into_iter().next().expect("sin tendencias");
-        let registry = Arc::new(Registry::new(vec![audius]));
-        let library = Library::in_memory();
-        let cache = StreamCache::default();
-        let downloads = Downloads::new(std::env::temp_dir().join("melomango-test-downloads"));
-
-        // Prefetching resolves the stream ahead of time.
-        prefetch(&registry, &library, &http, &cache, "audius", &track.id).await.unwrap();
-        assert!(cache.slot(&format!("audius/{}", track.id)).initialized());
-
-        let request = |range: &str| {
-            Request::builder()
-                .uri(format!("http://stream.localhost/audius%2F{}", track.id))
-                .header(header::RANGE, range)
-                .body(Vec::new())
-                .unwrap()
-        };
-
-        let first = handle(registry.clone(), &library, &http, &cache, &downloads, request("bytes=0-")).await;
-        assert_eq!(first.status(), 206, "{}", String::from_utf8_lossy(first.body()));
-        assert_eq!(first.body().len() as u64, CHUNK);
-        assert!(first.headers()[header::CONTENT_TYPE].to_str().unwrap().starts_with("audio/"));
-
-        // Second chunk comes from the cached final URL.
-        let second = handle(registry, &library, &http, &cache, &downloads, request("bytes=1048576-")).await;
-        assert_eq!(second.status(), 206);
-        assert!(
-            second.headers()[header::CONTENT_RANGE]
-                .to_str()
-                .unwrap()
-                .starts_with("bytes 1048576-")
-        );
-    }
-
     /// Downloads the YouTube plugin from the official repository, installs it and streams
     /// through it. Needs network and yt-dlp: `cargo test -- --ignored`
     #[tokio::test]
@@ -363,6 +321,11 @@ mod tests {
         let library = Library::in_memory();
         let cache = StreamCache::default();
         let downloads = Downloads::new(std::env::temp_dir().join("melomango-test-downloads"));
+
+        // Prefetching resolves the stream ahead of time.
+        prefetch(&registry, &library, &http, &cache, "youtube", &track.id).await.unwrap();
+        assert!(cache.slot(&format!("youtube/{}", track.id)).initialized());
+
         let request = |range: &str| {
             Request::builder()
                 .uri(format!("http://stream.localhost/youtube%2F{}", track.id))
@@ -396,10 +359,30 @@ mod tests {
             .header(header::RANGE, "bytes=0-")
             .body(Vec::new())
             .unwrap();
-        let matched = handle(registry, &library, &http, &cache, &downloads, spotify_request).await;
+        let matched = handle(registry.clone(), &library, &http, &cache, &downloads, spotify_request).await;
         assert_eq!(matched.status(), 206, "{}", String::from_utf8_lossy(matched.body()));
         let (play_source, _) = library.track_match("spotify", "4fakeSpotifyId").unwrap().unwrap();
         assert_eq!(play_source, "youtube");
+
+        // Songs saved from Audius (built in until 0.12) play the same way, from YouTube.
+        let from_audius = crate::models::Track {
+            id: "D7KyD".into(),
+            source: "audius".into(),
+            title: "Dai Dai".into(),
+            artist: "Shakira".into(),
+            duration_secs: 223,
+            artwork_url: None,
+            genre: None,
+        };
+        library.set_liked(&from_audius, true).unwrap();
+        let audius_request = Request::builder()
+            .uri("http://stream.localhost/audius%2FD7KyD")
+            .header(header::RANGE, "bytes=0-")
+            .body(Vec::new())
+            .unwrap();
+        let matched = handle(registry, &library, &http, &cache, &downloads, audius_request).await;
+        assert_eq!(matched.status(), 206, "{}", String::from_utf8_lossy(matched.body()));
+        assert_eq!(library.track_match("audius", "D7KyD").unwrap().unwrap().0, "youtube");
 
         let _ = std::fs::remove_dir_all(&plugins_dir);
     }
