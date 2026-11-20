@@ -17,7 +17,7 @@ use tauri::{Manager, State};
 use tauri_plugin_opener::OpenerExt;
 
 use catalog::{Catalog, RegistryInfo, Registries};
-use library::{Library, Playlist, PlaylistSummary};
+use library::{Library, Play, Playlist, PlaylistSummary};
 use serde::Serialize;
 use lyrics::{Lyrics, LyricsService};
 use models::{SourceInfo, Track};
@@ -359,6 +359,22 @@ fn import_spotify_export(state: State<'_, AppState>, paths: Vec<String>) -> Resu
         .collect()
 }
 
+/// Records that the user listened to `track` (called once it has played a while).
+#[tauri::command]
+fn record_play(state: State<'_, AppState>, track: Track) -> Result<(), String> {
+    state.library.record_play(&track).map_err(err)
+}
+
+#[tauri::command]
+fn recent_plays(state: State<'_, AppState>, limit: Option<u32>) -> Result<Vec<Play>, String> {
+    state.library.recent_plays(limit.unwrap_or(500).min(5_000)).map_err(err)
+}
+
+#[tauri::command]
+fn clear_history(state: State<'_, AppState>) -> Result<(), String> {
+    state.library.clear_history().map_err(err)
+}
+
 /// Recordings to choose from when an imported track plays the wrong one.
 #[tauri::command]
 async fn match_options(
@@ -474,6 +490,9 @@ pub fn run() {
             import_spotify_export,
             match_options,
             choose_match,
+            record_play,
+            recent_plays,
+            clear_history,
             prefetch_stream
         ])
         .run(tauri::generate_context!())

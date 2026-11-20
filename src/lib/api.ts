@@ -145,6 +145,22 @@ export interface Lyrics {
 
 export const getLyrics = (track: Track) => invoke<Lyrics>("get_lyrics", { track });
 
+// ---------- History ----------
+
+export interface Play {
+  track: Track;
+  /** Milliseconds since the epoch. */
+  playedAt: number;
+}
+
+/** Fired on `window` after a play is recorded, so an open history view can reload. */
+export const HISTORY_EVENT = "melomango:history";
+
+export const recordPlay = (track: Track) =>
+  invoke<void>("record_play", { track }).then(() => window.dispatchEvent(new Event(HISTORY_EVENT)));
+export const recentPlays = (limit?: number) => invoke<Play[]>("recent_plays", { limit: limit ?? null });
+export const clearHistory = () => invoke<void>("clear_history");
+
 export interface MatchOptions {
   track: Track;
   query: string;

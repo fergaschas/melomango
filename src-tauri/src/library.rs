@@ -1,5 +1,5 @@
-//! The user's library: liked tracks and playlists, stored in SQLite (`library.db` in
-//! the app data folder).
+//! The user's library: liked tracks, playlists and listening history, stored in SQLite
+//! (`library.db` in the app data folder).
 //!
 //! Track metadata is copied into the database when a track is liked or added to a
 //! playlist, so the library still shows it even if the source is unavailable.
@@ -16,7 +16,9 @@ use serde::Serialize;
 
 use crate::models::Track;
 
-const SCHEMA_VERSION: i32 = 2;
+const SCHEMA_VERSION: i32 = 3;
+/// Older plays are dropped beyond this many.
+const MAX_PLAYS: i64 = 20_000;
 
 const SCHEMA_V1: &str = "
 CREATE TABLE tracks (
@@ -73,6 +75,26 @@ CREATE TABLE track_matches (
     PRIMARY KEY (source, id)
 );
 ";
+
+/// v3: listening history, one row per play.
+const SCHEMA_V3: &str = "
+CREATE TABLE plays (
+    play_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+    source    TEXT NOT NULL,
+    id        TEXT NOT NULL,
+    played_at INTEGER NOT NULL,
+    FOREIGN KEY (source, id) REFERENCES tracks (source, id)
+);
+CREATE INDEX plays_recent ON plays (played_at);
+";
+
+/// A track the user listened to, and when (milliseconds since the epoch).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Play {
+    pub track: Track,
+    pub played_at: i64,
+}
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -131,6 +153,9 @@ impl Library {
         if version < 2 {
             conn.execute_batch(SCHEMA_V2)?;
         }
+        if version < 3 {
+            conn.execute_batch(SCHEMA_V3)?;
+        }
         conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         Ok(Self { conn: Mutex::new(conn) })
     }
@@ -178,6 +203,45 @@ impl Library {
             }
             tx.commit()
         })
+    }
+
+    // ---------- History ----------
+
+    /// Records that `track` was listened to now.
+    pub fn record_play(&self, track: &Track) -> anyhow::Result<()> {
+        self.record_play_at(track, now())
+    }
+
+    fn record_play_at(&self, track: &Track, played_at: i64) -> anyhow::Result<()> {
+        self.with(|c| {
+            let tx = c.transaction()?;
+            upsert_track(&tx, track)?;
+            tx.execute(
+                "INSERT INTO plays (source, id, played_at) VALUES (?1, ?2, ?3)",
+                params![track.source, track.id, played_at],
+            )?;
+            let last = tx.last_insert_rowid();
+            tx.execute("DELETE FROM plays WHERE play_id <= ?1", [last - MAX_PLAYS])?;
+            tx.commit()
+        })
+    }
+
+    /// The latest plays, newest first.
+    pub fn recent_plays(&self, limit: u32) -> anyhow::Result<Vec<Play>> {
+        self.with(|c| {
+            let mut stmt = c.prepare(
+                "SELECT t.*, p.played_at FROM plays p JOIN tracks t USING (source, id)
+                 ORDER BY p.played_at DESC, p.play_id DESC LIMIT ?1",
+            )?;
+            let rows = stmt.query_map([limit], |r| {
+                Ok(Play { track: track_from_row(r)?, played_at: r.get("played_at")? })
+            })?;
+            rows.collect()
+        })
+    }
+
+    pub fn clear_history(&self) -> anyhow::Result<()> {
+        self.with(|c| c.execute("DELETE FROM plays", []).map(drop))
     }
 
     // ---------- Playlists ----------
@@ -657,6 +721,41 @@ mod tests {
         lib.set_track_match("spotify", "x", "youtube", "abc").unwrap();
         lib.set_track_match("spotify", "x", "youtube", "def").unwrap();
         assert_eq!(lib.track_match("spotify", "x").unwrap(), Some(("youtube".into(), "def".into())));
+    }
+
+    #[test]
+    fn records_and_lists_plays() {
+        let lib = Library::in_memory();
+        lib.record_play_at(&track("a"), 1_000).unwrap();
+        lib.record_play_at(&track("b"), 2_000).unwrap();
+        lib.record_play_at(&track("a"), 3_000).unwrap();
+
+        let plays = lib.recent_plays(10).unwrap();
+        let order: Vec<(&str, i64)> = plays.iter().map(|p| (p.track.id.as_str(), p.played_at)).collect();
+        assert_eq!(order, [("a", 3_000), ("b", 2_000), ("a", 1_000)]);
+        assert_eq!(plays[0].track.title, "Canción a");
+        assert_eq!(lib.recent_plays(1).unwrap().len(), 1);
+
+        lib.clear_history().unwrap();
+        assert!(lib.recent_plays(10).unwrap().is_empty());
+        // The tracks themselves (and likes, playlists…) stay.
+        assert!(lib.track("audius", "a").unwrap().is_some());
+    }
+
+    #[test]
+    fn keeps_a_bounded_history() {
+        let lib = Library::in_memory();
+        lib.with(|c| {
+            upsert_track(c, &track("a"))?;
+            // Pretend MAX_PLAYS plays already happened.
+            c.execute("INSERT INTO plays (play_id, source, id, played_at) VALUES (?1, 'audius', 'a', 0)", [1])?;
+            c.execute("UPDATE sqlite_sequence SET seq = ?1 WHERE name = 'plays'", [MAX_PLAYS])
+        })
+        .unwrap();
+        lib.record_play_at(&track("b"), 5).unwrap();
+        let plays = lib.recent_plays(10).unwrap();
+        assert_eq!(plays.len(), 1, "the oldest play is dropped");
+        assert_eq!(plays[0].track.id, "b");
     }
 
     #[test]

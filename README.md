@@ -14,6 +14,9 @@ posición y el volumen.
 Si una canción importada (de Spotify) suena con el vídeo equivocado, pulsa el botón ⇄ junto a la canción que suena, o
 **No es esta canción…** en su menú +, y elige la versión buena: Melomango la recuerda.
 
+**Historial** (en la barra lateral): lo que has escuchado, por días. Una canción cuenta tras sonar 30 segundos (o la
+mitad, si es más corta). Se guarda solo en tu equipo y se puede borrar.
+
 Fuentes:
 
 - **Audius** (integrada): plataforma descentralizada con API abierta y canciones completas, legal y gratis.

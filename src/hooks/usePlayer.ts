@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { prefetchStream, streamUrl, type Track } from "../lib/api";
+import { prefetchStream, recordPlay, streamUrl, type Track } from "../lib/api";
 import * as q from "../lib/queue";
 
 const SAVE_KEY = "melomango.player";
 const SAVE_EVERY_MS = 5000;
 const SEEK_STEP = 5;
+/** A track counts as listened after this many seconds of actual playback (or half of it, if shorter). */
+const PLAY_COUNTS_AFTER = 30;
 
 interface Saved {
   queue: q.SavedQueue;
@@ -51,9 +53,17 @@ export function usePlayer() {
   const userStarted = useRef(false);
   /** Bumped to make the same track load again from scratch (another recording was chosen). */
   const reloads = useRef(0);
+  /** Seconds actually played of the current load (seeking doesn't count), and whether it was recorded. */
+  const listened = useRef({ secs: 0, last: null as number | null, recorded: false });
+  const currentRef = useRef<Track | null>(null);
 
   const currentEntry = q.currentItem(queue);
   const current = currentEntry?.track ?? null;
+  currentRef.current = current;
+
+  const resetListened = () => {
+    listened.current = { secs: 0, last: null, recorded: false };
+  };
 
   const onPlayRejected = useCallback((e: unknown) => {
     // play() rejects with AbortError when a new track interrupts the previous load: not a failure.
@@ -90,6 +100,7 @@ export function usePlayer() {
       const result = q.advance(queueRef.current, auto);
       if (result === "stop") return;
       if (result === "same") {
+        resetListened(); // every repetition is a play
         audio.currentTime = 0;
         audio.play().catch(onPlayRejected);
         return;
@@ -157,6 +168,7 @@ export function usePlayer() {
   useEffect(() => {
     if (!current) return;
     const restoring = loadKey === 0;
+    resetListened();
     // A different URL makes the WebView fetch it again instead of reusing what it has.
     audio.src = streamUrl(current) + (reloads.current ? `?r=${reloads.current}` : "");
     setDuration(current.durationSecs);
@@ -189,7 +201,33 @@ export function usePlayer() {
   // Mirror the <audio> element's state into React.
   useEffect(() => {
     const listeners: [string, () => void][] = [
-      ["timeupdate", () => setTime(audio.currentTime)],
+      [
+        "timeupdate",
+        () => {
+          setTime(audio.currentTime);
+          // Count real playback time towards the history.
+          const l = listened.current;
+          const now = audio.currentTime;
+          if (!audio.paused && l.last !== null) {
+            const delta = now - l.last;
+            if (delta > 0 && delta < 2) l.secs += delta;
+          }
+          l.last = now;
+          const track = currentRef.current;
+          const length = Number.isFinite(audio.duration) ? audio.duration : (track?.durationSecs ?? 0);
+          const needed = Math.min(PLAY_COUNTS_AFTER, length > 0 ? length / 2 : PLAY_COUNTS_AFTER);
+          if (track && !l.recorded && l.secs >= needed) {
+            l.recorded = true;
+            recordPlay(track).catch(() => {});
+          }
+        },
+      ],
+      [
+        "seeking",
+        () => {
+          listened.current.last = null;
+        },
+      ],
       ["durationchange", () => Number.isFinite(audio.duration) && setDuration(audio.duration)],
       [
         "loadedmetadata",

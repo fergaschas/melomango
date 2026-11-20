@@ -16,6 +16,7 @@ import { PluginsDialog } from "./components/PluginsDialog";
 import { ServicesDialog } from "./components/ServicesDialog";
 import { Sidebar } from "./components/Sidebar";
 import { LikesView, PlaylistView } from "./components/LibraryViews";
+import { HistoryView } from "./components/HistoryView";
 import { LyricsPanel } from "./components/LyricsPanel";
 import { PuzzleIcon, SearchIcon } from "./components/Icons";
 import logo from "../app-icon.svg";
@@ -25,6 +26,7 @@ export type View =
   | { kind: "trending" }
   | { kind: "search"; query: string }
   | { kind: "likes" }
+  | { kind: "history" }
   | { kind: "playlist"; id: number };
 
 const SOURCE_KEY = "melomango.source";
@@ -135,7 +137,7 @@ export default function App() {
   function selectSource(id: string) {
     setSourceId(id);
     // Switching source from a library view goes back to browsing.
-    if (view.kind === "likes" || view.kind === "playlist") setView({ kind: "trending" });
+    if (view.kind === "likes" || view.kind === "playlist" || view.kind === "history") setView({ kind: "trending" });
   }
 
   return (
@@ -185,6 +187,7 @@ export default function App() {
 
         <main className="content">
           {view.kind === "likes" && <LikesView player={player} />}
+          {view.kind === "history" && <HistoryView player={player} />}
           {view.kind === "playlist" && (
             <PlaylistView id={view.id} player={player} onDeleted={() => setView({ kind: "likes" })} />
           )}

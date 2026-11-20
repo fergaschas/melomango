@@ -1043,6 +1043,10 @@ input[type="range"]:disabled {
     width: 110px !important;
     height: 110px !important;
   }
+  .history-cover {
+    width: 110px;
+    height: 110px;
+  }
 }
 
 /* ---------- Lyrics ---------- */
@@ -1655,4 +1659,35 @@ kbd {
 .duration-off {
   color: var(--accent-text);
   font-weight: 600;
+}
+
+/* ---------- History ---------- */
+.history-cover {
+  width: 148px;
+  height: 148px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 18px;
+  color: #fff;
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-deep) 100%);
+  box-shadow: 0 12px 28px rgba(240, 120, 0, 0.25);
+}
+
+.history-day {
+  margin-top: 18px;
+}
+
+.history-day-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0 0 8px;
+  font-size: 1.05rem;
+}
+
+.history-day-count {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 500;
 }
