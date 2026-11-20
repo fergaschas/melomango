@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { clampCrossfade, fadeGains, MAX_CROSSFADE, shouldStartFade } from "../src/lib/crossfade.ts";
+import { clampCrossfade, fadeGains, MAX_CROSSFADE, rescueFade, shouldStartFade } from "../src/lib/crossfade.ts";
 
 test("starts the next song when the crossfade's seconds are left", () => {
   assert.equal(shouldStartFade(6, 190, 200), false, "10 s left");
@@ -26,4 +26,13 @@ test("keeps the setting within range, in whole seconds", () => {
   assert.equal(clampCrossfade(4.6), 5);
   assert.equal(clampCrossfade(99), MAX_CROSSFADE);
   assert.equal(clampCrossfade(NaN), 0);
+});
+
+test("if the incoming song fails, the old one carries on while it has music left", () => {
+  const old = { ended: false, paused: false, currentTime: 195, duration: 200 };
+  assert.equal(rescueFade(old), "keep-old", "5 s left: let it finish");
+  assert.equal(rescueFade({ ...old, currentTime: 199.9 }), "skip", "practically over");
+  assert.equal(rescueFade({ ...old, ended: true }), "skip", "already over: move on");
+  assert.equal(rescueFade({ ...old, paused: true }), "skip", "nothing sounding");
+  assert.equal(rescueFade({ ...old, duration: NaN }), "skip", "unknown length");
 });
