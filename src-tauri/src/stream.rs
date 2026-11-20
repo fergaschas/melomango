@@ -101,6 +101,8 @@ pub async fn handle(
         Err(e) => Response::builder()
             .status(502)
             .header(header::CONTENT_TYPE, "text/plain; charset=utf-8")
+            // The player loads streams with CORS (for volume normalization) and reads this text.
+            .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
             .body(format!("{e:#}").into_bytes())
             .unwrap(),
     }

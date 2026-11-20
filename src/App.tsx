@@ -343,6 +343,8 @@ export default function App() {
             onThemeChange={setTheme}
             crossfade={player.crossfade}
             onCrossfadeChange={player.setCrossfade}
+            normalize={player.normalize}
+            onNormalizeChange={player.setNormalize}
             onClose={() => setShowSettings(false)}
           />
         )}

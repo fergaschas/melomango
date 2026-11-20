@@ -27,6 +27,8 @@ interface Props {
   onThemeChange: (theme: Theme) => void;
   crossfade: number;
   onCrossfadeChange: (secs: number) => void;
+  normalize: boolean;
+  onNormalizeChange: (on: boolean) => void;
   onClose: () => void;
 }
 
@@ -39,6 +41,8 @@ export function SettingsDialog({
   onThemeChange,
   crossfade,
   onCrossfadeChange,
+  normalize,
+  onNormalizeChange,
   onClose,
 }: Props) {
   const [status, setStatus] = useState<DiscordStatus | null>(null);
@@ -117,6 +121,24 @@ export function SettingsDialog({
             <span className="crossfade-value">{crossfade ? `${crossfade} s` : "No"}</span>
           </div>
         </div>
+
+        <label className="radio-switch settings-row">
+          <input
+            type="checkbox"
+            id="normalize-volume"
+            checked={normalize}
+            onChange={(e) => onNormalizeChange(e.target.checked)}
+          />
+          <span className="switch-track" aria-hidden="true">
+            <span className="switch-thumb" />
+          </span>
+          <span>
+            <strong>Normalizar el volumen</strong>
+            <span className="radio-switch-note">
+              Todas las canciones suenan a un volumen parecido, sin tener que tocar la rueda entre una y otra.
+            </span>
+          </span>
+        </label>
 
         <label className="radio-switch settings-row">
           <input

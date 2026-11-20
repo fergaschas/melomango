@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { prefetchStream, radioTracks, recordPlay, streamUrl, trackKey, type Track } from "../lib/api";
 import * as q from "../lib/queue";
 import { clampCrossfade, fadeGains, loadCrossfade, saveCrossfade, shouldStartFade } from "../lib/crossfade";
+import { loadNormalize, Loudness, saveNormalize } from "../lib/loudness";
 
 const SAVE_KEY = "melomango.player";
 const SAVE_EVERY_MS = 5000;
@@ -58,7 +59,13 @@ function loadSaved(): Saved | null {
 export function usePlayer() {
   // Two elements, so the next song can start while the current one fades out (crossfade).
   // `audio` is the one playing the current song; the other is idle or fading out.
-  const [elements] = useState(() => [new Audio(), new Audio()] as const);
+  const [normalize, setNormalizeState] = useState(loadNormalize);
+  const [loudness] = useState(() => new Loudness(normalize));
+  const [elements] = useState(() => {
+    const pair = [new Audio(), new Audio()] as const;
+    pair.forEach((el) => loudness.attach(el));
+    return pair;
+  });
   const [audio, setAudio] = useState<HTMLAudioElement>(elements[0]);
   const [saved] = useState(loadSaved);
   const [queue, setQueue] = useState<q.QueueState>(() => {
@@ -182,6 +189,15 @@ export function usePlayer() {
       if (g.in >= 1 && (g.out <= 0 || old.ended)) endFade();
     }, 50);
   }, [endFade]);
+
+  const setNormalize = useCallback(
+    (on: boolean) => {
+      setNormalizeState(on);
+      saveNormalize(on);
+      loudness.setEnabled(on);
+    },
+    [loudness],
+  );
 
   const setCrossfade = useCallback((secs: number) => {
     const value = clampCrossfade(secs);
@@ -334,6 +350,7 @@ export function usePlayer() {
     const restoring = loadKey === 0;
     resetListened();
     // A different URL makes the WebView fetch it again instead of reusing what it has.
+    loudness.setTrack(audio, trackKey(current));
     audio.src = streamUrl(current) + (reloads.current ? `?r=${reloads.current}` : "");
     // Starting a blend: the new song comes in from silence.
     if (fade.current?.incoming === audio) audio.volume = 0;
@@ -521,6 +538,8 @@ export function usePlayer() {
     seekCount,
     crossfade,
     setCrossfade,
+    normalize,
+    setNormalize,
     toggleAutoRadio,
     startRadio,
     playQueue,
