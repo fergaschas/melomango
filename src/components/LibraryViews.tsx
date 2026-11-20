@@ -163,7 +163,10 @@ export function PlaylistView({ id, player, onDeleted }: { id: number; player: Pl
       addedAt.splice(to, 0, when);
       return { ...p, tracks, addedAt };
     });
-    library.moveInPlaylist(id, from, to);
+    library.moveInPlaylist(id, from, to).then((saved) => {
+      // Not saved: back to the order that really is stored.
+      if (!saved) getPlaylist(id).then(setPlaylist).catch(() => {});
+    });
   }
 
   return (

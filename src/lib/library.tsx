@@ -9,13 +9,15 @@ interface LibraryValue {
   version: number;
   toast: string | null;
   isLiked: (t: Track) => boolean;
-  toggleLike: (t: Track) => Promise<void>;
+  /** Never rejects: resolves whether it was saved (if not, the heart goes back and a toast says why). */
+  toggleLike: (t: Track) => Promise<boolean>;
   createPlaylist: (name: string) => Promise<PlaylistSummary>;
   renamePlaylist: (id: number, name: string) => Promise<void>;
   deletePlaylist: (id: number) => Promise<void>;
   addToPlaylist: (p: PlaylistSummary, t: Track) => Promise<void>;
   removeFromPlaylist: (id: number, t: Track) => Promise<void>;
-  moveInPlaylist: (id: number, from: number, to: number) => Promise<void>;
+  /** Never rejects: resolves whether it was saved (if not, open views reload the saved order). */
+  moveInPlaylist: (id: number, from: number, to: number) => Promise<boolean>;
   notify: (text: string) => void;
   /** Reloads likes and playlists (e.g. after an import). */
   refresh: () => Promise<void>;
@@ -62,10 +64,25 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         return result;
       } catch (e) {
         notify(String(e));
+        // Whatever was shown ahead of time (a heart, a new order) goes back to what is saved.
+        refresh().catch(() => {});
         throw e;
       }
     },
     [refresh, notify],
+  );
+
+  /** `change` for actions nobody waits on: the error is already a toast, so it resolves false. */
+  const attempt = useCallback(
+    async (action: () => Promise<unknown>): Promise<boolean> => {
+      try {
+        await change(action);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [change],
   );
 
   const value = useMemo<LibraryValue>(
@@ -78,15 +95,20 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       refresh,
       isLiked: (t) => liked.has(api.trackKey(t)),
       toggleLike: async (t) => {
-        const now = !liked.has(api.trackKey(t));
-        // Optimistic: the heart reacts instantly.
-        setLiked((prev) => {
-          const next = new Set(prev);
-          if (now) next.add(api.trackKey(t));
-          else next.delete(api.trackKey(t));
-          return next;
-        });
-        await change(() => api.setLiked(t, now));
+        const key = api.trackKey(t);
+        const now = !liked.has(key);
+        const show = (on: boolean) =>
+          setLiked((prev) => {
+            const next = new Set(prev);
+            if (on) next.add(key);
+            else next.delete(key);
+            return next;
+          });
+        // Optimistic: the heart reacts instantly, and goes back if saving fails.
+        show(now);
+        const saved = await attempt(() => api.setLiked(t, now));
+        if (!saved) show(!now);
+        return saved;
       },
       createPlaylist: (name) => change(() => api.createPlaylist(name)),
       renamePlaylist: (id, name) => change(() => api.renamePlaylist(id, name)),
@@ -96,9 +118,9 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         notify(added ? `Añadida a «${p.name}»` : `Ya estaba en «${p.name}»`);
       },
       removeFromPlaylist: (id, t) => change(() => api.removeFromPlaylist(id, t)),
-      moveInPlaylist: (id, from, to) => change(() => api.moveInPlaylist(id, from, to)),
+      moveInPlaylist: (id, from, to) => attempt(() => api.moveInPlaylist(id, from, to)),
     }),
-    [playlists, liked, version, toast, notify, change, refresh],
+    [playlists, liked, version, toast, notify, change, attempt, refresh],
   );
 
   return <LibraryContext.Provider value={value}>{children}</LibraryContext.Provider>;
