@@ -103,6 +103,8 @@ CREATE TABLE IF NOT EXISTS downloads (
     PRIMARY KEY (source, id),
     FOREIGN KEY (source, id) REFERENCES tracks (source, id)
 );
+-- A song's plays: is it a favourite, when was it last played (cache eviction).
+CREATE INDEX IF NOT EXISTS plays_track ON plays (source, id, played_at);
 ";
 
 /// The library was written by a newer Melomango than this one (it can't be read safely).
@@ -260,6 +262,9 @@ impl Library {
     fn init(mut conn: Connection) -> anyhow::Result<Self> {
         conn.pragma_update(None, "foreign_keys", true)?;
         conn.pragma_update(None, "journal_mode", "WAL")?;
+        // With WAL this is still safe against corruption; a power cut can only lose the
+        // last moments. FULL made every small write (a like, a play) wait for the disk.
+        conn.pragma_update(None, "synchronous", "NORMAL")?;
         let version: i32 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
         if version > SCHEMA_VERSION {
             return Err(NewerLibrary { found: version }.into());
@@ -517,25 +522,36 @@ impl Library {
             .collect()
         })?;
 
-        // Per song: plays and the latest one (ties go to the most recent).
+        // Per song: plays and the latest one (ties go to the most recent). The vectors keep
+        // first-seen order (newest first); the maps find an entry without scanning them.
+        use std::collections::HashMap;
         let mut songs: Vec<(Track, u32)> = Vec::new();
+        let mut song_at: HashMap<(&str, &str), usize> = HashMap::new();
         let mut artists: Vec<(String, u32, Option<String>)> = Vec::new();
+        let mut artist_at: HashMap<String, usize> = HashMap::new();
         let mut minutes_secs: u64 = 0;
         for (track, _) in &rows {
             minutes_secs += track.duration_secs as u64;
-            match songs.iter_mut().find(|(t, _)| t.source == track.source && t.id == track.id) {
-                Some((_, n)) => *n += 1,
-                None => songs.push((track.clone(), 1)),
+            match song_at.get(&(track.source.as_str(), track.id.as_str())) {
+                Some(&i) => songs[i].1 += 1,
+                None => {
+                    song_at.insert((&track.source, &track.id), songs.len());
+                    songs.push((track.clone(), 1));
+                }
             }
             for name in split_artists(&track.artist) {
-                match artists.iter_mut().find(|(a, _, _)| a.to_lowercase() == name.to_lowercase()) {
-                    Some((_, n, art)) => {
+                match artist_at.get(&name.to_lowercase()) {
+                    Some(&i) => {
+                        let (_, n, art) = &mut artists[i];
                         *n += 1;
                         if art.is_none() {
                             art.clone_from(&track.artwork_url);
                         }
                     }
-                    None => artists.push((name.to_string(), 1, track.artwork_url.clone())),
+                    None => {
+                        artist_at.insert(name.to_lowercase(), artists.len());
+                        artists.push((name.to_string(), 1, track.artwork_url.clone()));
+                    }
                 }
             }
         }
@@ -900,7 +916,13 @@ fn upsert_track(c: &Connection, t: &Track) -> rusqlite::Result<()> {
            -- Some imports (e.g. Spotify's data export) lack durations and covers: keep known ones.
            duration_secs = CASE WHEN excluded.duration_secs > 0 THEN excluded.duration_secs ELSE tracks.duration_secs END,
            artwork_url = COALESCE(excluded.artwork_url, tracks.artwork_url),
-           genre = COALESCE(excluded.genre, tracks.genre)",
+           genre = COALESCE(excluded.genre, tracks.genre)
+         -- Nothing new (the same suggestion again, on every key typed): no write at all.
+         WHERE tracks.title IS NOT excluded.title
+            OR tracks.artist IS NOT excluded.artist
+            OR (excluded.duration_secs > 0 AND tracks.duration_secs IS NOT excluded.duration_secs)
+            OR (excluded.artwork_url IS NOT NULL AND tracks.artwork_url IS NOT excluded.artwork_url)
+            OR (excluded.genre IS NOT NULL AND tracks.genre IS NOT excluded.genre)",
         params![t.source, t.id, t.title, t.artist, t.duration_secs, t.artwork_url, t.genre],
     )?;
     Ok(())
@@ -1113,6 +1135,75 @@ mod tests {
         // Deleting the playlist drops the link too.
         lib.delete_playlist(first.id).unwrap();
         assert!(lib.imported_from("spotify").unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_songs_plays_are_found_through_an_index() {
+        let lib = Library::in_memory();
+        let plan: Vec<String> = lib
+            .with(|c| {
+                c.prepare("EXPLAIN QUERY PLAN SELECT COUNT(*) FROM plays WHERE source = 'a' AND id = 'b'")?
+                    .query_map([], |r| r.get::<_, String>(3))?
+                    .collect()
+            })
+            .unwrap();
+        assert!(plan.iter().any(|step| step.contains("plays_track")), "{plan:?}");
+    }
+
+    #[test]
+    fn opens_with_wal_and_normal_sync() {
+        let path = std::env::temp_dir().join(format!("melomango-sync-{}.db", std::process::id()));
+        let lib = Library::open(&path).unwrap();
+        let (journal, sync): (String, i64) = lib
+            .with(|c| Ok((c.pragma_query_value(None, "journal_mode", |r| r.get(0))?, c.pragma_query_value(None, "synchronous", |r| r.get(0))?)))
+            .unwrap();
+        assert_eq!((journal.as_str(), sync), ("wal", 1), "1 = NORMAL");
+        drop(lib);
+        for ext in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{ext}", path.display()));
+        }
+    }
+
+    #[test]
+    fn remembering_the_same_tracks_again_writes_nothing() {
+        let lib = Library::in_memory();
+        let tracks = [track("a"), track("b")];
+        lib.remember_tracks(&tracks).unwrap();
+        let changes = || lib.with(|c| Ok(c.total_changes())).unwrap();
+        let before = changes();
+        lib.remember_tracks(&tracks).unwrap();
+        assert_eq!(changes(), before, "unchanged: no row written");
+        let with_cover = Track { artwork_url: Some("https://x/new.jpg".into()), ..track("a") };
+        lib.remember_tracks(&[with_cover]).unwrap();
+        assert_eq!(changes(), before + 1, "a new cover is saved");
+        // Missing data never overwrites what is known.
+        lib.remember_tracks(&[Track { artwork_url: None, duration_secs: 0, ..track("a") }]).unwrap();
+        assert_eq!(changes(), before + 1);
+        assert_eq!(lib.track("audius", "a").unwrap().unwrap().artwork_url.as_deref(), Some("https://x/new.jpg"));
+    }
+
+    #[test]
+    fn a_busy_month_is_summarised_quickly() {
+        let lib = Library::in_memory();
+        let base = 1_780_000_000_000; // a moment in 2026
+        // 20.000 plays of 5.000 songs by 2.000 artists: the old linear lookups took seconds.
+        lib.with(|c| {
+            let tx = c.transaction()?;
+            for i in 0..20_000i64 {
+                let t = Track { artist: format!("Artista {}", i % 2_000), ..track(&format!("s{}", i % 5_000)) };
+                upsert_track(&tx, &t)?;
+                tx.execute("INSERT INTO plays (source, id, played_at) VALUES (?1, ?2, ?3)", params![t.source, t.id, base + i * 1000])?;
+            }
+            tx.commit()
+        })
+        .unwrap();
+        let month = lib.summary_months().unwrap()[0].clone();
+        let started = std::time::Instant::now();
+        let summary = lib.month_summary(&month).unwrap();
+        assert!(started.elapsed() < std::time::Duration::from_secs(2), "{:?}", started.elapsed());
+        assert_eq!(summary.plays as usize, 20_000 - 0);
+        assert_eq!((summary.songs, summary.artists), (5_000, 2_000));
+        assert_eq!(summary.top_tracks[0].plays, 4);
     }
 
     #[test]
