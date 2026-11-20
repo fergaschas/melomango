@@ -105,6 +105,20 @@ CREATE TABLE IF NOT EXISTS downloads (
 );
 ";
 
+/// The library was written by a newer Melomango than this one (it can't be read safely).
+#[derive(Debug)]
+pub struct NewerLibrary {
+    pub found: i32,
+}
+
+impl std::fmt::Display for NewerLibrary {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "la biblioteca es de una versión más nueva de Melomango (formato {})", self.found)
+    }
+}
+
+impl std::error::Error for NewerLibrary {}
+
 /// A song saved to listen without a connection.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -243,24 +257,28 @@ impl Library {
         Self::init(Connection::open_in_memory().unwrap()).unwrap()
     }
 
-    fn init(conn: Connection) -> anyhow::Result<Self> {
+    fn init(mut conn: Connection) -> anyhow::Result<Self> {
         conn.pragma_update(None, "foreign_keys", true)?;
         conn.pragma_update(None, "journal_mode", "WAL")?;
         let version: i32 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
         if version > SCHEMA_VERSION {
-            bail!("la biblioteca es de una versión más nueva de Melomango");
+            return Err(NewerLibrary { found: version }.into());
         }
+        // All or nothing: closing the app halfway through must not leave a library that
+        // fails the next time ("table already exists").
+        let tx = conn.transaction()?;
         if version < 1 {
-            conn.execute_batch(SCHEMA_V1)?;
+            tx.execute_batch(SCHEMA_V1)?;
         }
         if version < 2 {
-            conn.execute_batch(SCHEMA_V2)?;
+            tx.execute_batch(SCHEMA_V2)?;
         }
         if version < 3 {
-            conn.execute_batch(SCHEMA_V3)?;
+            tx.execute_batch(SCHEMA_V3)?;
         }
-        conn.execute_batch(ADDITIVE)?;
-        conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
+        tx.execute_batch(ADDITIVE)?;
+        tx.pragma_update(None, "user_version", SCHEMA_VERSION)?;
+        tx.commit()?;
         Ok(Self { conn: Mutex::new(conn) })
     }
 
@@ -1245,5 +1263,69 @@ mod tests {
         lib.set_liked(&track("b"), true).unwrap();
         assert!(lib.is_favourite("audius", "b").unwrap());
         assert!(!lib.is_favourite("audius", "zzz").unwrap());
+    }
+
+    /// A library left by an older Melomango (e.g. 0.5.0, format 2) opens and keeps its data.
+    #[test]
+    fn upgrades_a_library_from_an_older_version() {
+        for old in [1, 2] {
+            let conn = Connection::open_in_memory().unwrap();
+            conn.execute_batch(SCHEMA_V1).unwrap();
+            if old >= 2 {
+                conn.execute_batch(SCHEMA_V2).unwrap();
+            }
+            conn.pragma_update(None, "user_version", old).unwrap();
+            conn.execute(
+                "INSERT INTO tracks (source, id, title, artist, duration_secs) VALUES ('audius', 'a', 'Vieja', 'X', 100)",
+                [],
+            )
+            .unwrap();
+            conn.execute("INSERT INTO likes (source, id, liked_at) VALUES ('audius', 'a', 1)", []).unwrap();
+
+            let lib = Library::init(conn).unwrap();
+            assert_eq!(ids(&lib.liked_tracks().unwrap()), ["a"], "from format {old}");
+            lib.record_play(&track("a")).unwrap();
+            assert_eq!(lib.recent_plays(10).unwrap().len(), 1);
+            assert!(lib.downloads().unwrap().is_empty());
+            let version: i32 = lib.with(|c| c.pragma_query_value(None, "user_version", |r| r.get(0))).unwrap();
+            assert_eq!(version, SCHEMA_VERSION);
+        }
+    }
+
+    /// A library from a newer Melomango is refused with an error the app recognises.
+    #[test]
+    fn refuses_a_library_from_a_newer_version() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.pragma_update(None, "user_version", SCHEMA_VERSION + 1).unwrap();
+        let error = Library::init(conn).err().expect("debería negarse");
+        assert_eq!(error.downcast_ref::<NewerLibrary>().map(|e| e.found), Some(SCHEMA_VERSION + 1));
+    }
+
+    /// A failed upgrade leaves the library as it was, so the next start can retry.
+    #[test]
+    fn a_failed_upgrade_changes_nothing() {
+        let path = std::env::temp_dir().join(format!("melomango-upgrade-{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(SCHEMA_V1).unwrap();
+            conn.execute_batch(SCHEMA_V2).unwrap();
+            // In the way of the format-3 step, after its first statement ("plays") worked:
+            // its index can't take a name already used.
+            conn.execute_batch("CREATE TABLE plays_recent (x INTEGER);").unwrap();
+            conn.pragma_update(None, "user_version", 2).unwrap();
+        }
+        assert!(Library::open(&path).is_err());
+        let conn = Connection::open(&path).unwrap();
+        let version: i32 = conn.pragma_query_value(None, "user_version", |r| r.get(0)).unwrap();
+        assert_eq!(version, 2, "still the old format");
+        let half_done: i32 = conn
+            .query_row("SELECT COUNT(*) FROM sqlite_master WHERE name IN ('plays', 'downloads')", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(half_done, 0, "nothing half-done");
+        drop(conn);
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{suffix}", path.display()));
+        }
     }
 }

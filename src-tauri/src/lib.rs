@@ -13,6 +13,7 @@ mod models;
 mod sources;
 mod text_import;
 mod spotify_export;
+mod startup;
 mod stream;
 mod tray;
 
@@ -694,6 +695,14 @@ pub fn run() {
             let http = reqwest::Client::builder()
                 .user_agent(concat!("Melomango/", env!("CARGO_PKG_VERSION")))
                 .build()?;
+            let library = match Library::open(&data_dir.join("library.db")) {
+                Ok(library) => library,
+                Err(e) => {
+                    // Explain it (and update, if the library is newer) instead of crashing.
+                    startup::library_failed(app.handle(), e);
+                    return Ok(());
+                }
+            };
             let (discord, discord_task) = discord::Presence::new(discord::APPLICATION_ID);
             tauri::async_runtime::spawn(discord_task);
             let state = AppState {
@@ -703,7 +712,7 @@ pub fn run() {
                 plugins_dir,
                 plugin_data_dir,
                 registries: Registries::new(data_dir.join("registries.json")),
-                library: Library::open(&data_dir.join("library.db"))?,
+                library,
                 lyrics: LyricsService::new(http.clone()),
                 artists: ArtistService::new(http.clone()),
                 discord,
@@ -735,7 +744,11 @@ pub fn run() {
         .register_asynchronous_uri_scheme_protocol("stream", |ctx, request, responder| {
             let app = ctx.app_handle().clone();
             tauri::async_runtime::spawn(async move {
-                let state = app.state::<AppState>();
+                // Missing only if the app couldn't start (see `startup`).
+                let Some(state) = app.try_state::<AppState>() else {
+                    responder.respond(tauri::http::Response::builder().status(503).body(Vec::new()).unwrap());
+                    return;
+                };
                 let response = stream::handle(
                     state.registry(),
                     &state.library,
