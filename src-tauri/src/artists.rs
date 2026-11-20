@@ -22,6 +22,13 @@ const SEARCH_RESULTS: &str = "20";
 const TOP_TRACKS: u32 = 10;
 const RELATED: u32 = 10;
 const CACHE_LIMIT: usize = 100;
+/// Songs per request when paging a playlist (the most Deezer gives at once).
+const PLAYLIST_PAGE: usize = 1000;
+/// Enough for any playlist (Deezer caps them at 10.000 songs), and a stop if it loops.
+const MAX_PLAYLIST_PAGES: usize = 12;
+/// Deezer allows ~50 requests every 5 s; past that it answers "Quota limit exceeded".
+const QUOTA_RETRIES: u32 = 3;
+const QUOTA_WAIT: Duration = Duration::from_millis(1500);
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -119,6 +126,10 @@ pub struct CatalogSearch {
 
 pub struct ArtistService {
     http: reqwest::Client,
+    /// Deezer, or a local server in tests.
+    api: String,
+    /// First wait after a quota error; it doubles on each retry.
+    quota_wait: Duration,
     artists: Mutex<HashMap<String, ArtistPage>>,
     albums: Mutex<HashMap<String, AlbumPage>>,
     playlists: Mutex<HashMap<String, PlaylistPage>>,
@@ -129,6 +140,8 @@ impl ArtistService {
     pub fn new(http: reqwest::Client) -> Self {
         Self {
             http,
+            api: API.to_string(),
+            quota_wait: QUOTA_WAIT,
             artists: Mutex::default(),
             albums: Mutex::default(),
             playlists: Mutex::default(),
@@ -294,10 +307,25 @@ impl ArtistService {
             }
         }
         let raw: RawPlaylistFull = self.get(&format!("/playlist/{id}")).await?;
+        let mut tracks = raw.tracks.data;
+        // The playlist itself brings only its first songs (400): the rest, page by page.
+        let total = raw.summary.nb_tracks.unwrap_or(0) as usize;
+        let mut pages = 0;
+        while tracks.len() < total && pages < MAX_PLAYLIST_PAGES {
+            pages += 1;
+            let (index, limit) = (tracks.len().to_string(), PLAYLIST_PAGE.to_string());
+            let page: Page<RawTrack> = self
+                .get_query(&format!("/playlist/{id}/tracks"), &[("index", &index), ("limit", &limit)])
+                .await?;
+            if page.data.is_empty() {
+                break;
+            }
+            tracks.extend(page.data);
+        }
         let page = PlaylistPage {
             description: raw.description.filter(|d| !d.trim().is_empty()),
             duration_secs: raw.duration.unwrap_or(0),
-            tracks: raw.tracks.data.into_iter().map(|t| t.into_track(None)).collect(),
+            tracks: tracks.into_iter().map(|t| t.into_track(None)).collect(),
             playlist: raw.summary.into_public(),
         };
         let mut cache = self.playlists.lock().unwrap();
@@ -328,24 +356,40 @@ impl ArtistService {
     }
 
     async fn get_query<T: DeserializeOwned>(&self, path: &str, query: &[(&str, &str)]) -> anyhow::Result<T> {
-        let value: Value = self
-            .http
-            .get(format!("{API}{path}"))
-            .query(query)
-            .timeout(Duration::from_secs(15))
-            .send()
-            .await
-            .context("no se pudo conectar con Deezer")?
-            .error_for_status()?
-            .json()
-            .await?;
-        // Deezer reports errors with status 200 and an "error" object.
-        if let Some(error) = value.get("error") {
+        let mut wait = self.quota_wait;
+        let mut attempt = 0;
+        loop {
+            let value: Value = self
+                .http
+                .get(format!("{}{path}", self.api))
+                .query(query)
+                .timeout(Duration::from_secs(15))
+                .send()
+                .await
+                .context("no se pudo conectar con Deezer")?
+                .error_for_status()?
+                .json()
+                .await?;
+            // Deezer reports errors with status 200 and an "error" object.
+            let Some(error) = value.get("error") else {
+                return serde_json::from_value(value).context("respuesta de Deezer inesperada");
+            };
+            // Too many requests at once (an artist page makes four): wait and try again.
+            if is_quota_error(error) && attempt < QUOTA_RETRIES {
+                attempt += 1;
+                tokio::time::sleep(wait).await;
+                wait *= 2;
+                continue;
+            }
             let message = error["message"].as_str().unwrap_or("error desconocido");
             bail!("Deezer: {message}");
         }
-        serde_json::from_value(value).context("respuesta de Deezer inesperada")
     }
+}
+
+/// Deezer's "Quota limit exceeded" (code 4), which comes with status 200.
+fn is_quota_error(error: &Value) -> bool {
+    error["code"].as_u64() == Some(4) || error["message"].as_str().is_some_and(|m| m.contains("Quota limit"))
 }
 
 fn pick_artist<'a>(name: &str, found: &'a [RawArtist]) -> Option<&'a RawArtist> {
@@ -564,6 +608,88 @@ mod tests {
         assert_eq!(t.artwork_url.as_deref(), Some("https://cdn/album.jpg"));
     }
 
+    /// A fake Deezer: `answer(path with query, how many times it was asked)` gives the body.
+    async fn fake_deezer(answer: fn(&str, usize) -> String) -> (String, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+        use std::sync::{atomic::{AtomicUsize, Ordering}, Arc};
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let calls = Arc::new(AtomicUsize::new(0));
+        let counter = calls.clone();
+        tokio::spawn(async move {
+            while let Ok((mut socket, _)) = listener.accept().await {
+                let mut buf = vec![0; 4096];
+                let n = socket.read(&mut buf).await.unwrap_or(0);
+                let request = String::from_utf8_lossy(&buf[..n]).into_owned();
+                let path = request.split_whitespace().nth(1).unwrap_or("").to_string();
+                let body = answer(&path, counter.fetch_add(1, Ordering::SeqCst));
+                let reply = format!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = socket.write_all(reply.as_bytes()).await;
+            }
+        });
+        (url, calls)
+    }
+
+    fn songs(ids: std::ops::Range<u32>) -> String {
+        let songs: Vec<String> = ids
+            .map(|i| format!(r#"{{"id": {i}, "title": "Canción {i}", "duration": 200, "artist": {{"name": "Artista"}}}}"#))
+            .collect();
+        songs.join(",")
+    }
+
+    #[tokio::test]
+    async fn a_big_playlist_is_read_whole_not_just_its_first_page() {
+        // Deezer embeds only the first songs (400 of 1977 in «Top 2000»): the rest come paged.
+        let (url, _) = fake_deezer(|path, _| {
+            if path.starts_with("/playlist/7/tracks?index=2") {
+                format!(r#"{{"data": [{}], "total": 5}}"#, songs(2..5))
+            } else {
+                format!(
+                    r#"{{"id": 7, "title": "Grande", "nb_tracks": 5, "creator": {{"name": "x"}}, "tracks": {{"data": [{}]}}}}"#,
+                    songs(0..2)
+                )
+            }
+        })
+        .await;
+        let mut service = ArtistService::new(reqwest::Client::new());
+        service.api = url;
+        let page = service.playlist("7", true).await.unwrap();
+        let ids: Vec<_> = page.tracks.iter().map(|t| t.id.as_str()).collect();
+        assert_eq!(ids, ["0", "1", "2", "3", "4"]);
+    }
+
+    #[tokio::test]
+    async fn waits_and_retries_when_deezer_says_quota_exceeded() {
+        let (url, calls) = fake_deezer(|_, call| {
+            if call < 2 {
+                r#"{"error": {"type": "Exception", "message": "Quota limit exceeded", "code": 4}}"#.into()
+            } else {
+                r#"{"data": []}"#.into()
+            }
+        })
+        .await;
+        let mut service = ArtistService::new(reqwest::Client::new());
+        service.api = url;
+        service.quota_wait = Duration::from_millis(1);
+        let page: Page<RawArtist> = service.get("/search/artist").await.unwrap();
+        assert!(page.data.is_empty());
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 3, "two refusals, then the answer");
+    }
+
+    #[tokio::test]
+    async fn other_deezer_errors_are_not_retried() {
+        let (url, calls) = fake_deezer(|_, _| r#"{"error": {"type": "DataException", "message": "no data", "code": 800}}"#.into()).await;
+        let mut service = ArtistService::new(reqwest::Client::new());
+        service.api = url;
+        service.quota_wait = Duration::from_millis(1);
+        let Err(err) = service.get::<Page<RawArtist>>("/artist/0").await else { panic!("should fail") };
+        assert!(err.to_string().contains("no data"), "{err}");
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
     #[test]
     fn names_compare_without_case_or_accents() {
         assert_eq!(normalize("ROSALÍA"), normalize("Rosalía"));
@@ -614,6 +740,16 @@ mod tests {
         let namesake = found.artists.iter().find(|a| a.artist.name != "ROSALÍA").expect("otro artista");
         service.artist("Rosalía", Some(&namesake.artist.id)).await.unwrap();
         assert_eq!(service.artist("Rosalía", None).await.unwrap().artist.name, "ROSALÍA");
+    }
+
+    /// Against the real Deezer API: «Top 2000 (2019)» embeds 400 of its 1977 songs.
+    #[tokio::test]
+    #[ignore = "necesita red"]
+    async fn reads_a_real_playlist_bigger_than_its_first_page() {
+        let service = ArtistService::new(reqwest::Client::builder().user_agent("Melomango-tests").build().unwrap());
+        let page = service.playlist("7038645284", true).await.unwrap();
+        assert_eq!(page.tracks.len(), page.playlist.track_count as usize);
+        assert!(page.tracks.len() > 400, "{}", page.tracks.len());
     }
 
     /// Against the real Deezer API: `cargo test -- --ignored artists`
