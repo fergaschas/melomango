@@ -127,6 +127,32 @@ test("the radio appends marked songs, also to the pre-shuffle order", () => {
   assert.equal(current(q.advance(q.setShuffle(s, false), true) as q.QueueState), "r1");
 });
 
+test("radio results for a seed that left the queue are dropped", () => {
+  const old = q.play(q.emptyQueue, [t("a"), t("b")], 1);
+  const seed = old.items[1].uid;
+  assert.deepEqual(ids(q.appendRadioFor(old, seed, [t("r1")])!), ["a", "b", "r1"]);
+  // Meanwhile the user played something else: a new queue with new entries.
+  const chosen = q.play(old, [t("x")], 0);
+  assert.equal(q.appendRadioFor(chosen, seed, [t("r1")]), null);
+  // An album started meanwhile doesn't get the old seed's songs at the end either.
+  const album = q.play(old, [t("1"), t("2"), t("3")], 0);
+  assert.equal(q.appendRadioFor(album, seed, [t("r1")]), null);
+  // Songs added after the seed don't make it stale.
+  assert.deepEqual(ids(q.appendRadioFor(q.addToQueue(old, t("z")), seed, [t("r1")])!), ["a", "b", "z", "r1"]);
+});
+
+test("after the radio fills the queue, it only moves on if the same song is still current", () => {
+  const ended = q.play(q.emptyQueue, [t("a")], 0);
+  const from = q.currentItem(ended)!.uid;
+  const filled = q.appendRadio(ended, [t("r1")]);
+  assert.equal(current(q.advanceAfterRadio(filled, from)!), "r1");
+  // The user picked a song while the radio searched: it must keep playing.
+  const chosen = q.appendRadio(q.play(ended, [t("x")], 0), [t("r1")]);
+  assert.equal(q.advanceAfterRadio(chosen, from), null);
+  assert.equal(q.advanceAfterRadio(filled, null), null);
+  assert.equal(q.advanceAfterRadio(ended, from), null, "nothing was added");
+});
+
 test("radio marks survive saving and restoring", () => {
   const s = q.appendRadio(q.play(q.emptyQueue, [t("a")], 0), [t("r1")]);
   const restored = q.deserialize(JSON.parse(JSON.stringify(q.serialize(s))));

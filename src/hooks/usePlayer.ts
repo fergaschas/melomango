@@ -237,7 +237,9 @@ export function usePlayer() {
           radioFailed.current = last.uid;
           return false;
         }
-        const next = q.appendRadio(queueRef.current, tracks);
+        // The user may have started another queue while the radio searched.
+        const next = q.appendRadioFor(queueRef.current, last.uid, tracks);
+        if (!next) return false;
         queueRef.current = next;
         setQueue(next);
         return true;
@@ -260,9 +262,11 @@ export function usePlayer() {
       if (result === "stop") {
         // The queue is over: the radio keeps the music going.
         if (autoRadioRef.current && queueRef.current.repeat === "off") {
+          const from = q.currentItem(queueRef.current)?.uid ?? null;
           fillRadio().then((found) => {
-            const after = found ? q.advance(queueRef.current, false) : "stop";
-            if (after !== "stop" && after !== "same") start(after);
+            // Only move on if the user didn't pick another song while the radio searched.
+            const after = found ? q.advanceAfterRadio(queueRef.current, from) : null;
+            if (after) start(after);
           });
         }
         return;
