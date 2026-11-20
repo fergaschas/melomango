@@ -480,6 +480,39 @@ mod tests {
     }
 
     #[test]
+    fn a_zip_with_a_broken_csv_a_spanish_csv_and_an_unnamed_playlist() {
+        let dir = temp_dir("export-mixed-zip");
+        let path = dir.join("spotify_playlists.zip");
+        let mut zip = zip::ZipWriter::new(fs::File::create(&path).unwrap());
+        let options = zip::write::SimpleFileOptions::default();
+        // Excel with Spanish settings: «;» and Windows-1252 («ó» is 0xF3).
+        let spanish = b"Track URI;Track Name;Artist Name(s)\r\nspotify:track:1;Canci\xf3n;Alguien\r\n".to_vec();
+        let files: [(&str, Vec<u8>); 3] = [
+            ("para_correr.csv", spanish),
+            // Not a playlist at all (no title or artist columns): can't be imported.
+            ("rota.csv", b"fecha,importe\n2026-01-01,3\n".to_vec()),
+            (
+                "Playlist1.json",
+                br#"{"playlists": [{"name": "", "items": [{"track": {"trackName": "Saoko", "artistName": "Rosalia", "trackUri": "spotify:track:2"}}]}]}"#.to_vec(),
+            ),
+        ];
+        for (name, data) in files {
+            zip.start_file(name, options).unwrap();
+            zip.write_all(&data).unwrap();
+        }
+        zip.finish().unwrap();
+
+        let Import { collections, problems } = read(&[path]).unwrap();
+        let names: Vec<&str> = collections.iter().map(|c| c.name.as_str()).collect();
+        // Files are read in name order: Playlist1.json comes first.
+        assert_eq!(names, [UNNAMED, "Para correr"]);
+        assert_eq!(collections[1].tracks[0].title, "Canción");
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(problems[0].starts_with("rota.csv"), "{problems:?}");
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn recognises_playlist_file_names() {
         assert!(is_playlist_file("Playlist1.json"));
         assert!(is_playlist_file("Playlist12.json"));

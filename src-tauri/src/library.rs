@@ -1185,6 +1185,38 @@ mod tests {
     }
 
     #[test]
+    fn choosing_what_to_drop_from_a_big_cache_is_quick() {
+        let lib = Library::in_memory();
+        // 500 cached songs and 20.000 plays: without the index on plays, every cached song
+        // scanned all the plays (about 10 million rows read per pass).
+        lib.with(|c| {
+            let tx = c.transaction()?;
+            for i in 0..500i64 {
+                let t = track(&format!("c{i}"));
+                upsert_track(&tx, &t)?;
+                tx.execute(
+                    "INSERT INTO downloads (source, id, file, mime, size, kind, downloaded_at)
+                     VALUES (?1, ?2, ?3, 'audio/webm', 1000, 'cache', ?4)",
+                    params![t.source, t.id, format!("c{i}.webm"), i],
+                )?;
+            }
+            for i in 0..20_000i64 {
+                let t = track(&format!("c{}", i % 1_000));
+                upsert_track(&tx, &t)?;
+                tx.execute("INSERT INTO plays (source, id, played_at) VALUES (?1, ?2, ?3)", params![t.source, t.id, 1_000 + i])?;
+            }
+            tx.commit()
+        })
+        .unwrap();
+        let started = std::time::Instant::now();
+        let order = lib.cache_eviction_order().unwrap();
+        assert!(started.elapsed() < std::time::Duration::from_millis(500), "{:?}", started.elapsed());
+        assert_eq!(order.len(), 500);
+        // Least recently played first: c0 was last played at play 19.000, c499 at 19.499.
+        assert_eq!((order[0].id.as_str(), order[499].id.as_str()), ("c0", "c499"));
+    }
+
+    #[test]
     fn importing_several_playlists_is_all_or_nothing() {
         let lib = Library::in_memory();
         let sp = |id: &str| Track { source: "spotify".into(), ..track(id) };
