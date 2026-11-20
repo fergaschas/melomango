@@ -723,14 +723,23 @@ impl Library {
                     id
                 }
             };
+            // Songs already there keep the date they were added; only new ones get today's.
+            let added_before: std::collections::HashMap<(String, String), i64> = tx
+                .prepare("SELECT source, id, added_at FROM playlist_tracks WHERE playlist_id = ?1")?
+                .query_map([id], |r| Ok(((r.get(0)?, r.get(1)?), r.get(2)?)))?
+                .collect::<rusqlite::Result<_>>()?;
             tx.execute("DELETE FROM playlist_tracks WHERE playlist_id = ?1", [id])?;
             let mut position = 0i64;
             for track in tracks {
                 upsert_track(&tx, track)?;
+                let added_at = added_before
+                    .get(&(track.source.clone(), track.id.clone()))
+                    .copied()
+                    .unwrap_or(ts);
                 position += tx.execute(
                     "INSERT OR IGNORE INTO playlist_tracks (playlist_id, source, id, position, added_at)
                      VALUES (?1, ?2, ?3, ?4, ?5)",
-                    params![id, track.source, track.id, position, ts],
+                    params![id, track.source, track.id, position, added_at],
                 )? as i64;
             }
             tx.execute("UPDATE playlist_links SET synced_at = ?2 WHERE playlist_id = ?1", params![id, ts])?;
@@ -1070,6 +1079,22 @@ mod tests {
         // Deleting the playlist drops the link too.
         lib.delete_playlist(first.id).unwrap();
         assert!(lib.imported_from("spotify").unwrap().is_empty());
+    }
+
+    #[test]
+    fn resyncing_keeps_when_each_song_was_added() {
+        let lib = Library::in_memory();
+        let sp = |id: &str| Track { source: "spotify".into(), ..track(id) };
+        let first = lib.import_playlist("spotify", "playlist:abc", "Verano", &[sp("1"), sp("2")]).unwrap();
+        // As if it had been imported a while ago.
+        let long_ago = 1_000;
+        lib.with(|c| c.execute("UPDATE playlist_tracks SET added_at = ?1", [long_ago])).unwrap();
+
+        lib.import_playlist("spotify", "playlist:abc", "Verano", &[sp("3"), sp("2"), sp("1")]).unwrap();
+        let synced = lib.playlist(first.id).unwrap();
+        assert_eq!(ids(&synced.tracks), ["3", "2", "1"]);
+        assert_eq!(&synced.added_at[1..], [long_ago, long_ago], "songs that were already there");
+        assert!(synced.added_at[0] > long_ago, "the new song is added now");
     }
 
     #[test]
