@@ -27,6 +27,8 @@ importadas de Spotify. **Atrás** (o Alt+←) vuelve a la página anterior.
 tipo), **Canciones** (de la fuente elegida), **Artistas**, **Álbumes** y **Playlists** (tus playlists que coinciden y
 playlists públicas de Deezer, que puedes reproducir o guardar en las tuyas y sincronizar después).
 
+**Tema oscuro**: Melomango sigue el modo claro u oscuro de Windows; en **Ajustes** puedes fijar Claro u Oscuro.
+
 **Bandeja del sistema**: Melomango tiene un icono junto al reloj; un clic abre la ventana y su menú pausa, pasa de
 canción o sale. Al cerrar la ventana sigue sonando en la bandeja (se puede cambiar en **Ajustes**), y abrir
 Melomango otra vez muestra la ventana que ya está en marcha.

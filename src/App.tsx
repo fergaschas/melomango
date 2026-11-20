@@ -7,6 +7,7 @@ import { useUpdater } from "./hooks/useUpdater";
 import { useShortcuts } from "./hooks/useShortcuts";
 import { useDiscordPresence, useDiscordSetting } from "./hooks/useDiscord";
 import { useCloseToTraySetting, useTray } from "./hooks/useTray";
+import { useTheme } from "./lib/theme";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { setupRequirements } from "./lib/requirements";
 import { UpdateCard } from "./components/UpdateCard";
@@ -145,6 +146,7 @@ export default function App() {
   const [discordEnabled, setDiscordEnabled] = useDiscordSetting();
   useDiscordPresence(player, discordEnabled);
   const [closeToTray, setCloseToTray] = useCloseToTraySetting();
+  const [theme, setTheme] = useTheme();
   useTray(player);
   const [fixing, setFixing] = useState<Track | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -322,6 +324,8 @@ export default function App() {
             onDiscordChange={setDiscordEnabled}
             closeToTray={closeToTray}
             onCloseToTrayChange={setCloseToTray}
+            theme={theme}
+            onThemeChange={setTheme}
             onClose={() => setShowSettings(false)}
           />
         )}

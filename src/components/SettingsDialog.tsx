@@ -1,6 +1,13 @@
 import { useEffect, useState } from "react";
 import { discordStatus, type DiscordStatus } from "../lib/api";
 import { CloseIcon } from "./Icons";
+import type { Theme } from "../lib/theme";
+
+const THEMES: [Theme, string][] = [
+  ["system", "Como Windows"],
+  ["light", "Claro"],
+  ["dark", "Oscuro"],
+];
 
 const STATUS_TEXT: Record<DiscordStatus["state"], string> = {
   unavailable: "Esta versión de Melomango no tiene configurada la conexión con Discord.",
@@ -15,10 +22,20 @@ interface Props {
   onDiscordChange: (on: boolean) => void;
   closeToTray: boolean;
   onCloseToTrayChange: (on: boolean) => void;
+  theme: Theme;
+  onThemeChange: (theme: Theme) => void;
   onClose: () => void;
 }
 
-export function SettingsDialog({ discordEnabled, onDiscordChange, closeToTray, onCloseToTrayChange, onClose }: Props) {
+export function SettingsDialog({
+  discordEnabled,
+  onDiscordChange,
+  closeToTray,
+  onCloseToTrayChange,
+  theme,
+  onThemeChange,
+  onClose,
+}: Props) {
   const [status, setStatus] = useState<DiscordStatus | null>(null);
 
   // The connection changes on its own (Discord opened or closed): check while open.
@@ -53,6 +70,26 @@ export function SettingsDialog({ discordEnabled, onDiscordChange, closeToTray, o
             <CloseIcon />
           </button>
         </header>
+
+        <div className="settings-row theme-row">
+          <span>
+            <strong>Tema</strong>
+            <span className="radio-switch-note">Claro de mango, oscuro de hueso tostado, o lo que use Windows.</span>
+          </span>
+          <div className="segmented" role="radiogroup" aria-label="Tema">
+            {THEMES.map(([value, label]) => (
+              <button
+                key={value}
+                role="radio"
+                aria-checked={theme === value}
+                className={theme === value ? "active" : undefined}
+                onClick={() => onThemeChange(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
 
         <label className="radio-switch settings-row">
           <input
