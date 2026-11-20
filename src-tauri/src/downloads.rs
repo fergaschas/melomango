@@ -353,7 +353,7 @@ fn extension(mime: &str) -> &'static str {
 
 /// Reads `start..=end` of a downloaded file (end clamped to its size).
 pub fn read_range(path: &Path, start: u64, end: u64, size: u64) -> anyhow::Result<Vec<u8>> {
-    if start >= size {
+    if start >= size || end < start {
         return Err(anyhow!("fuera del archivo"));
     }
     let end = end.min(size - 1);
@@ -399,6 +399,7 @@ mod tests {
         assert_eq!(read_range(&path, 2, 4, 10).unwrap(), b"234");
         assert_eq!(read_range(&path, 8, 99, 10).unwrap(), b"89");
         assert!(read_range(&path, 10, 12, 10).is_err());
+        assert!(read_range(&path, 5, 2, 10).is_err(), "end before start must not overflow");
         fs::remove_dir_all(&dir).unwrap();
     }
 

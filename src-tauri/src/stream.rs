@@ -126,7 +126,7 @@ async fn serve(
         .ok_or_else(|| anyhow!("se esperaba <fuente>/<id>, llegó {path}"))?;
     let open = || open(registry, library, http, source_id, track_id);
 
-    let range = capped_range(
+    let requested = capped_range(
         request
             .headers()
             .get(header::RANGE)
@@ -134,9 +134,14 @@ async fn serve(
     );
 
     // Downloaded: straight from disk, no connection needed.
-    if let Some((path, file)) = downloads.local(library, source_id, track_id) {
-        return serve_file(&path, &file, &range);
+    let local = downloads.local(library, source_id, track_id);
+    let Some((start, end)) = requested else {
+        return unsatisfiable(local.as_ref().map(|(_, file)| file.size));
+    };
+    if let Some((path, file)) = local {
+        return serve_file(&path, &file, start, end);
     }
+    let range = format!("bytes={start}-{end}");
 
     let key = format!("{source_id}/{track_id}");
     let slot = cache.slot(&key);
@@ -170,25 +175,28 @@ async fn serve(
         .body(body)?)
 }
 
-/// Answers a range request from a downloaded file.
-fn serve_file(path: &std::path::Path, file: &DownloadFile, range: &str) -> anyhow::Result<Response<Vec<u8>>> {
-    let (start, end) = range
-        .strip_prefix("bytes=")
-        .and_then(|r| r.split_once('-'))
-        .and_then(|(s, e)| Some((s.parse::<u64>().ok()?, e.parse::<u64>().ok()?)))
-        .unwrap_or((0, CHUNK - 1));
-    let response = Response::builder()
+/// 416: the requested range can't be served (`size` is known for downloaded files).
+fn unsatisfiable(size: Option<u64>) -> anyhow::Result<Response<Vec<u8>>> {
+    let mut response = Response::builder()
+        .status(416)
         .header(header::ACCEPT_RANGES, "bytes")
         .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*");
+    if let Some(size) = size {
+        response = response.header(header::CONTENT_RANGE, format!("bytes */{size}"));
+    }
+    Ok(response.body(Vec::new())?)
+}
+
+/// Answers a range request (`start..=end`, already capped) from a downloaded file.
+fn serve_file(path: &std::path::Path, file: &DownloadFile, start: u64, end: u64) -> anyhow::Result<Response<Vec<u8>>> {
     if start >= file.size {
-        return Ok(response
-            .status(416)
-            .header(header::CONTENT_RANGE, format!("bytes */{}", file.size))
-            .body(Vec::new())?);
+        return unsatisfiable(Some(file.size));
     }
     let body = downloads::read_range(path, start, end, file.size)?;
     let last = start + body.len() as u64 - 1;
-    Ok(response
+    Ok(Response::builder()
+        .header(header::ACCEPT_RANGES, "bytes")
+        .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
         .status(206)
         .header(header::CONTENT_TYPE, &file.mime)
         .header(header::CONTENT_RANGE, format!("bytes {start}-{last}/{}", file.size))
@@ -242,17 +250,18 @@ pub(crate) async fn fetch(http: &reqwest::Client, info: &StreamInfo, range: &str
     Ok(request.header(header::RANGE, range).send().await?)
 }
 
-/// Turns the browser's Range header into one requesting at most `CHUNK` bytes.
-fn capped_range(header: Option<&str>) -> String {
+/// Turns the browser's Range header into `start..=end`, at most `CHUNK` bytes. None when
+/// it can't be satisfied (it ends before it starts): any script in the WebView can send one.
+fn capped_range(header: Option<&str>) -> Option<(u64, u64)> {
     let (start, end) = header
         .and_then(|h| h.strip_prefix("bytes="))
         .and_then(|r| r.split(',').next())
         .and_then(|r| r.split_once('-'))
         .and_then(|(s, e)| Some((s.trim().parse::<u64>().ok()?, e.trim().parse::<u64>().ok())))
         .unwrap_or((0, None));
-    let max_end = start + CHUNK - 1;
+    let max_end = start.saturating_add(CHUNK - 1);
     let end = end.map_or(max_end, |e| e.min(max_end));
-    format!("bytes={start}-{end}")
+    (end >= start).then_some((start, end))
 }
 
 #[cfg(test)]
@@ -261,22 +270,39 @@ mod tests {
 
     #[test]
     fn open_range_is_capped() {
-        assert_eq!(capped_range(Some("bytes=0-")), format!("bytes=0-{}", CHUNK - 1));
-        assert_eq!(
-            capped_range(Some("bytes=500-")),
-            format!("bytes=500-{}", 500 + CHUNK - 1)
-        );
+        assert_eq!(capped_range(Some("bytes=0-")), Some((0, CHUNK - 1)));
+        assert_eq!(capped_range(Some("bytes=500-")), Some((500, 500 + CHUNK - 1)));
     }
 
     #[test]
     fn small_range_is_kept() {
-        assert_eq!(capped_range(Some("bytes=10-99")), "bytes=10-99");
+        assert_eq!(capped_range(Some("bytes=10-99")), Some((10, 99)));
     }
 
     #[test]
     fn missing_or_invalid_range_starts_at_zero() {
-        assert_eq!(capped_range(None), format!("bytes=0-{}", CHUNK - 1));
-        assert_eq!(capped_range(Some("bytes=-500")), format!("bytes=0-{}", CHUNK - 1));
+        assert_eq!(capped_range(None), Some((0, CHUNK - 1)));
+        assert_eq!(capped_range(Some("bytes=-500")), Some((0, CHUNK - 1)));
+    }
+
+    #[test]
+    fn malformed_ranges_do_not_overflow() {
+        assert_eq!(capped_range(Some("bytes=100-50")), None);
+        assert_eq!(capped_range(Some("bytes=18446744073709551615-")), Some((u64::MAX, u64::MAX)));
+    }
+
+    #[test]
+    fn downloaded_files_answer_bad_ranges_with_416() {
+        let dir = std::env::temp_dir().join(format!("melomango-range-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("song.bin");
+        std::fs::write(&path, b"0123456789").unwrap();
+        let file = DownloadFile { file: "song.bin".into(), mime: "audio/webm".into(), size: 10 };
+        assert_eq!(serve_file(&path, &file, u64::MAX, u64::MAX).unwrap().status(), 416);
+        let ok = serve_file(&path, &file, 2, 4).unwrap();
+        assert_eq!((ok.status().as_u16(), ok.body().as_slice()), (206, &b"234"[..]));
+        assert_eq!(unsatisfiable(Some(10)).unwrap().headers()[header::CONTENT_RANGE], "bytes */10");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
