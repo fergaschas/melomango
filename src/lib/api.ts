@@ -275,6 +275,10 @@ export const chooseMatch = (track: Track, choice: Track) =>
 /** Plugin id of playlists imported from Spotify's data export (they can't be synced). */
 export const SPOTIFY_EXPORT = "spotify-export";
 
+/** A new playlist from pasted text, one song per line ("Artista - Título"). */
+export const importText = (name: string, text: string) =>
+  invoke<{ playlist: PlaylistSummary; skipped: number }>("import_text", { name, text });
+
 /** Imports the playlist or album behind a Spotify, YouTube or Deezer link. */
 export const importLink = (url: string) =>
   invoke<{ playlist: PlaylistSummary; limited: boolean }>("import_link", { url });

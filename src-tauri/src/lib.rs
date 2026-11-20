@@ -9,6 +9,7 @@ mod matcher;
 mod radio;
 mod models;
 mod sources;
+mod text_import;
 mod spotify_export;
 mod stream;
 mod tray;
@@ -406,6 +407,26 @@ async fn import_link(state: State<'_, AppState>, url: String) -> Result<Imported
     Ok(ImportedLink { playlist, limited })
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ImportedText {
+    playlist: PlaylistSummary,
+    /// Lines that weren't songs.
+    skipped: usize,
+}
+
+/// A new playlist from pasted text, one song per line ("Artista - Título").
+#[tauri::command]
+fn import_text(state: State<'_, AppState>, name: String, text: String) -> Result<ImportedText, String> {
+    let parsed = text_import::parse(&text);
+    if parsed.tracks.is_empty() {
+        return Err("no encontré canciones: pon una por línea, por ejemplo «Vetusta Morla - Copenhague»".into());
+    }
+    let name = if name.trim().is_empty() { "Lista pegada".to_string() } else { name };
+    let playlist = state.library.create_playlist_with(&name, &parsed.tracks).map_err(err)?;
+    Ok(ImportedText { playlist, skipped: parsed.skipped })
+}
+
 /// Imports the playlists and liked songs of a Spotify data export (zip or its JSON files).
 #[tauri::command]
 fn import_spotify_export(state: State<'_, AppState>, paths: Vec<String>) -> Result<Vec<PlaylistSummary>, String> {
@@ -649,6 +670,7 @@ pub fn run() {
             get_lyrics,
             import_spotify_export,
             import_link,
+            import_text,
             match_options,
             choose_match,
             record_play,

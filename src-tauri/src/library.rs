@@ -268,6 +268,29 @@ impl Library {
         })
     }
 
+    /// A new playlist with `tracks` (duplicates once), in one go.
+    pub fn create_playlist_with(&self, name: &str, tracks: &[Track]) -> anyhow::Result<PlaylistSummary> {
+        let name = clean_name(name)?;
+        self.with(|c| {
+            let tx = c.transaction()?;
+            let ts = now();
+            tx.execute("INSERT INTO playlists (name, created_at, updated_at) VALUES (?1, ?2, ?2)", params![name, ts])?;
+            let id = tx.last_insert_rowid();
+            let mut position = 0i64;
+            for track in tracks {
+                upsert_track(&tx, track)?;
+                position += tx.execute(
+                    "INSERT OR IGNORE INTO playlist_tracks (playlist_id, source, id, position, added_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5)",
+                    params![id, track.source, track.id, position, ts],
+                )? as i64;
+            }
+            let result = summary(&tx, id)?;
+            tx.commit()?;
+            Ok(result)
+        })
+    }
+
     pub fn rename_playlist(&self, id: i64, name: &str) -> anyhow::Result<()> {
         let name = clean_name(name)?;
         let changed = self.with(|c| {
@@ -721,6 +744,16 @@ mod tests {
         let stored = lib.track("spotify", "x").unwrap().unwrap();
         assert_eq!(stored.duration_secs, full.duration_secs);
         assert_eq!(stored.artwork_url, full.artwork_url);
+    }
+
+    #[test]
+    fn creates_a_playlist_with_tracks() {
+        let lib = Library::in_memory();
+        let p = lib.create_playlist_with("Pegada", &[track("a"), track("b"), track("a")]).unwrap();
+        assert_eq!((p.name.as_str(), p.track_count), ("Pegada", 2));
+        assert_eq!(ids(&lib.playlist(p.id).unwrap().tracks), ["a", "b"]);
+        assert!(lib.playlist(p.id).unwrap().link.is_none(), "not linked: nothing to sync");
+        assert!(lib.create_playlist_with("  ", &[]).is_err());
     }
 
     #[test]

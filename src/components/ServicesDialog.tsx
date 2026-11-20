@@ -7,6 +7,7 @@ import {
   importCollection,
   importLink,
   importSpotifyExport,
+  importText,
   type PlaylistSummary,
   libraryCollections,
   libraryConnections,
@@ -51,6 +52,7 @@ export function ServicesDialog({ onClose, onOpenPlugins, onOpenPlaylist }: Props
         </p>
 
         <LinkImportPanel onOpenPlaylist={onOpenPlaylist} />
+        <TextImportPanel onOpenPlaylist={onOpenPlaylist} />
 
         {error && <p className="notice error">{error}</p>}
         {!connections && !error && <p className="status">Comprobando conexiones…</p>}
@@ -382,6 +384,94 @@ function LinkImportPanel({ onOpenPlaylist }: { onOpenPlaylist: (id: number) => v
               </button>
             </li>
           ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+const TEXT_EXAMPLE = ["Vetusta Morla - Copenhague", "ROSALÍA - Saoko", "Get Lucky by Daft Punk"].join("\n");
+
+/** Paste a list of songs, one per line, to make a playlist. */
+function TextImportPanel({ onOpenPlaylist }: { onOpenPlaylist: (id: number) => void }) {
+  const library = useLibrary();
+  const [name, setName] = useState("");
+  const [text, setText] = useState("");
+  const [importing, setImporting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [created, setCreated] = useState<{ playlist: PlaylistSummary; skipped: number } | null>(null);
+  const lines = text.split(/\r?\n/).filter((l) => l.trim()).length;
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!text.trim()) return;
+    setImporting(true);
+    setError(null);
+    try {
+      const result = await importText(name.trim(), text);
+      await library.refresh();
+      library.notify(`«${result.playlist.name}» creada: ${result.playlist.trackCount} canciones`);
+      setCreated(result);
+      setText("");
+      setName("");
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  return (
+    <div className="service">
+      <div className="service-head">
+        <div>
+          <strong>Pegar una lista</strong>
+          <span className="service-status">Una canción por línea: «Artista - Título»</span>
+        </div>
+      </div>
+      <form className="text-import" onSubmit={submit}>
+        <input
+          id="import-text-name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Nombre de la playlist (opcional)"
+          aria-label="Nombre de la playlist"
+          disabled={importing}
+        />
+        <textarea
+          id="import-text"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder={TEXT_EXAMPLE}
+          aria-label="Lista de canciones, una por línea"
+          rows={5}
+          disabled={importing}
+        />
+        <div className="text-import-actions">
+          <span className="muted-note">
+            {lines ? `${lines} ${lines === 1 ? "línea" : "líneas"}` : "También vale «Título by Artista» o solo el título."}
+          </span>
+          <button className="btn primary small" disabled={importing || !text.trim()}>
+            {importing ? "Creando…" : "Crear playlist"}
+          </button>
+        </div>
+      </form>
+      {error && <p className="notice error">{error}</p>}
+      {created && (
+        <ul className="source-list collection-list">
+          <li>
+            <PlaylistCover artworkUrls={created.playlist.artworkUrls} size={44} />
+            <div className="source-text">
+              <span className="source-name">{created.playlist.name}</span>
+              <span className="source-desc">
+                {created.playlist.trackCount} canciones
+                {created.skipped > 0 && ` · ${created.skipped} ${created.skipped === 1 ? "línea ignorada" : "líneas ignoradas"}`}
+              </span>
+            </div>
+            <button className="btn ghost small" onClick={() => onOpenPlaylist(created.playlist.id)}>
+              Abrir
+            </button>
+          </li>
         </ul>
       )}
     </div>

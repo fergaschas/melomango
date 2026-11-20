@@ -2085,3 +2085,43 @@ kbd {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
+
+/* ---------- Import a pasted list ---------- */
+.text-import {
+  display: grid;
+  gap: 8px;
+}
+
+.text-import input,
+.text-import textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font: inherit;
+  color: inherit;
+}
+
+.text-import textarea {
+  resize: vertical;
+  min-height: 90px;
+}
+
+.text-import input:focus-visible,
+.text-import textarea:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.text-import-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.text-import-actions .muted-note {
+  text-align: left;
+}

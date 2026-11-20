@@ -138,6 +138,11 @@ En **⬇ Importar playlists → Pegar un enlace** vale el enlace de una playlist
 las 100 primeras canciones), YouTube o YouTube Music (con el plugin de YouTube 0.5.0 o posterior) o Deezer. Sin
 iniciar sesión, y luego se actualizan con **Sincronizar**.
 
+#### Pegando una lista
+
+En **⬇ Importar playlists → Pegar una lista**, una canción por línea («Artista - Título», «Título by Artista», con
+números delante o solo el título) crea una playlist nueva. Cada canción se busca en YouTube al reproducirla.
+
 #### Con el plugin (al momento y con sincronización; necesita Premium)
 
 El plugin **Spotify** importa tus playlists, tus «Canciones que te gustan» y tus álbumes guardados usando la API de
