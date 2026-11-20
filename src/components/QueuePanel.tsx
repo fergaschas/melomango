@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { formatTime, type Track } from "../lib/api";
 import type { Player } from "../hooks/usePlayer";
 import { Artwork } from "./Artwork";
@@ -6,7 +6,9 @@ import { CloseIcon } from "./Icons";
 
 /** Side panel with the current track and what plays next: reorder, remove, jump. */
 export function QueuePanel({ player, onClose }: { player: Player; onClose: () => void }) {
-  const { current, upcoming, index, shuffle, repeat } = player;
+  const { current, upcoming, index, shuffle, repeat, autoRadio, radioLoading } = player;
+  const firstRadio = upcoming.findIndex((item) => item.radio);
+  const radioWorks = autoRadio && repeat === "off";
   const [dragFrom, setDragFrom] = useState<number | null>(null);
   const [dragOver, setDragOver] = useState<number | null>(null);
 
@@ -25,6 +27,19 @@ export function QueuePanel({ player, onClose }: { player: Player; onClose: () =>
           <CloseIcon />
         </button>
       </header>
+
+      <label className="radio-switch" title="Cuando se acaba la cola, sigue con canciones parecidas">
+        <input type="checkbox" id="auto-radio" checked={autoRadio} onChange={player.toggleAutoRadio} />
+        <span className="switch-track" aria-hidden="true">
+          <span className="switch-thumb" />
+        </span>
+        <span>
+          <strong>Radio automática</strong>
+          <span className="radio-switch-note">
+            {repeat !== "off" && autoRadio ? "En pausa mientras repites" : "Al acabar la cola, canciones parecidas"}
+          </span>
+        </span>
+      </label>
 
       <div className="queue-body">
         {!current && <p className="lyrics-status">La cola está vacía. Pon algo de música.</p>}
@@ -48,8 +63,13 @@ export function QueuePanel({ player, onClose }: { player: Player; onClose: () =>
         )}
         {current && upcoming.length === 0 && (
           <p className="queue-empty">
-            {repeat === "all" ? "Al acabar, la lista vuelve a empezar." : "No hay nada más en la cola."} Añade canciones con
-            el botón + de cada una.
+            {radioLoading
+              ? "Buscando canciones parecidas…"
+              : repeat === "all"
+                ? "Al acabar, la lista vuelve a empezar."
+                : radioWorks
+                  ? "Al acabar, la radio seguirá con canciones parecidas."
+                  : "No hay nada más en la cola. Añade canciones con el botón + de cada una."}
           </p>
         )}
 
@@ -57,8 +77,13 @@ export function QueuePanel({ player, onClose }: { player: Player; onClose: () =>
           {upcoming.map((item, i) => {
             const position = index + 1 + i; // index in the whole queue
             return (
+              <Fragment key={item.uid}>
+              {i === firstRadio && (
+                <li className="queue-radio-head" aria-hidden="true">
+                  Desde la radio
+                </li>
+              )}
               <li
-                key={item.uid}
                 className={dragOver === position && dragFrom !== position ? "drop-target" : undefined}
                 draggable
                 onDragStart={() => setDragFrom(position)}
@@ -84,6 +109,7 @@ export function QueuePanel({ player, onClose }: { player: Player; onClose: () =>
                   onRemove={() => player.removeFromQueue(item.uid)}
                 />
               </li>
+              </Fragment>
             );
           })}
         </ol>

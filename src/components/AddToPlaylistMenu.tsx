@@ -2,11 +2,12 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { Track } from "../lib/api";
 import { useLibrary } from "../lib/library";
 import { useMatchFix } from "../lib/matchFix";
-import { PlayNextIcon, PlusIcon, QueueAddIcon, SwapIcon } from "./Icons";
+import { PlayNextIcon, PlusIcon, QueueAddIcon, RadioIcon, SwapIcon } from "./Icons";
 
 export interface QueueActions {
   playNext: (t: Track) => void;
   addToQueue: (t: Track) => void;
+  startRadio?: (t: Track) => void;
 }
 
 /** "+" button: play next / add to the queue, or add `track` to a playlist (or a new one). */
@@ -80,6 +81,21 @@ export function AddToPlaylistMenu({ track, queue }: { track: Track; queue?: Queu
                   <QueueAddIcon size={16} /> Añadir a la cola
                 </span>
               </button>
+              {queue.startRadio && (
+                <button
+                  role="menuitem"
+                  className="menu-item"
+                  onClick={() => {
+                    setOpen(false);
+                    queue.startRadio?.(track);
+                    library.notify(`Radio de «${track.title}»: después vendrán canciones parecidas`);
+                  }}
+                >
+                  <span className="menu-icon-label">
+                    <RadioIcon size={16} /> Iniciar radio
+                  </span>
+                </button>
+              )}
               <hr className="menu-sep" />
             </>
           )}

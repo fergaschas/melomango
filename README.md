@@ -14,6 +14,10 @@ posición y el volumen.
 Si una canción importada (de Spotify) suena con el vídeo equivocado, pulsa el botón ⇄ junto a la canción que suena, o
 **No es esta canción…** en su menú +, y elige la versión buena: Melomango la recuerda.
 
+**Radio automática**: cuando se acaba la cola, Melomango sigue con canciones parecidas (con el plugin de YouTube, de
+la lista «Mix» de cada vídeo; si no, del mismo artista). Se activa o desactiva en el panel de la cola, y **Iniciar
+radio** en el menú + de cualquier canción la empieza desde ahí.
+
 **Historial** (en la barra lateral): lo que has escuchado, por días. Una canción cuenta tras sonar 30 segundos (o la
 mitad, si es más corta). Se guarda solo en tu equipo y se puede borrar.
 

@@ -19,6 +19,10 @@ pub trait MusicSource: Send + Sync {
     async fn trending(&self) -> anyhow::Result<Vec<Track>>;
     /// Where to get the track's audio. The URL may redirect and must accept HTTP Range requests.
     async fn stream(&self, track_id: &str) -> anyhow::Result<StreamInfo>;
+    /// Songs like `track_id`, for the automatic radio; `None` if the source can't tell.
+    async fn radio(&self, _track_id: &str) -> anyhow::Result<Option<Vec<Track>>> {
+        Ok(None)
+    }
 }
 
 /// The sources currently available, in display order.

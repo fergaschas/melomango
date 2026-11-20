@@ -232,7 +232,7 @@ fn words(text: &str) -> Vec<String> {
     folded.split_whitespace().map(str::to_string).collect()
 }
 
-fn main_artist(artist: &str) -> &str {
+pub(crate) fn main_artist(artist: &str) -> &str {
     artist.split([',', '&']).next().unwrap_or(artist).trim()
 }
 

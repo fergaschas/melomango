@@ -115,3 +115,20 @@ test("ignores a corrupt saved index", () => {
   const restored = q.deserialize({ tracks: [t("a")], index: 7, original: null, shuffle: false, repeat: "off" });
   assert.equal(current(restored), "a");
 });
+
+test("the radio appends marked songs, also to the pre-shuffle order", () => {
+  let s = q.play(q.emptyQueue, [t("a"), t("b")], 1);
+  assert.equal(q.atEnd(s), true);
+  s = q.setShuffle(s, true, reverse);
+  s = q.appendRadio(s, [t("r1"), t("r2")]);
+  assert.equal(q.atEnd(s), false);
+  assert.deepEqual(q.upcoming(s).filter((i) => i.radio).map((i) => i.track.id), ["r1", "r2"]);
+  assert.deepEqual(ids(q.setShuffle(s, false)).slice(-2), ["r1", "r2"]);
+  assert.equal(current(q.advance(q.setShuffle(s, false), true) as q.QueueState), "r1");
+});
+
+test("radio marks survive saving and restoring", () => {
+  const s = q.appendRadio(q.play(q.emptyQueue, [t("a")], 0), [t("r1")]);
+  const restored = q.deserialize(JSON.parse(JSON.stringify(q.serialize(s))));
+  assert.deepEqual(restored.items.map((i) => !!i.radio), [false, true]);
+});

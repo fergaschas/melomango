@@ -3,6 +3,7 @@ mod exportify;
 mod library;
 mod lyrics;
 mod matcher;
+mod radio;
 mod models;
 mod sources;
 mod spotify_export;
@@ -359,6 +360,16 @@ fn import_spotify_export(state: State<'_, AppState>, paths: Vec<String>) -> Resu
         .collect()
 }
 
+/// Songs like `track` for the automatic radio, leaving out `exclude` ("source/id" already queued).
+#[tauri::command]
+async fn radio_tracks(state: State<'_, AppState>, track: Track, exclude: Vec<String>) -> Result<Vec<Track>, String> {
+    let registry = state.registry();
+    let exclude = exclude.into_iter().collect();
+    radio::tracks(&registry, &state.library, &state.http, &track, &exclude)
+        .await
+        .map_err(|e| format!("{e:#}"))
+}
+
 /// Records that the user listened to `track` (called once it has played a while).
 #[tauri::command]
 fn record_play(state: State<'_, AppState>, track: Track) -> Result<(), String> {
@@ -491,6 +502,7 @@ pub fn run() {
             match_options,
             choose_match,
             record_play,
+            radio_tracks,
             recent_plays,
             clear_history,
             prefetch_stream

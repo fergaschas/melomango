@@ -1691,3 +1691,80 @@ kbd {
   font-size: 0.8rem;
   font-weight: 500;
 }
+
+/* ---------- Radio ---------- */
+.radio-switch {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 18px 6px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.55);
+  cursor: pointer;
+}
+
+.radio-switch input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.radio-switch > span:last-child {
+  display: grid;
+  line-height: 1.25;
+}
+
+.radio-switch-note {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.switch-track {
+  flex-shrink: 0;
+  width: 36px;
+  height: 20px;
+  padding: 2px;
+  border-radius: 999px;
+  background: var(--border);
+  transition: background 0.15s;
+}
+
+.switch-thumb {
+  display: block;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  transition: transform 0.15s;
+}
+
+.radio-switch input:checked + .switch-track {
+  background: var(--accent-deep);
+}
+
+.radio-switch input:checked + .switch-track .switch-thumb {
+  transform: translateX(16px);
+}
+
+.radio-switch input:focus-visible + .switch-track {
+  outline: 2px solid var(--accent-deep);
+  outline-offset: 2px;
+}
+
+.queue-radio-head {
+  margin: 12px 6px 4px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent-text);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .switch-track,
+  .switch-thumb {
+    transition: none;
+  }
+}

@@ -288,6 +288,13 @@ impl MusicSource for PluginSource {
         self.tracks("trending", None).await
     }
 
+    async fn radio(&self, track_id: &str) -> anyhow::Result<Option<Vec<Track>>> {
+        if !self.has("radio") {
+            return Ok(None);
+        }
+        self.tracks("radio", Some(track_id)).await.map(Some)
+    }
+
     async fn stream(&self, track_id: &str) -> anyhow::Result<StreamInfo> {
         self.call("stream", Some(track_id)).await
     }

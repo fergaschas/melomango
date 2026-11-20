@@ -8,6 +8,8 @@ export type Repeat = "off" | "all" | "one";
 export interface QueueItem {
   uid: number;
   track: Track;
+  /** Added by the automatic radio. */
+  radio?: boolean;
 }
 
 export interface QueueState {
@@ -117,6 +119,15 @@ function insertAfterCurrent(s: QueueState, item: QueueItem): QueueItem[] | null 
   return [...s.original.slice(0, at + 1), item, ...s.original.slice(at + 1)];
 }
 
+/** Appends songs the automatic radio found. */
+export function appendRadio(s: QueueState, tracks: Track[]): QueueState {
+  const items = toItems(tracks).map((i) => ({ ...i, radio: true }));
+  return { ...s, items: [...s.items, ...items], original: s.original ? [...s.original, ...items] : null };
+}
+
+/** True when the current entry is the last one (where the radio takes over). */
+export const atEnd = (s: QueueState) => s.index >= 0 && s.index === s.items.length - 1;
+
 /** Removes an upcoming or played entry (never the current one). */
 export function remove(s: QueueState, uid: number): QueueState {
   const at = s.items.findIndex((i) => i.uid === uid);
@@ -161,6 +172,8 @@ export interface SavedQueue {
   index: number;
   /** Positions in `tracks` in their pre-shuffle order. */
   original: number[] | null;
+  /** Positions in `tracks` added by the radio. */
+  radio?: number[];
   shuffle: boolean;
   repeat: Repeat;
 }
@@ -176,11 +189,13 @@ export function serialize(s: QueueState): SavedQueue {
   const original = s.original
     ? s.original.map((i) => position.get(i.uid)).filter((p): p is number => p !== undefined)
     : null;
-  return { tracks: items.map((i) => i.track), index: s.index - start, original, shuffle: s.shuffle, repeat: s.repeat };
+  const radio = items.flatMap((item, i) => (item.radio ? [i] : []));
+  return { tracks: items.map((i) => i.track), index: s.index - start, original, radio, shuffle: s.shuffle, repeat: s.repeat };
 }
 
 export function deserialize(saved: SavedQueue): QueueState {
-  const items = toItems(saved.tracks);
+  const radio = new Set(saved.radio ?? []);
+  const items = toItems(saved.tracks).map((item, i) => (radio.has(i) ? { ...item, radio: true } : item));
   const index = saved.index >= 0 && saved.index < items.length ? saved.index : items.length ? 0 : -1;
   const original = saved.original?.every((p) => items[p]) ? saved.original.map((p) => items[p]) : null;
   const repeat: Repeat = ["off", "all", "one"].includes(saved.repeat) ? saved.repeat : "off";

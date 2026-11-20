@@ -145,6 +145,9 @@ export interface Lyrics {
 
 export const getLyrics = (track: Track) => invoke<Lyrics>("get_lyrics", { track });
 
+/** Songs like `track` for the automatic radio, leaving out `exclude` ("source/id"). */
+export const radioTracks = (track: Track, exclude: string[]) => invoke<Track[]>("radio_tracks", { track, exclude });
+
 // ---------- History ----------
 
 export interface Play {

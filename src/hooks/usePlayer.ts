@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { prefetchStream, recordPlay, streamUrl, type Track } from "../lib/api";
+import { prefetchStream, radioTracks, recordPlay, streamUrl, trackKey, type Track } from "../lib/api";
 import * as q from "../lib/queue";
 
 const SAVE_KEY = "melomango.player";
 const SAVE_EVERY_MS = 5000;
 const SEEK_STEP = 5;
+/** Queued songs sent to the radio so it doesn't suggest them again (the latest ones). */
+const RADIO_EXCLUDE = 400;
 /** A track counts as listened after this many seconds of actual playback (or half of it, if shorter). */
 const PLAY_COUNTS_AFTER = 30;
 
@@ -13,6 +15,7 @@ interface Saved {
   time: number;
   volume: number;
   muted: boolean;
+  autoRadio?: boolean;
 }
 
 function loadSaved(): Saved | null {
@@ -43,6 +46,8 @@ export function usePlayer() {
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(saved?.volume ?? 0.8);
   const [muted, setMuted] = useState(saved?.muted ?? false);
+  const [autoRadio, setAutoRadio] = useState(saved?.autoRadio ?? true);
+  const [radioLoading, setRadioLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const queueRef = useRef(queue);
@@ -56,6 +61,11 @@ export function usePlayer() {
   /** Seconds actually played of the current load (seeking doesn't count), and whether it was recorded. */
   const listened = useRef({ secs: 0, last: null as number | null, recorded: false });
   const currentRef = useRef<Track | null>(null);
+  const autoRadioRef = useRef(autoRadio);
+  autoRadioRef.current = autoRadio;
+  /** The radio request in flight (one per seed entry), and the last seed that found nothing. */
+  const radioJob = useRef<{ uid: number; promise: Promise<boolean> } | null>(null);
+  const radioFailed = useRef<number | null>(null);
 
   const currentEntry = q.currentItem(queue);
   const current = currentEntry?.track ?? null;
@@ -77,6 +87,8 @@ export function usePlayer() {
   const start = useCallback((next: q.QueueState, resumeAt: number | null = null) => {
     pendingSeek.current = resumeAt;
     userStarted.current = true;
+    // Updated right away: what runs next in the same event (e.g. the radio) sees it.
+    queueRef.current = next;
     setQueue(next);
     setLoadKey((k) => k + 1);
   }, []);
@@ -95,10 +107,51 @@ export function usePlayer() {
     else audio.pause();
   }, [audio, onPlayRejected, start]);
 
+  /** Appends songs like the last queued one. Resolves whether it found any. */
+  const fillRadio = useCallback((): Promise<boolean> => {
+    const s = queueRef.current;
+    const last = s.items[s.items.length - 1];
+    if (!last) return Promise.resolve(false);
+    if (radioJob.current?.uid === last.uid) return radioJob.current.promise;
+    if (radioFailed.current === last.uid) return Promise.resolve(false);
+    const exclude = s.items.slice(-RADIO_EXCLUDE).map((i) => trackKey(i.track));
+    setRadioLoading(true);
+    const promise = radioTracks(last.track, exclude)
+      .then((tracks) => {
+        if (!tracks.length) {
+          radioFailed.current = last.uid;
+          return false;
+        }
+        const next = q.appendRadio(queueRef.current, tracks);
+        queueRef.current = next;
+        setQueue(next);
+        return true;
+      })
+      .catch(() => {
+        radioFailed.current = last.uid;
+        return false;
+      })
+      .finally(() => {
+        if (radioJob.current?.uid === last.uid) radioJob.current = null;
+        setRadioLoading(false);
+      });
+    radioJob.current = { uid: last.uid, promise };
+    return promise;
+  }, []);
+
   const next = useCallback(
     (auto = false) => {
       const result = q.advance(queueRef.current, auto);
-      if (result === "stop") return;
+      if (result === "stop") {
+        // The queue is over: the radio keeps the music going.
+        if (autoRadioRef.current && queueRef.current.repeat === "off") {
+          fillRadio().then((found) => {
+            const after = found ? q.advance(queueRef.current, false) : "stop";
+            if (after !== "stop" && after !== "same") start(after);
+          });
+        }
+        return;
+      }
       if (result === "same") {
         resetListened(); // every repetition is a play
         audio.currentTime = 0;
@@ -107,7 +160,7 @@ export function usePlayer() {
       }
       start(result);
     },
-    [audio, onPlayRejected, start],
+    [audio, onPlayRejected, start, fillRadio],
   );
 
   const prev = useCallback(() => {
@@ -143,7 +196,10 @@ export function usePlayer() {
       const before = queueRef.current;
       const after = change(before);
       if (before.index < 0 && after.index >= 0) start(after);
-      else setQueue(after);
+      else {
+        queueRef.current = after;
+        setQueue(after);
+      }
     },
     [start],
   );
@@ -163,6 +219,15 @@ export function usePlayer() {
     start(queueRef.current);
   }, [start]);
   const toggleMute = useCallback(() => setMuted((m) => !m), []);
+  const toggleAutoRadio = useCallback(() => setAutoRadio((r) => !r), []);
+  /** Plays `track` followed by songs like it. */
+  const startRadio = useCallback(
+    (track: Track) => {
+      start(q.play(queueRef.current, [track], 0));
+      fillRadio();
+    },
+    [start, fillRadio],
+  );
 
   // Load the current track: playing it, or (on startup) paused at the saved position.
   useEffect(() => {
@@ -190,6 +255,12 @@ export function usePlayer() {
   useEffect(() => {
     audio.muted = muted;
   }, [audio, muted]);
+
+  // While the last queued song plays, the radio already looks for what comes after.
+  const isLast = q.atEnd(queue);
+  useEffect(() => {
+    if (autoRadio && queue.repeat === "off" && isLast && isPlaying) fillRadio();
+  }, [autoRadio, queue.repeat, isLast, isPlaying, currentEntry?.uid, fillRadio]);
 
   // Once the current track is playing, resolve the next one so skipping to it (or
   // reaching it) starts right away.
@@ -271,6 +342,7 @@ export function usePlayer() {
         time: pendingSeek.current ?? audio.currentTime,
         volume: audio.volume,
         muted: audio.muted,
+        autoRadio: autoRadioRef.current,
       };
       localStorage.setItem(SAVE_KEY, JSON.stringify(data));
     } catch {
@@ -278,7 +350,7 @@ export function usePlayer() {
     }
   }, [audio]);
 
-  useEffect(save, [queue, volume, muted, save]);
+  useEffect(save, [queue, volume, muted, autoRadio, save]);
 
   useEffect(() => {
     const timer = window.setInterval(() => !audio.paused && save(), SAVE_EVERY_MS);
@@ -325,7 +397,14 @@ export function usePlayer() {
     volume,
     muted,
     error,
-    hasNext: q.peekNext(queue) !== null || (queue.repeat === "all" && queue.items.length > 0),
+    hasNext:
+      q.peekNext(queue) !== null ||
+      (queue.repeat === "all" && queue.items.length > 0) ||
+      (autoRadio && queue.repeat === "off" && queue.index >= 0),
+    autoRadio,
+    radioLoading,
+    toggleAutoRadio,
+    startRadio,
     playQueue,
     toggle,
     next: () => next(false),
