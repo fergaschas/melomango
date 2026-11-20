@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { Track } from "../lib/api";
 import { useLibrary } from "../lib/library";
-import { PlayNextIcon, PlusIcon, QueueAddIcon } from "./Icons";
+import { useMatchFix } from "../lib/matchFix";
+import { PlayNextIcon, PlusIcon, QueueAddIcon, SwapIcon } from "./Icons";
 
 export interface QueueActions {
   playNext: (t: Track) => void;
@@ -11,6 +12,7 @@ export interface QueueActions {
 /** "+" button: play next / add to the queue, or add `track` to a playlist (or a new one). */
 export function AddToPlaylistMenu({ track, queue }: { track: Track; queue?: QueueActions }) {
   const library = useLibrary();
+  const matchFix = useMatchFix();
   const [open, setOpen] = useState(false);
   const [newName, setNewName] = useState("");
   const ref = useRef<HTMLDivElement>(null);
@@ -76,6 +78,23 @@ export function AddToPlaylistMenu({ track, queue }: { track: Track; queue?: Queu
               >
                 <span className="menu-icon-label">
                   <QueueAddIcon size={16} /> Añadir a la cola
+                </span>
+              </button>
+              <hr className="menu-sep" />
+            </>
+          )}
+          {matchFix.canFix(track) && (
+            <>
+              <button
+                role="menuitem"
+                className="menu-item"
+                onClick={() => {
+                  setOpen(false);
+                  matchFix.open(track);
+                }}
+              >
+                <span className="menu-icon-label">
+                  <SwapIcon size={16} /> No es esta canción…
                 </span>
               </button>
               <hr className="menu-sep" />

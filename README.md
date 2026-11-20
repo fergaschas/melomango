@@ -11,6 +11,9 @@ Reproductor con cola editable (reproducir a continuación, añadir a la cola, ar
 repetir (lista o canción) y atajos de teclado (pulsa **?** para verlos). Al cerrar recuerda la cola, la canción, la
 posición y el volumen.
 
+Si una canción importada (de Spotify) suena con el vídeo equivocado, pulsa el botón ⇄ junto a la canción que suena, o
+**No es esta canción…** en su menú +, y elige la versión buena: Melomango la recuerda.
+
 Fuentes:
 
 - **Audius** (integrada): plataforma descentralizada con API abierta y canciones completas, legal y gratis.

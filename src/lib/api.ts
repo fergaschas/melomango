@@ -145,6 +145,22 @@ export interface Lyrics {
 
 export const getLyrics = (track: Track) => invoke<Lyrics>("get_lyrics", { track });
 
+export interface MatchOptions {
+  track: Track;
+  query: string;
+  /** The recording it plays now, if already matched. */
+  current: { source: string; id: string } | null;
+  candidates: Track[];
+}
+
+/** Recordings to choose from when an imported track plays the wrong one. */
+export const matchOptions = (track: Track, query?: string) =>
+  invoke<MatchOptions>("match_options", { source: track.source, id: track.id, query: query ?? null });
+
+/** Plays `track` from `choice` from now on. */
+export const chooseMatch = (track: Track, choice: Track) =>
+  invoke<void>("choose_match", { source: track.source, id: track.id, playSource: choice.source, playId: choice.id });
+
 /** Plugin id of playlists imported from Spotify's data export (they can't be synced). */
 export const SPOTIFY_EXPORT = "spotify-export";
 

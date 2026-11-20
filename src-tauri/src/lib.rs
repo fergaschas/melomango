@@ -359,6 +359,33 @@ fn import_spotify_export(state: State<'_, AppState>, paths: Vec<String>) -> Resu
         .collect()
 }
 
+/// Recordings to choose from when an imported track plays the wrong one.
+#[tauri::command]
+async fn match_options(
+    state: State<'_, AppState>,
+    source: String,
+    id: String,
+    query: Option<String>,
+) -> Result<matcher::MatchOptions, String> {
+    let registry = state.registry();
+    matcher::options(&registry, &state.library, &source, &id, query).await.map_err(|e| format!("{e:#}"))
+}
+
+/// Plays `source/id` from the recording the user chose from now on.
+#[tauri::command]
+fn choose_match(
+    state: State<'_, AppState>,
+    source: String,
+    id: String,
+    play_source: String,
+    play_id: String,
+) -> Result<(), String> {
+    state.source(&play_source)?;
+    state.library.set_track_match(&source, &id, &play_source, &play_id).map_err(err)?;
+    state.streams.forget(&format!("{source}/{id}"));
+    Ok(())
+}
+
 /// Resolves a track's audio in the background so it starts at once when played.
 #[tauri::command]
 fn prefetch_stream(app: tauri::AppHandle, source: String, id: String) {
@@ -445,6 +472,8 @@ pub fn run() {
             move_in_playlist,
             get_lyrics,
             import_spotify_export,
+            match_options,
+            choose_match,
             prefetch_stream
         ])
         .run(tauri::generate_context!())

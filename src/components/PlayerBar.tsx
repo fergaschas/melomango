@@ -2,6 +2,7 @@ import { formatTime } from "../lib/api";
 import type { Player } from "../hooks/usePlayer";
 import { Artwork } from "./Artwork";
 import { useLibrary } from "../lib/library";
+import { useMatchFix } from "../lib/matchFix";
 import {
   HeartFilledIcon,
   HeartIcon,
@@ -15,6 +16,7 @@ import {
   RepeatIcon,
   RepeatOneIcon,
   ShuffleIcon,
+  SwapIcon,
   VolumeIcon,
 } from "./Icons";
 
@@ -35,6 +37,7 @@ const REPEAT_LABEL = {
 export function PlayerBar({ player, panel, onTogglePanel }: Props) {
   const { current, isPlaying, isLoading, time, duration, volume, muted, error, hasNext, shuffle, repeat } = player;
   const library = useLibrary();
+  const matchFix = useMatchFix();
   const liked = current ? library.isLiked(current) : false;
 
   return (
@@ -54,6 +57,16 @@ export function PlayerBar({ player, panel, onTogglePanel }: Props) {
             title={`${liked ? "Quitar de Me gusta" : "Me gusta"} (L)`}
           >
             {liked ? <HeartFilledIcon size={20} /> : <HeartIcon size={20} />}
+          </button>
+        )}
+        {current && matchFix.canFix(current) && (
+          <button
+            className="row-action"
+            onClick={() => matchFix.open(current)}
+            aria-label="No es esta canción"
+            title="¿No es esta canción? Elige otra versión"
+          >
+            <SwapIcon size={18} />
           </button>
         )}
       </div>

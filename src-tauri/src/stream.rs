@@ -53,6 +53,11 @@ impl StreamCache {
         self.slots.lock().unwrap().entry(key.to_string()).or_default().clone()
     }
 
+    /// Forgets the resolved stream of `key` (e.g. after the user picks another recording).
+    pub fn forget(&self, key: &str) {
+        self.slots.lock().unwrap().remove(key);
+    }
+
     /// Drops `slot` unless someone already replaced it with a fresher one.
     fn invalidate(&self, key: &str, slot: &Slot) {
         let mut slots = self.slots.lock().unwrap();

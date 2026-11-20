@@ -8,6 +8,7 @@
 use std::sync::Arc;
 
 use anyhow::{anyhow, bail};
+use serde::Serialize;
 
 use crate::{
     library::Library,
@@ -28,6 +29,70 @@ const OTHER_VERSIONS: &[&str] = &[
 const MIN_SCORE: f64 = 0.45;
 /// Without any known duration, longer results are usually concerts, mixes or TV shows.
 const LONG_SECS: u32 = 8 * 60;
+/// Candidates offered when the user fixes a match by hand.
+const MAX_OPTIONS: usize = 30;
+
+/// What the user picks from when the automatic match is wrong ("No es esta canción").
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatchOptions {
+    pub track: Track,
+    pub query: String,
+    /// The recording it plays now, if it was matched already.
+    pub current: Option<MatchRef>,
+    pub candidates: Vec<Track>,
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+pub struct MatchRef {
+    pub source: String,
+    pub id: String,
+}
+
+/// Searches the playable sources for `query` (by default "artist title") so the user
+/// can choose the right recording for an imported track. With the default query the
+/// best-scored candidates come first; a custom one keeps each source's own order.
+pub async fn options(
+    registry: &Registry,
+    library: &Library,
+    source_id: &str,
+    track_id: &str,
+    query: Option<String>,
+) -> anyhow::Result<MatchOptions> {
+    let track = library
+        .track(source_id, track_id)?
+        .ok_or_else(|| anyhow!("esta canción no está en tu biblioteca"))?;
+    let custom = query.map(|q| q.trim().to_string()).filter(|q| !q.is_empty());
+    let query = custom.clone().unwrap_or_else(|| default_query(&track));
+
+    let mut candidates = Vec::new();
+    let mut last_error = None;
+    for source in playback_order(registry) {
+        match source.search(&query).await {
+            Ok(found) => candidates.extend(found),
+            Err(e) => last_error = Some(e),
+        }
+    }
+    if candidates.is_empty() {
+        if let Some(e) = last_error {
+            return Err(e);
+        }
+    }
+    if custom.is_none() {
+        let durations: Vec<u32> = (track.duration_secs > 0).then_some(track.duration_secs).into_iter().collect();
+        candidates.sort_by(|a, b| score(&track, &durations, b).total_cmp(&score(&track, &durations, a)));
+    }
+    candidates.truncate(MAX_OPTIONS);
+
+    let current = library
+        .track_match(source_id, track_id)?
+        .map(|(source, id)| MatchRef { source, id });
+    Ok(MatchOptions { track, query, current, candidates })
+}
+
+fn default_query(track: &Track) -> String {
+    format!("{} {}", main_artist(&track.artist), trim_featuring(&track.title))
+}
 
 /// The source and id to stream for `source/track_id`, matching it if needed.
 pub async fn resolve(
@@ -65,7 +130,7 @@ pub async fn resolve(
         }
         found
     };
-    let query = format!("{} {}", main_artist(&track.artist), trim_featuring(&track.title));
+    let query = default_query(&track);
     for source in sources {
         let Ok(candidates) = source.search(&query).await else { continue };
         if let Some(best) = best_match_among(&track, &durations, &candidates) {
@@ -227,6 +292,63 @@ mod tests {
         assert_eq!(best_match(&wanted, &candidates).unwrap().id, "ok");
         let unrelated = vec![t("youtube", "x", "Otro", "Algo distinto", 137)];
         assert!(best_match(&wanted, &unrelated).is_none());
+    }
+
+    /// A playable source that answers every search with the same results.
+    struct FakeSource(Vec<Track>);
+
+    #[async_trait::async_trait]
+    impl MusicSource for FakeSource {
+        fn info(&self) -> crate::models::SourceInfo {
+            crate::models::SourceInfo {
+                id: "youtube".into(),
+                name: "YouTube".into(),
+                kind: crate::models::SourceKind::Plugin,
+                version: None,
+                description: None,
+                supports_trending: false,
+                is_library: false,
+            }
+        }
+        async fn search(&self, _query: &str) -> anyhow::Result<Vec<Track>> {
+            Ok(self.0.clone())
+        }
+        async fn trending(&self) -> anyhow::Result<Vec<Track>> {
+            Ok(Vec::new())
+        }
+        async fn stream(&self, _id: &str) -> anyhow::Result<crate::models::StreamInfo> {
+            anyhow::bail!("sin audio")
+        }
+    }
+
+    #[tokio::test]
+    async fn offers_candidates_to_fix_a_match() {
+        let results = vec![
+            t("youtube", "live", "Shakira", "Dai Dai (Live)", 250),
+            t("youtube", "ok", "Shakira", "Dai Dai (Official Video)", 225),
+            t("youtube", "other", "Shakira", "Hips Don't Lie", 218),
+        ];
+        let registry = Registry::new(vec![Arc::new(FakeSource(results))]);
+        let library = Library::in_memory();
+        library.import_playlist("spotify", "liked", "Me gusta", &[t("spotify", "1", "Shakira, Burna Boy", "Dai Dai", 223)]).unwrap();
+        library.set_track_match("spotify", "1", "youtube", "live").unwrap();
+
+        let options = options(&registry, &library, "spotify", "1", None).await.unwrap();
+        assert_eq!(options.query, "Shakira Dai Dai");
+        assert_eq!(options.candidates[0].id, "ok", "best scored first");
+        assert_eq!(options.current, Some(MatchRef { source: "youtube".into(), id: "live".into() }));
+
+        // A custom search keeps the source's own order.
+        let custom = options_with(&registry, &library, "dai dai shakira").await;
+        let ids: Vec<&str> = custom.candidates.iter().map(|c| c.id.as_str()).collect();
+        assert_eq!(ids, ["live", "ok", "other"]);
+        assert_eq!(custom.query, "dai dai shakira");
+
+        assert!(super::options(&registry, &library, "spotify", "missing", None).await.is_err());
+    }
+
+    async fn options_with(registry: &Registry, library: &Library, query: &str) -> MatchOptions {
+        options(registry, library, "spotify", "1", Some(format!("  {query} "))).await.unwrap()
     }
 
     #[test]

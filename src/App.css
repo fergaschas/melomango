@@ -1636,3 +1636,23 @@ kbd {
   font-weight: 600;
   text-align: center;
 }
+
+/* ---------- Fix a match ("No es esta canción") ---------- */
+.match-list li.current {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.match-list .source-text {
+  min-width: 0;
+}
+
+.match-list .source-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.duration-off {
+  color: var(--accent-text);
+  font-weight: 600;
+}

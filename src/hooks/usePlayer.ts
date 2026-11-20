@@ -49,6 +49,8 @@ export function usePlayer() {
   const pendingSeek = useRef<number | null>(null);
   /** False until the user plays something: errors while restoring stay silent. */
   const userStarted = useRef(false);
+  /** Bumped to make the same track load again from scratch (another recording was chosen). */
+  const reloads = useRef(0);
 
   const currentEntry = q.currentItem(queue);
   const current = currentEntry?.track ?? null;
@@ -143,13 +145,20 @@ export function usePlayer() {
   const moveInQueue = useCallback((from: number, to: number) => edit((s) => q.move(s, from, to)), [edit]);
   const clearUpcoming = useCallback(() => edit(q.clearUpcoming), [edit]);
   const jumpTo = useCallback((uid: number) => start(q.jump(queueRef.current, uid)), [start]);
+  /** Loads the current track again (e.g. it now plays from another recording). */
+  const reloadCurrent = useCallback(() => {
+    if (!queueRef.current.items.length) return;
+    reloads.current += 1;
+    start(queueRef.current);
+  }, [start]);
   const toggleMute = useCallback(() => setMuted((m) => !m), []);
 
   // Load the current track: playing it, or (on startup) paused at the saved position.
   useEffect(() => {
     if (!current) return;
     const restoring = loadKey === 0;
-    audio.src = streamUrl(current);
+    // A different URL makes the WebView fetch it again instead of reusing what it has.
+    audio.src = streamUrl(current) + (reloads.current ? `?r=${reloads.current}` : "");
     setDuration(current.durationSecs);
     setError(null);
     if (restoring) {
@@ -296,6 +305,7 @@ export function usePlayer() {
     moveInQueue,
     clearUpcoming,
     jumpTo,
+    reloadCurrent,
   };
 }
 
