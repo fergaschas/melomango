@@ -735,6 +735,8 @@ pub fn run() {
                 downloads: downloads::Downloads::new(data_dir.join("downloads")),
             };
             state.reload();
+            // What an earlier run left half done (it closed mid-download).
+            state.downloads.clean_orphans(&state.library);
             app.manage(state);
             app.manage(mini::MiniState::default());
             // Without a tray (some Linux desktops) the app works as before.

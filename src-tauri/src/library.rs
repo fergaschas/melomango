@@ -439,6 +439,11 @@ impl Library {
         })
     }
 
+    /// The file names of every saved song (downloads and cache).
+    pub fn stored_files(&self) -> anyhow::Result<std::collections::HashSet<String>> {
+        self.with(|c| c.prepare("SELECT file FROM downloads")?.query_map([], |r| r.get(0))?.collect())
+    }
+
     /// Forgets a download; returns its file name so the caller can delete it.
     pub fn remove_download(&self, source: &str, id: &str) -> anyhow::Result<Option<String>> {
         self.with(|c| {
