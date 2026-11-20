@@ -919,7 +919,10 @@ fn link(c: &Connection, playlist_id: i64) -> rusqlite::Result<Option<PlaylistLin
 
 /// "Shakira, Burna Boy" / "A & B" / "A feat. B" -> each artist (empty names left out).
 fn split_artists(artist: &str) -> Vec<&str> {
-    let lower = artist.to_lowercase();
+    // ASCII-only lowercasing keeps every byte where it was, so positions in `lower` are valid
+    // in `artist` too. `to_lowercase` can make a letter longer («İ» -> «i̇») and then slicing
+    // cuts a character in half. The separators are ASCII, so nothing else is needed.
+    let lower = artist.to_ascii_lowercase();
     let mut parts = Vec::new();
     let mut start = 0;
     let separators = [", ", ",", " & ", " feat. ", " ft. ", " featuring "];
@@ -1163,6 +1166,11 @@ mod tests {
         assert_eq!(split_artists("Bad Bunny & Drake"), ["Bad Bunny", "Drake"]);
         assert_eq!(split_artists("ROSALÍA"), ["ROSALÍA"]);
         assert!(split_artists("").is_empty());
+        // Letters that grow when lowercased used to panic (and close the app).
+        assert_eq!(split_artists("İbrahim Tatlıses & X"), ["İbrahim Tatlıses", "X"]);
+        assert_eq!(split_artists("Ⱥ, B"), ["Ⱥ", "B"]);
+        assert_eq!(split_artists("ẞ, Bob"), ["ẞ", "Bob"]);
+        assert_eq!(split_artists("İİİ FEAT. Bob"), ["İİİ", "Bob"]);
     }
 
     #[test]
