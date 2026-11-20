@@ -52,12 +52,14 @@ impl Record {
 
 pub struct LyricsService {
     http: reqwest::Client,
+    /// LRCLIB, or a local server in tests.
+    api: String,
     cache: Mutex<HashMap<String, Lyrics>>,
 }
 
 impl LyricsService {
     pub fn new(http: reqwest::Client) -> Self {
-        Self { http, cache: Mutex::new(HashMap::new()) }
+        Self { http, api: API.to_string(), cache: Mutex::new(HashMap::new()) }
     }
 
     pub async fn get(&self, track: &Track) -> anyhow::Result<Lyrics> {
@@ -84,15 +86,17 @@ impl LyricsService {
         for artist_name in artists {
             let response = self
                 .http
-                .get(format!("{API}/get"))
+                .get(format!("{}/get", self.api))
                 .query(&[("artist_name", artist_name), ("track_name", title), ("duration", &duration)])
                 .send()
-                .await?;
-            if response.status() == reqwest::StatusCode::NOT_FOUND {
-                continue;
-            }
-            let record: Record = response.error_for_status()?.json().await?;
-            if record.has_synced() || record.instrumental {
+                .await;
+            // Not found, but also any other failure (429, 5xx, a broken answer): the search
+            // below may still find it, so it is not a reason to give up.
+            let record = match response {
+                Ok(r) if r.status().is_success() => r.json::<Record>().await.ok(),
+                _ => None,
+            };
+            if let Some(record) = record.filter(|r| r.has_synced() || r.instrumental) {
                 return Ok(Some(record));
             }
         }
@@ -100,7 +104,7 @@ impl LyricsService {
         // 2. Search and pick the closest version.
         let results: Vec<Record> = self
             .http
-            .get(format!("{API}/search"))
+            .get(format!("{}/search", self.api))
             .query(&[("track_name", title), ("artist_name", artist)])
             .send()
             .await?
@@ -210,7 +214,8 @@ fn parse_timestamp(tag: &str) -> Option<u32> {
     }
     // ".5" -> 500 ms, ".09" -> 90 ms, ".123" -> 123 ms
     let ms: u32 = format!("{frac:0<3}")[..3].parse().ok()?;
-    Some((min * 60 + sec) * 1000 + ms)
+    // The minutes come from outside: a huge number is a broken line, not a time.
+    min.checked_mul(60)?.checked_add(sec)?.checked_mul(1000)?.checked_add(ms)
 }
 
 #[cfg(test)]
@@ -246,6 +251,52 @@ mod tests {
         assert_eq!(parse_timestamp("00:75.00"), None);
         assert_eq!(parse_timestamp("02:03"), Some(123_000));
         assert_eq!(parse_timestamp("10:00.1"), Some(600_100));
+        // Used to wrap around in release (a wrong time) and panic in debug.
+        assert_eq!(parse_timestamp("99999999:00"), None);
+        assert_eq!(parse_timestamp("4294967295:00"), None);
+    }
+
+    /// A one-request-at-a-time HTTP server: `/api/get` fails with `get_status`, `/api/search`
+    /// answers `search_body`. Returns its base URL.
+    async fn fake_lrclib(get_status: u16, search_body: &'static str) -> String {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/api", listener.local_addr().unwrap());
+        tokio::spawn(async move {
+            while let Ok((mut socket, _)) = listener.accept().await {
+                let mut buf = vec![0; 4096];
+                let n = socket.read(&mut buf).await.unwrap_or(0);
+                let request = String::from_utf8_lossy(&buf[..n]);
+                let (status, body) =
+                    if request.starts_with("GET /api/search") { (200, search_body) } else { (get_status, "{}") };
+                let answer = format!(
+                    "HTTP/1.1 {status} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = socket.write_all(answer.as_bytes()).await;
+            }
+        });
+        url
+    }
+
+    #[tokio::test]
+    async fn a_failing_exact_lookup_falls_back_to_the_search() {
+        let search = r#"[{"duration": 200.0, "instrumental": false, "plainLyrics": "hola", "syncedLyrics": "[00:01.00] hola"}]"#;
+        for status in [429, 500, 503] {
+            let mut service = LyricsService::new(reqwest::Client::new());
+            service.api = fake_lrclib(status, search).await;
+            let track = Track {
+                id: "1".into(),
+                source: "youtube".into(),
+                title: "Canción".into(),
+                artist: "Artista".into(),
+                duration_secs: 200,
+                artwork_url: None,
+                genre: None,
+            };
+            let lyrics = service.get(&track).await.unwrap_or_else(|e| panic!("{status}: {e:#}"));
+            assert_eq!(lyrics.synced.len(), 1, "with /get answering {status}");
+        }
     }
 
     #[test]
