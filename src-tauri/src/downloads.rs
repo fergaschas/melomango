@@ -8,7 +8,7 @@
 use std::{
     collections::HashMap,
     fs,
-    io::{Read, Seek, SeekFrom, Write},
+    io::{Read, Seek, SeekFrom},
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -76,26 +76,53 @@ impl Downloads {
         self.make_room(library)
     }
 
-    /// Deletes every cached song (downloads stay).
+    /// Deletes every cached song (downloads stay). One that can't be deleted (a file in
+    /// use) doesn't stop the rest; the first error is reported at the end.
     pub fn clear_cache(&self, library: &Library) -> anyhow::Result<()> {
+        let mut first_error = None;
         for song in library.cache_eviction_order()? {
-            self.delete_stored(library, &song.source, &song.id)?;
+            if let Err(e) = self.delete_stored(library, &song.source, &song.id) {
+                first_error.get_or_insert(e);
+            }
         }
-        Ok(())
+        first_error.map_or(Ok(()), Err)
     }
 
-    /// Drops the least recently played cached songs until the cache fits its limit.
+    /// Drops the least recently played cached songs until the cache fits its limit
+    /// (skipping any that can't be deleted right now).
     fn make_room(&self, library: &Library) -> anyhow::Result<()> {
         let limit = self.cache_limit.load(Ordering::Relaxed);
         let (_, mut used) = library.cache_usage()?;
+        let mut first_error = None;
         for song in library.cache_eviction_order()? {
             if used <= limit {
                 break;
             }
-            self.delete_stored(library, &song.source, &song.id)?;
-            used = used.saturating_sub(song.size);
+            match self.delete_stored(library, &song.source, &song.id) {
+                Ok(()) => used = used.saturating_sub(song.size),
+                Err(e) => {
+                    first_error.get_or_insert(e);
+                }
+            }
         }
-        Ok(())
+        first_error.map_or(Ok(()), Err)
+    }
+
+    /// Deletes what no row points to: unfinished `.part` files (the app closed mid-download)
+    /// and files whose row is gone. Run at startup, before any download starts.
+    pub fn clean_orphans(&self, library: &Library) {
+        let Ok(known) = library.stored_files() else {
+            return; // without the list, deleting anything could delete a good song
+        };
+        let Ok(entries) = fs::read_dir(&self.dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if entry.path().is_file() && !known.contains(&name) {
+                let _ = fs::remove_file(entry.path());
+            }
+        }
     }
 
     /// Saves a song to the cache if it is played often and not on disk yet (after a play).
@@ -194,23 +221,36 @@ impl Downloads {
         }
         .await;
 
-        self.active.lock().unwrap().remove(&key);
-        match result {
+        let outcome = match result {
+            // Cancelled while the last piece arrived: the file is not kept.
+            Ok(Some(file)) if cancelled.load(Ordering::Relaxed) => {
+                let _ = fs::remove_file(self.dir.join(&file.file));
+                progress(State::Cancelled, 0, None, None)
+            }
             Ok(Some(file)) => match library.add_download(track, &file, kind) {
+                // Cancelled just before it was recorded: `remove` found nothing to delete then.
+                Ok(()) if cancelled.load(Ordering::Relaxed) => {
+                    let _ = self.delete_stored(library, &track.source, &track.id);
+                    progress(State::Cancelled, 0, None, None)
+                }
                 Ok(()) => {
                     if kind == StoredKind::Cache {
                         let _ = self.make_room(library);
                     }
-                    report(progress(State::Done, file.size, Some(file.size), None))
+                    progress(State::Done, file.size, Some(file.size), None)
                 }
                 Err(e) => {
                     let _ = fs::remove_file(self.dir.join(&file.file));
-                    report(progress(State::Failed, 0, None, Some(format!("{e:#}"))));
+                    progress(State::Failed, 0, None, Some(format!("{e:#}")))
                 }
             },
-            Ok(None) => report(progress(State::Cancelled, 0, None, None)),
-            Err(e) => report(progress(State::Failed, 0, None, Some(format!("{e:#}")))),
-        }
+            Ok(None) => progress(State::Cancelled, 0, None, None),
+            Err(e) => progress(State::Failed, 0, None, Some(format!("{e:#}"))),
+        };
+        // Only now: until the song is recorded, someone asking for it must see it on its way
+        // (or it would start a second download into the same file).
+        self.active.lock().unwrap().remove(&key);
+        report(outcome);
     }
 
     /// Cancels a download in progress, or deletes a finished one.
@@ -221,12 +261,17 @@ impl Downloads {
         self.delete_stored(library, source, id)
     }
 
+    /// The file first, then the row: if the file can't be deleted, the row still points to it
+    /// (and it can be tried again) instead of leaving a file nothing knows about.
     fn delete_stored(&self, library: &Library, source: &str, id: &str) -> anyhow::Result<()> {
-        if let Some(file) = library.remove_download(source, id)? {
-            let path = self.dir.join(file);
-            if path.exists() {
-                fs::remove_file(&path).with_context(|| format!("no se pudo borrar {}", path.display()))?;
+        if let Some(file) = library.download_file(source, id)? {
+            let path = self.dir.join(&file.file);
+            match fs::remove_file(&path) {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => return Err(e).with_context(|| format!("no se pudo borrar {}", path.display())),
             }
+            library.remove_download(source, id)?;
         }
         Ok(())
     }
@@ -241,10 +286,12 @@ impl Downloads {
         cancelled: &AtomicBool,
         on_progress: impl Fn(u64, Option<u64>),
     ) -> anyhow::Result<Option<DownloadFile>> {
-        fs::create_dir_all(&self.dir).context("no se pudo crear la carpeta de descargas")?;
+        use tokio::io::{AsyncSeekExt, AsyncWriteExt};
+        // tokio::fs: writing to disk must not block the runtime's threads.
+        tokio::fs::create_dir_all(&self.dir).await.context("no se pudo crear la carpeta de descargas")?;
         let stem = file_stem(&track.source, &track.id);
         let part = self.dir.join(format!("{stem}.part"));
-        let mut out = fs::File::create(&part).context("no se pudo crear el archivo")?;
+        let mut out = tokio::fs::File::create(&part).await.context("no se pudo crear el archivo")?;
 
         let outcome = async {
             let mut info = stream::open(registry, library, http, &track.source, &track.id).await?;
@@ -265,7 +312,8 @@ impl Downloads {
                     info = stream::open(registry, library, http, &track.source, &track.id).await?;
                     continue;
                 }
-                if status == reqwest::StatusCode::RANGE_NOT_SATISFIABLE && total == Some(received) {
+                // Asked past the end: done (when the size was never told, anything received counts).
+                if status == reqwest::StatusCode::RANGE_NOT_SATISFIABLE && total.map_or(received > 0, |t| t == received) {
                     break;
                 }
                 if !status.is_success() {
@@ -275,6 +323,14 @@ impl Downloads {
                     mime = header(&response, "content-type").unwrap_or_else(|| "audio/mpeg".into());
                 }
                 let whole = status == reqwest::StatusCode::OK; // the server ignored the range
+                if whole && received > 0 {
+                    // It sends the whole song again, from the start: keep that instead of
+                    // appending it after what we already had.
+                    out.set_len(0).await.context("no se pudo escribir el archivo")?;
+                    out.seek(SeekFrom::Start(0)).await.context("no se pudo escribir el archivo")?;
+                    received = 0;
+                    total = None;
+                }
                 if total.is_none() {
                     total = if whole {
                         response.content_length()
@@ -286,7 +342,7 @@ impl Downloads {
                 if bytes.is_empty() {
                     break;
                 }
-                out.write_all(&bytes).context("no se pudo escribir el archivo")?;
+                out.write_all(&bytes).await.context("no se pudo escribir el archivo")?;
                 received += bytes.len() as u64;
                 on_progress(received, total);
                 if whole || total.is_some_and(|t| received >= t) {
@@ -300,15 +356,21 @@ impl Downloads {
         }
         .await;
 
+        // tokio finishes writes in the background: wait for them before renaming or deleting.
+        let flushed = out.flush().await;
         drop(out);
+        let outcome = match (outcome, flushed) {
+            (Ok(Some(_)), Err(e)) => Err(anyhow::Error::from(e).context("no se pudo escribir el archivo")),
+            (outcome, _) => outcome,
+        };
         match outcome {
             Ok(Some((size, mime))) => {
                 let file = format!("{stem}.{}", extension(&mime));
-                fs::rename(&part, self.dir.join(&file)).context("no se pudo guardar el archivo")?;
+                tokio::fs::rename(&part, self.dir.join(&file)).await.context("no se pudo guardar el archivo")?;
                 Ok(Some(DownloadFile { file, mime, size }))
             }
             other => {
-                let _ = fs::remove_file(&part);
+                let _ = tokio::fs::remove_file(&part).await;
                 other.map(|_| None)
             }
         }
@@ -353,7 +415,7 @@ fn extension(mime: &str) -> &'static str {
 
 /// Reads `start..=end` of a downloaded file (end clamped to its size).
 pub fn read_range(path: &Path, start: u64, end: u64, size: u64) -> anyhow::Result<Vec<u8>> {
-    if start >= size {
+    if start >= size || end < start {
         return Err(anyhow!("fuera del archivo"));
     }
     let end = end.min(size - 1);
@@ -399,6 +461,62 @@ mod tests {
         assert_eq!(read_range(&path, 2, 4, 10).unwrap(), b"234");
         assert_eq!(read_range(&path, 8, 99, 10).unwrap(), b"89");
         assert!(read_range(&path, 10, 12, 10).is_err());
+        assert!(read_range(&path, 5, 2, 10).is_err(), "end before start must not overflow");
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    fn song(id: &str) -> Track {
+        Track {
+            id: id.into(),
+            source: "youtube".into(),
+            title: format!("Canción {id}"),
+            artist: "Artista".into(),
+            duration_secs: 180,
+            artwork_url: None,
+            genre: None,
+        }
+    }
+
+    fn stored(name: &str) -> DownloadFile {
+        DownloadFile { file: name.into(), mime: "audio/webm".into(), size: 3 }
+    }
+
+    #[test]
+    fn startup_cleans_unfinished_and_unknown_files() {
+        let dir = std::env::temp_dir().join(format!("melomango-dl-orphans-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let library = Library::in_memory();
+        let downloads = Downloads::new(dir.clone());
+        fs::write(dir.join("kept.webm"), b"abc").unwrap();
+        library.add_download(&song("a"), &stored("kept.webm"), StoredKind::Download).unwrap();
+        fs::write(dir.join("half.part"), b"ab").unwrap();
+        fs::write(dir.join("forgotten.webm"), b"abc").unwrap();
+
+        downloads.clean_orphans(&library);
+        let mut left: Vec<_> = fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name()).collect();
+        left.sort();
+        assert_eq!(left, ["kept.webm"]);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn deleting_removes_the_file_before_forgetting_it() {
+        let dir = std::env::temp_dir().join(format!("melomango-dl-delete-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let library = Library::in_memory();
+        let downloads = Downloads::new(dir.clone());
+        fs::write(dir.join("a.webm"), b"abc").unwrap();
+        library.add_download(&song("a"), &stored("a.webm"), StoredKind::Download).unwrap();
+        // Its file was deleted by hand: forgetting it still works.
+        library.add_download(&song("b"), &stored("b.webm"), StoredKind::Download).unwrap();
+
+        downloads.remove(&library, "youtube", "a").unwrap();
+        downloads.remove(&library, "youtube", "b").unwrap();
+        assert!(!dir.join("a.webm").exists());
+        assert!(library.download_file("youtube", "a").unwrap().is_none());
+        assert!(library.download_file("youtube", "b").unwrap().is_none());
         fs::remove_dir_all(&dir).unwrap();
     }
 

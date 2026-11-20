@@ -246,6 +246,8 @@ function SpotifyExportPanel({ onOpenPlaylist }: { onOpenPlaylist: (id: number) =
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [imported, setImported] = useState<PlaylistSummary[] | null>(null);
+  /** Files that couldn't be read: the rest was imported anyway. */
+  const [skipped, setSkipped] = useState<string[]>([]);
 
   async function choose() {
     const picked = await open({
@@ -257,12 +259,14 @@ function SpotifyExportPanel({ onOpenPlaylist }: { onOpenPlaylist: (id: number) =
     if (paths.length === 0) return;
     setImporting(true);
     setError(null);
+    setSkipped([]);
     try {
-      const playlists = await importSpotifyExport(paths);
+      const { playlists, problems } = await importSpotifyExport(paths);
       await library.refresh();
       const songs = playlists.reduce((n, p) => n + p.trackCount, 0);
       library.notify(`${playlists.length} playlists importadas de Spotify (${songs} canciones)`);
       setImported(playlists);
+      setSkipped(problems);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -296,6 +300,17 @@ function SpotifyExportPanel({ onOpenPlaylist }: { onOpenPlaylist: (id: number) =
         Para actualizarlas, vuelve a exportar e importar: las playlists se reemplazan, no se duplican.
       </p>
       {error && <p className="notice error">{error}</p>}
+      {skipped.length > 0 && (
+        <div className="notice info">
+          {skipped.length === 1 ? "Un archivo no se pudo leer" : `${skipped.length} archivos no se pudieron leer`} y
+          se saltó; el resto se importó:
+          <ul>
+            {skipped.map((p) => (
+              <li key={p}>{p}</li>
+            ))}
+          </ul>
+        </div>
+      )}
       {imported && (
         <ul className="source-list collection-list">
           {imported.map((p) => (

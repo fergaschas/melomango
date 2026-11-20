@@ -326,7 +326,7 @@ pub fn discover(plugins_dir: &Path, data_root: &Path) -> Vec<PluginSource> {
     };
     let mut plugins: Vec<PluginSource> = entries
         .flatten()
-        .filter(|e| e.path().is_dir())
+        .filter(|e| e.path().is_dir() && !is_temporary(&e.file_name()))
         .filter_map(|e| match PluginSource::load(&e.path()) {
             Ok(mut p) => {
                 p.data_dir = Some(data_root.join(p.id()));
@@ -342,21 +342,94 @@ pub fn discover(plugins_dir: &Path, data_root: &Path) -> Vec<PluginSource> {
     plugins
 }
 
-/// Copies the plugin folder `src` into `plugins_dir/<id>`, replacing an older version.
-pub fn install(src: &Path, plugins_dir: &Path) -> anyhow::Result<String> {
+/// Inside an installed plugin's folder: the repository (index URL) it was installed from.
+const ORIGIN_FILE: &str = ".melomango-origin";
+
+/// Folders used while installing (`.<id>.new`, `.<id>.old`): never loaded as plugins.
+fn is_temporary(name: &std::ffi::OsStr) -> bool {
+    name.to_string_lossy().starts_with('.')
+}
+
+/// The repository the installed plugin `id` came from. None if unknown: installed from a
+/// folder, or by a version of Melomango that didn't record it yet.
+pub fn origin(plugins_dir: &Path, id: &str) -> Option<String> {
+    validate_id(id).ok()?;
+    let text = fs::read_to_string(plugins_dir.join(id).join(ORIGIN_FILE)).ok()?;
+    Some(text.trim().to_string()).filter(|t| !t.is_empty())
+}
+
+pub fn is_installed(plugins_dir: &Path, id: &str) -> bool {
+    validate_id(id).is_ok() && plugins_dir.join(id).join(MANIFEST).is_file()
+}
+
+/// Removes what an interrupted install or uninstall left behind. Run at startup, before
+/// anything can be installing.
+pub fn clean_leftovers(plugins_dir: &Path) {
+    let Ok(entries) = fs::read_dir(plugins_dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        if entry.path().is_dir() && is_temporary(&entry.file_name()) {
+            let _ = fs::remove_dir_all(entry.path());
+        }
+    }
+}
+
+/// Copies the plugin folder `src` into `plugins_dir/<id>`, replacing an older version, and
+/// records `origin` (the repository it came from). All or nothing: the new version is
+/// copied and checked aside first, and if swapping it in fails the old one stays.
+pub fn install(src: &Path, plugins_dir: &Path, origin: Option<&str>) -> anyhow::Result<String> {
     let plugin = PluginSource::load(src)?;
-    let target = plugins_dir.join(plugin.id());
+    let id = plugin.manifest.id;
+    let target = plugins_dir.join(&id);
     if src.canonicalize().ok() == target.canonicalize().ok() {
-        return Ok(plugin.manifest.id); // already installed in place
+        return Ok(id); // already installed in place
     }
-    if target.exists() {
-        fs::remove_dir_all(&target)
-            .with_context(|| format!("no se pudo reemplazar {}", target.display()))?;
+    let new = plugins_dir.join(format!(".{id}.new"));
+    let old = plugins_dir.join(format!(".{id}.old"));
+    for leftover in [&new, &old] {
+        if leftover.exists() {
+            fs::remove_dir_all(leftover).with_context(|| format!("no se pudo limpiar {}", leftover.display()))?;
+        }
     }
-    copy_dir(src, &target)?;
-    // Make sure the copy is usable before reporting success.
-    PluginSource::load(&target)?;
-    Ok(plugin.manifest.id)
+
+    // 1. The new version, aside, and only if it is usable.
+    let staged = (|| {
+        copy_dir(src, &new)?;
+        if let Some(origin) = origin {
+            fs::write(new.join(ORIGIN_FILE), origin).context("no se pudo guardar el origen del plugin")?;
+        }
+        PluginSource::load(&new)?;
+        anyhow::Ok(())
+    })();
+    if let Err(e) = staged {
+        let _ = fs::remove_dir_all(&new);
+        return Err(e);
+    }
+
+    // 2. Swap. Renaming fails (and changes nothing) if the plugin is running right now.
+    let replacing = target.exists();
+    if replacing {
+        if let Err(e) = fs::rename(&target, &old) {
+            let _ = fs::remove_dir_all(&new);
+            return Err(e).with_context(|| {
+                format!("no se pudo reemplazar {} (¿está en uso? Inténtalo en un momento)", target.display())
+            });
+        }
+    }
+    if let Err(e) = fs::rename(&new, &target) {
+        if replacing {
+            let _ = fs::rename(&old, &target); // put the old version back
+        }
+        let _ = fs::remove_dir_all(&new);
+        return Err(e).with_context(|| format!("no se pudo instalar en {}", target.display()));
+    }
+
+    // 3. The old version is no longer used; if it can't be deleted now, at the next start.
+    if replacing {
+        let _ = fs::remove_dir_all(&old);
+    }
+    Ok(id)
 }
 
 /// Removes the plugin and its data (sessions, settings).
@@ -366,12 +439,24 @@ pub fn uninstall(id: &str, plugins_dir: &Path, data_root: &Path) -> anyhow::Resu
     if !target.exists() {
         bail!("el plugin {id} no está instalado");
     }
-    fs::remove_dir_all(&target).with_context(|| format!("no se pudo borrar {}", target.display()))?;
-    let data = data_root.join(id);
-    if data.exists() {
-        fs::remove_dir_all(&data).ok();
+    // Moved aside first: either it is gone in one step or it stays whole. What can't be
+    // deleted now (a file in use) is no longer loaded and goes at the next start.
+    let old = plugins_dir.join(format!(".{id}.old"));
+    if old.exists() {
+        fs::remove_dir_all(&old).with_context(|| format!("no se pudo limpiar {}", old.display()))?;
     }
+    fs::rename(&target, &old)
+        .with_context(|| format!("no se pudo borrar {} (¿está en uso? Inténtalo en un momento)", target.display()))?;
+    let _ = fs::remove_dir_all(&old);
+    forget_data(id, data_root);
     Ok(())
+}
+
+/// Deletes the plugin's data folder (its sessions, tokens and settings).
+pub fn forget_data(id: &str, data_root: &Path) {
+    if validate_id(id).is_ok() {
+        let _ = fs::remove_dir_all(data_root.join(id));
+    }
 }
 
 fn validate_id(id: &str) -> anyhow::Result<()> {
@@ -443,15 +528,68 @@ mod tests {
             r#"{"id":"demo","name":"Demo","version":"1.0.0","protocol":1,"executable":"bin","capabilities":["trending"]}"#,
         );
 
-        assert_eq!(install(&src, &plugins).unwrap(), "demo");
+        assert_eq!(install(&src, &plugins, None).unwrap(), "demo");
         let found = discover(&plugins, &root.join("data"));
         assert_eq!(found.len(), 1);
         let info = found[0].info();
         assert_eq!(info.id, "demo");
         assert!(info.supports_trending);
 
+        fs::create_dir_all(root.join("data/demo")).unwrap();
         uninstall("demo", &plugins, &root.join("data")).unwrap();
         assert!(discover(&plugins, &root.join("data")).is_empty());
+        assert!(!root.join("data/demo").exists(), "its data goes too");
+        assert_eq!(fs::read_dir(&plugins).unwrap().count(), 0, "nothing left behind");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn updating_swaps_the_whole_folder_and_records_the_origin() {
+        let root = temp_dir("update");
+        let plugins = root.join("plugins");
+        let manifest = |version: &str| {
+            format!(r#"{{"id":"demo","name":"Demo","version":"{version}","protocol":1,"executable":"bin"}}"#)
+        };
+        write_plugin(&root.join("v1"), &manifest("1"));
+        fs::write(root.join("v1/only-in-v1.txt"), "x").unwrap();
+        write_plugin(&root.join("v2"), &manifest("2"));
+
+        install(&root.join("v1"), &plugins, Some("https://a/index.json")).unwrap();
+        assert_eq!(origin(&plugins, "demo").as_deref(), Some("https://a/index.json"));
+        install(&root.join("v2"), &plugins, Some("https://b/index.json")).unwrap();
+        assert_eq!(origin(&plugins, "demo").as_deref(), Some("https://b/index.json"));
+        assert!(!plugins.join("demo/only-in-v1.txt").exists(), "no files from the old version");
+        let names: Vec<_> = fs::read_dir(&plugins).unwrap().flatten().map(|e| e.file_name()).collect();
+        assert_eq!(names, ["demo"], "no temporary folders left");
+
+        // Without an origin (installed from a folder) none is reported.
+        install(&root.join("v1"), &plugins, None).unwrap();
+        assert_eq!(origin(&plugins, "demo"), None);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_broken_package_leaves_the_installed_version_alone() {
+        let root = temp_dir("broken");
+        let plugins = root.join("plugins");
+        write_plugin(&root.join("good"), r#"{"id":"demo","name":"Demo","version":"1","protocol":1,"executable":"bin"}"#);
+        install(&root.join("good"), &plugins, None).unwrap();
+        write_plugin(&root.join("bad"), r#"{"id":"demo","name":"Demo","version":"2","protocol":1,"executable":"nope"}"#);
+        assert!(install(&root.join("bad"), &plugins, None).is_err());
+        assert_eq!(discover(&plugins, &root.join("data"))[0].manifest.version, "1");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn interrupted_installs_are_ignored_and_cleaned() {
+        let root = temp_dir("leftovers");
+        let plugins = root.join("plugins");
+        let manifest = r#"{"id":"demo","name":"Demo","version":"1","protocol":1,"executable":"bin"}"#;
+        write_plugin(&plugins.join(".demo.new"), manifest);
+        write_plugin(&plugins.join(".demo.old"), manifest);
+        assert!(discover(&plugins, &root.join("data")).is_empty());
+        clean_leftovers(&plugins);
+        assert_eq!(fs::read_dir(&plugins).unwrap().count(), 0);
         let _ = fs::remove_dir_all(&root);
     }
 

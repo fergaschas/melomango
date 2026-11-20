@@ -193,14 +193,37 @@ pub async fn browse(http: &reqwest::Client, registries: &[RegistryInfo]) -> Cata
 
 // ---------- Installing ----------
 
+/// Where the installed plugin `id` came from, if installing it from `registry_url` would
+/// change that (another repository's plugin with the same id). It would replace the
+/// installed one and, since data folders go by id, inherit its sessions and tokens.
+/// Plugins installed before origins were recorded count as official: they came from there.
+pub fn origin_change(plugins_dir: &Path, registry_url: &str, id: &str) -> Option<String> {
+    if !plugin::is_installed(plugins_dir, id) {
+        return None;
+    }
+    let installed_from = plugin::origin(plugins_dir, id).unwrap_or_else(|| OFFICIAL_INDEX.to_string());
+    (installed_from != registry_url).then_some(installed_from)
+}
+
 /// Downloads `id` from the index at `registry_url`, verifies it and installs it.
 /// Returns the installed plugin id.
+///
+/// Replacing a plugin that came from another repository needs `replace_other_origin`
+/// (the user agreed), and then the old one's data (sessions, tokens) is deleted.
 pub async fn install(
     http: &reqwest::Client,
     registry_url: &str,
     id: &str,
     plugins_dir: &Path,
+    data_root: &Path,
+    replace_other_origin: bool,
 ) -> anyhow::Result<String> {
+    let other_origin = origin_change(plugins_dir, registry_url, id);
+    if let Some(from) = &other_origin {
+        if !replace_other_origin {
+            bail!("ya tienes instalado un plugin \"{id}\" de otro repositorio ({from})");
+        }
+    }
     let index = fetch_index(http, registry_url).await?;
     let entry = index
         .plugins
@@ -220,21 +243,32 @@ pub async fn install(
         "melomango-plugin-{id}-{}",
         SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0)
     ));
-    let result = (|| {
-        zip::ZipArchive::new(Cursor::new(bytes))
-            .context("la descarga no es un zip válido")?
-            .extract(&staging)
-            .context("no se pudo descomprimir el plugin")?;
-        let root = plugin_root(&staging)?;
-        let installed = plugin::install(&root, plugins_dir)?;
-        if installed != entry.id {
-            let _ = fs::remove_dir_all(plugins_dir.join(&installed));
-            bail!("el paquete contiene el plugin \"{installed}\", no \"{}\"", entry.id);
+    // Unzipping and copying block: on the pool for blocking work, not the runtime's threads.
+    let (expected, plugins_dir, data_root, origin) =
+        (entry.id, plugins_dir.to_path_buf(), data_root.to_path_buf(), registry_url.to_string());
+    tokio::task::spawn_blocking(move || {
+        let result = (|| {
+            zip::ZipArchive::new(Cursor::new(bytes))
+                .context("la descarga no es un zip válido")?
+                .extract(&staging)
+                .context("no se pudo descomprimir el plugin")?;
+            let root = plugin_root(&staging)?;
+            // Checked before touching anything installed: a package claiming another id
+            // ("youtube" inside "cool-eq") must not replace that plugin.
+            let packaged = plugin::PluginSource::load(&root)?.id().to_string();
+            if packaged != expected {
+                bail!("el paquete contiene el plugin \"{packaged}\", no \"{expected}\"");
+            }
+            plugin::install(&root, &plugins_dir, Some(&origin))
+        })();
+        let _ = fs::remove_dir_all(&staging);
+        if let (Ok(installed), Some(_)) = (&result, &other_origin) {
+            // A different plugin now: it starts without the previous one's sessions and tokens.
+            plugin::forget_data(installed, &data_root);
         }
-        Ok(installed)
-    })();
-    let _ = fs::remove_dir_all(&staging);
-    result
+        result
+    })
+    .await?
 }
 
 async fn download_limited(http: &reqwest::Client, url: &str) -> anyhow::Result<Vec<u8>> {
@@ -323,6 +357,31 @@ mod tests {
     }
 
     #[test]
+    fn notices_a_plugin_from_another_repository() {
+        let dir = std::env::temp_dir().join(format!("melomango-origin-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let plugins = dir.join("plugins");
+        fs::create_dir_all(dir.join("src")).unwrap();
+        fs::write(
+            dir.join("src/plugin.json"),
+            r#"{"id":"spotify","name":"Spotify","version":"1","protocol":1,"executable":"plugin.json"}"#,
+        )
+        .unwrap();
+        let third_party = "https://example.com/index.json";
+
+        assert_eq!(origin_change(&plugins, third_party, "spotify"), None, "not installed yet");
+        // Installed before origins were recorded: it came from the official repository.
+        plugin::install(&dir.join("src"), &plugins, None).unwrap();
+        assert_eq!(origin_change(&plugins, OFFICIAL_INDEX, "spotify"), None);
+        assert_eq!(origin_change(&plugins, third_party, "spotify").as_deref(), Some(OFFICIAL_INDEX));
+
+        plugin::install(&dir.join("src"), &plugins, Some(third_party)).unwrap();
+        assert_eq!(origin_change(&plugins, third_party, "spotify"), None, "updates from the same place");
+        assert_eq!(origin_change(&plugins, OFFICIAL_INDEX, "spotify").as_deref(), Some(third_party));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn finds_plugin_root_in_subfolder() {
         let dir = std::env::temp_dir().join(format!("melomango-root-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
@@ -344,7 +403,7 @@ pub async fn youtube_for_tests(
         std::process::id(),
         std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
     ));
-    install(http, OFFICIAL_INDEX, "youtube", &dir).await.unwrap();
+    install(http, OFFICIAL_INDEX, "youtube", &dir, &dir.join("data"), false).await.unwrap();
     let source = crate::sources::plugin::discover(&dir, &dir.join("data")).pop().expect("plugin de YouTube");
     (std::sync::Arc::new(source), dir)
 }

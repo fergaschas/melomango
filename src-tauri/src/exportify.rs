@@ -51,8 +51,12 @@ pub enum Content {
 
 pub fn read(file_name: &str, data: &[u8]) -> anyhow::Result<Content> {
     let stem = file_stem(file_name);
-    let data = data.strip_prefix("\u{feff}".as_bytes()).unwrap_or(data);
-    let mut reader = csv::ReaderBuilder::new().flexible(true).from_reader(data);
+    let text = decode(data);
+    let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
+    let mut reader = csv::ReaderBuilder::new()
+        .flexible(true)
+        .delimiter(delimiter(text))
+        .from_reader(text.as_bytes());
     let headers: Vec<String> = reader
         .headers()
         .with_context(|| format!("{file_name} no es un CSV válido"))?
@@ -104,6 +108,42 @@ pub fn read(file_name: &str, data: &[u8]) -> anyhow::Result<Content> {
             .map(|(group, tracks)| (if group.is_empty() { display_name(stem) } else { group }, tracks))
             .collect(),
     ))
+}
+
+/// The text of a CSV: UTF-8, or else Windows-1252, what Excel saves with Spanish (and most
+/// Western European) settings as «CSV (delimitado por comas)».
+fn decode(data: &[u8]) -> std::borrow::Cow<'_, str> {
+    if let Ok(text) = std::str::from_utf8(data) {
+        return text.into();
+    }
+    /// 0x80..=0x9F in Windows-1252 (the rest of the bytes are the same as Latin-1).
+    const HIGH: [char; 32] = [
+        '€', '\u{81}', '‚', 'ƒ', '„', '…', '†', '‡', 'ˆ', '‰', 'Š', '‹', 'Œ', '\u{8d}', 'Ž', '\u{8f}',
+        '\u{90}', '‘', '’', '“', '”', '•', '–', '—', '˜', '™', 'š', '›', 'œ', '\u{9d}', 'ž', 'Ÿ',
+    ];
+    data.iter()
+        .map(|&b| if (0x80..0xa0).contains(&b) { HIGH[(b - 0x80) as usize] } else { b as char })
+        .collect::<String>()
+        .into()
+}
+
+/// The separator of a CSV, from its header row: `,`, or `;` (Excel with Spanish settings)
+/// or a tab, whichever appears most outside quotes.
+fn delimiter(text: &str) -> u8 {
+    let header = text.lines().next().unwrap_or("");
+    let mut counts = [0usize; 3];
+    let mut quoted = false;
+    for c in header.chars() {
+        match c {
+            '"' => quoted = !quoted,
+            ',' if !quoted => counts[0] += 1,
+            ';' if !quoted => counts[1] += 1,
+            '\t' if !quoted => counts[2] += 1,
+            _ => {}
+        }
+    }
+    let best = (0..3).max_by_key(|&i| (counts[i], std::cmp::Reverse(i))).unwrap_or(0);
+    if counts[best] == 0 { b',' } else { [b',', b';', b'\t'][best] }
 }
 
 fn file_stem(file_name: &str) -> &str {
@@ -183,5 +223,37 @@ mod tests {
         let albums = "\"Album URI\",\"Album Name\",\"Album Artist Name(s)\",\"Album Type\"\n\"spotify:album:1\",\"RAM\",\"Daft Punk\",\"album\"\n";
         assert!(matches!(read("saved_albums.csv", albums.as_bytes()).unwrap(), Content::Ignored));
         assert!(read("gastos.csv", "fecha,importe\n2026-01-01,3\n".as_bytes()).is_err());
+    }
+
+    #[test]
+    fn reads_a_csv_saved_by_spanish_excel() {
+        // Excel with Spanish settings: «;» between columns, and Windows-1252 instead of UTF-8.
+        let text = "Track URI;Track Name;Artist Name(s)\r\nspotify:track:1;Canción del Mariachi;Los Lobos, Antonio Banderas\r\nspotify:track:2;Pájaros de barro;Manolo García\r\n";
+        let cp1252: Vec<u8> = text
+            .chars()
+            .map(|c| u8::try_from(u32::from(c)).expect("Latin-1 text"))
+            .collect();
+        assert!(std::str::from_utf8(&cp1252).is_err(), "really not UTF-8");
+        let lists = playlists(read("para_la_carretera.csv", &cp1252).unwrap());
+        let tracks = &lists[0].1;
+        assert_eq!(tracks.len(), 2);
+        assert_eq!((tracks[0].title.as_str(), tracks[0].artist.as_str()), ("Canción del Mariachi", "Los Lobos, Antonio Banderas"));
+        assert_eq!(tracks[1].title, "Pájaros de barro");
+    }
+
+    #[test]
+    fn reads_tab_separated_files_and_windows_1252_punctuation() {
+        let mut data = b"Track Name\tArtist Name(s)\n".to_vec();
+        data.extend_from_slice(b"Don\x92t Stop Me Now\tQueen\n");
+        let t = &playlists(read("x.csv", &data).unwrap())[0].1[0];
+        assert_eq!((t.title.as_str(), t.artist.as_str()), ("Don’t Stop Me Now", "Queen"));
+    }
+
+    #[test]
+    fn picks_the_separator_outside_quotes() {
+        assert_eq!(delimiter("\"a;b\",c,d\n"), b',');
+        assert_eq!(delimiter("a;b;c\n"), b';');
+        assert_eq!(delimiter("a\tb\n"), b'\t');
+        assert_eq!(delimiter("solo\n"), b',');
     }
 }

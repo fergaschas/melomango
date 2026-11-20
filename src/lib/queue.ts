@@ -125,6 +125,24 @@ export function appendRadio(s: QueueState, tracks: Track[]): QueueState {
   return { ...s, items: [...s.items, ...items], original: s.original ? [...s.original, ...items] : null };
 }
 
+/**
+ * Appends what the radio found for the entry `seedUid`. Null if that entry left the queue
+ * while the radio searched (the user started something else): those songs no longer fit.
+ */
+export function appendRadioFor(s: QueueState, seedUid: number, tracks: Track[]): QueueState | null {
+  return s.items.some((i) => i.uid === seedUid) ? appendRadio(s, tracks) : null;
+}
+
+/**
+ * Where to go once the radio filled a queue that had run out. Null if the entry `fromUid`
+ * is no longer the current one (the user picked another song meanwhile) or nothing follows.
+ */
+export function advanceAfterRadio(s: QueueState, fromUid: number | null): QueueState | null {
+  if (fromUid === null || currentItem(s)?.uid !== fromUid) return null;
+  const result = advance(s, false);
+  return result === "stop" || result === "same" ? null : result;
+}
+
 /** True when the current entry is the last one (where the radio takes over). */
 export const atEnd = (s: QueueState) => s.index >= 0 && s.index === s.items.length - 1;
 

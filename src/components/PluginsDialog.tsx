@@ -7,6 +7,7 @@ import {
   installPlugin,
   listRegistries,
   openPluginsDir,
+  pluginOriginChange,
   removeRegistry,
   uninstallPlugin,
   type Catalog,
@@ -135,7 +136,17 @@ function ExploreTab({
 
   const install = (p: CatalogPlugin) =>
     run(`install:${p.registry}:${p.id}`, async () => {
-      const info = await installCatalogPlugin(p.registry, p.id);
+      // Another repository's plugin with the same id would replace the installed one.
+      const installedFrom = await pluginOriginChange(p.registry, p.id);
+      if (installedFrom !== null) {
+        const yes = await ask(
+          `Ya tienes un plugin «${p.id}» instalado desde otro repositorio (${installedFrom}). ` +
+            `Si instalas el de ${p.registryName}, lo reemplazará y se borrarán sus datos (sesiones iniciadas y ajustes). ¿Continuar?`,
+          { title: "Melomango", kind: "warning" },
+        );
+        if (!yes) return;
+      }
+      const info = await installCatalogPlugin(p.registry, p.id, installedFrom !== null);
       await onInstalled(info);
     });
 
