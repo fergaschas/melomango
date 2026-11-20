@@ -792,7 +792,8 @@ input[type="range"]:disabled {
 .track:hover .row-action,
 .track:focus-within .row-action,
 .row-action.on,
-.now-playing .row-action {
+.now-playing .row-action,
+.mini-controls .row-action {
   opacity: 1;
 }
 
@@ -2607,4 +2608,75 @@ kbd {
 
 .dropdown-item .row-action {
   opacity: 0.6;
+}
+
+/* ---------- Mini player ---------- */
+.mini-player {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  height: 100vh;
+  padding: 10px 12px;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.mini-player > img,
+.mini-player > .art-placeholder {
+  width: 84px;
+  height: 84px;
+  border-radius: 12px;
+}
+
+.mini-main {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.mini-text {
+  display: grid;
+  min-width: 0;
+}
+
+.mini-text .track-title,
+.mini-text .track-artist {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.mini-text .track-artist {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.mini-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.mini-play {
+  width: 36px;
+  height: 36px;
+}
+
+.mini-seek {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.mini-seek input {
+  flex: 1;
+  min-width: 0;
+}
+
+.mini-expand {
+  align-self: start;
 }

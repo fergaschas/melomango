@@ -18,6 +18,7 @@ import {
   QueueIcon,
   RepeatIcon,
   RepeatOneIcon,
+  MiniIcon,
   ShuffleIcon,
   SwapIcon,
   VolumeIcon,
@@ -29,6 +30,7 @@ interface Props {
   player: Player;
   panel: SidePanel;
   onTogglePanel: (panel: "lyrics" | "queue") => void;
+  onMini: () => void;
 }
 
 const REPEAT_LABEL = {
@@ -37,7 +39,7 @@ const REPEAT_LABEL = {
   one: "Repetir esta canción",
 } as const;
 
-export function PlayerBar({ player, panel, onTogglePanel }: Props) {
+export function PlayerBar({ player, panel, onTogglePanel, onMini }: Props) {
   const { current, isPlaying, isLoading, time, duration, volume, muted, error, hasNext, shuffle, repeat } = player;
   const library = useLibrary();
   const matchFix = useMatchFix();
@@ -164,6 +166,9 @@ export function PlayerBar({ player, panel, onTogglePanel }: Props) {
           title="Cola (Q)"
         >
           <QueueIcon size={18} />
+        </button>
+        <button className="icon-btn" onClick={onMini} aria-label="Mini reproductor" title="Mini reproductor (siempre encima)">
+          <MiniIcon size={18} />
         </button>
         <button
           className="icon-btn"

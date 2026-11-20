@@ -147,6 +147,11 @@ export interface Lyrics {
 
 export const getLyrics = (track: Track) => invoke<Lyrics>("get_lyrics", { track });
 
+// ---------- Mini player ----------
+
+/** Shrinks the window to the mini player (always on top) or puts it back. */
+export const setMiniMode = (on: boolean) => invoke<void>("set_mini_mode", { on });
+
 // ---------- System tray ----------
 
 export const trayUpdate = (title: string | null, playing: boolean) =>

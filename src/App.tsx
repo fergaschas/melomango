@@ -23,6 +23,8 @@ import { LikesView, PlaylistView } from "./components/LibraryViews";
 import { HistoryView } from "./components/HistoryView";
 import { SummaryView } from "./components/SummaryView";
 import { HomeView } from "./components/HomeView";
+import { MiniPlayer } from "./components/MiniPlayer";
+import { setMiniMode } from "./lib/api";
 import { AlbumView, ArtistView, PublicPlaylistView } from "./components/CatalogViews";
 import { SearchResults, type SearchFilter } from "./components/SearchResults";
 import { ErrorNotice } from "./components/ErrorNotice";
@@ -149,6 +151,16 @@ export default function App() {
   useDiscordPresence(player, discordEnabled);
   const [closeToTray, setCloseToTray] = useCloseToTraySetting();
   const [theme, setTheme] = useTheme();
+  const [mini, setMini] = useState(false);
+
+  const toggleMini = useCallback(
+    (on: boolean) => {
+      setMiniMode(on)
+        .then(() => setMini(on))
+        .catch((e) => library.notify(`No se pudo cambiar al mini reproductor: ${e}`));
+    },
+    [library],
+  );
   useTray(player);
   const [fixing, setFixing] = useState<Track | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -222,6 +234,10 @@ export default function App() {
     setSourceId(id);
     // Switching source from a library view goes back to browsing.
     if (view.kind !== "home" && view.kind !== "trending" && view.kind !== "search") setView({ kind: "home" });
+  }
+
+  if (mini) {
+    return <MiniPlayer player={player} onExpand={() => toggleMini(false)} />;
   }
 
   return (
@@ -305,7 +321,7 @@ export default function App() {
           {panel === "lyrics" && <LyricsPanel player={player} onClose={() => setPanel(null)} />}
           {panel === "queue" && <QueuePanel player={player} onClose={() => setPanel(null)} />}
 
-          <PlayerBar player={player} panel={panel} onTogglePanel={togglePanel} />
+          <PlayerBar player={player} panel={panel} onTogglePanel={togglePanel} onMini={() => toggleMini(true)} />
 
           <UpdateCard updater={updater} />
 

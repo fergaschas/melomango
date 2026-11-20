@@ -6,6 +6,7 @@ mod library;
 mod links;
 mod lyrics;
 mod matcher;
+mod mini;
 mod radio;
 mod models;
 mod sources;
@@ -442,6 +443,13 @@ fn import_spotify_export(state: State<'_, AppState>, paths: Vec<String>) -> Resu
         .collect()
 }
 
+/// Shrinks the main window to the mini player (always on top), or puts it back.
+#[tauri::command]
+fn set_mini_mode(app: tauri::AppHandle, mini: State<'_, mini::MiniState>, on: bool) -> Result<(), String> {
+    let window = app.get_webview_window("main").ok_or("no se encontró la ventana principal")?;
+    mini.set(&window, on).map_err(|e| e.to_string())
+}
+
 /// What the tray icon shows: the song in its tooltip and play/pause in its menu.
 #[tauri::command]
 fn tray_update(app: tauri::AppHandle, title: Option<String>, playing: bool) {
@@ -632,6 +640,7 @@ pub fn run() {
             };
             state.reload();
             app.manage(state);
+            app.manage(mini::MiniState::default());
             // Without a tray (some Linux desktops) the app works as before.
             match tray::Tray::create(app.handle()) {
                 Ok(tray) => {
@@ -708,6 +717,7 @@ pub fn run() {
             discord_set,
             discord_status,
             tray_update,
+            set_mini_mode,
             set_close_to_tray,
             recent_plays,
             clear_history,
