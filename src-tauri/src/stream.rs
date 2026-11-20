@@ -98,6 +98,9 @@ pub async fn handle(
     downloads: &Downloads,
     request: Request<Vec<u8>>,
 ) -> Response<Vec<u8>> {
+    if let Some(answer) = preflight(&request) {
+        return answer;
+    }
     match serve(&registry, library, http, cache, downloads, &request).await {
         Ok(response) => response,
         Err(e) => Response::builder()
@@ -173,6 +176,21 @@ async fn serve(
     Ok(response
         .header(header::CONTENT_LENGTH, body.len())
         .body(body)?)
+}
+
+/// The CORS check the WebView makes before a `fetch` with a Range header (the player does
+/// one to read why a song failed). Answered here: it must not resolve or download anything.
+fn preflight(request: &Request<Vec<u8>>) -> Option<Response<Vec<u8>>> {
+    (request.method() == tauri::http::Method::OPTIONS).then(|| {
+        Response::builder()
+            .status(204)
+            .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+            .header(header::ACCESS_CONTROL_ALLOW_METHODS, "GET")
+            .header(header::ACCESS_CONTROL_ALLOW_HEADERS, "Range")
+            .header(header::ACCESS_CONTROL_MAX_AGE, "86400")
+            .body(Vec::new())
+            .unwrap()
+    })
 }
 
 /// 416: the requested range can't be served (`size` is known for downloaded files).
@@ -289,6 +307,17 @@ mod tests {
     fn malformed_ranges_do_not_overflow() {
         assert_eq!(capped_range(Some("bytes=100-50")), None);
         assert_eq!(capped_range(Some("bytes=18446744073709551615-")), Some((u64::MAX, u64::MAX)));
+    }
+
+    #[test]
+    fn answers_the_cors_preflight_without_streaming() {
+        let request = |method: &str| {
+            Request::builder().method(method).uri("http://stream.localhost/youtube%2Fx").body(Vec::new()).unwrap()
+        };
+        let answer = preflight(&request("OPTIONS")).expect("preflight");
+        assert_eq!(answer.status(), 204);
+        assert_eq!(answer.headers()[header::ACCESS_CONTROL_ALLOW_HEADERS], "Range");
+        assert!(preflight(&request("GET")).is_none());
     }
 
     #[test]
