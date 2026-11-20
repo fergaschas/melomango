@@ -13,6 +13,8 @@ import {
 import { loadNormalize, Loudness, saveNormalize } from "../lib/loudness";
 
 const SAVE_KEY = "melomango.player";
+/** The position, saved on its own (often) so the queue is not rewritten every few seconds. */
+const POSITION_KEY = "melomango.player.position";
 const SAVE_EVERY_MS = 5000;
 const SEEK_STEP = 5;
 const CANT_PLAY = "No se pudo reproducir esta canción";
@@ -63,7 +65,10 @@ function release(el: HTMLAudioElement) {
 function loadSaved(): Saved | null {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
-    return raw ? (JSON.parse(raw) as Saved) : null;
+    if (!raw) return null;
+    const saved = JSON.parse(raw) as Saved;
+    const position = Number(localStorage.getItem(POSITION_KEY));
+    return Number.isFinite(position) && localStorage.getItem(POSITION_KEY) !== null ? { ...saved, time: position } : saved;
   } catch {
     return null;
   }
@@ -538,7 +543,16 @@ export function usePlayer() {
     return () => guarded.forEach(([ev, fn]) => audio.removeEventListener(ev, fn));
   }, [audio, next, beginFade, rampFade, endFade, abandonFade]);
 
-  // Remember the queue, position and volume for next time.
+  // Remember the queue, position and volume for next time. The queue (up to thousands of
+  // songs) is written only when it changes; while music plays, only the position.
+  const savePosition = useCallback(() => {
+    try {
+      localStorage.setItem(POSITION_KEY, String(pendingSeek.current ?? audio.currentTime));
+    } catch {
+      /* storage unavailable: not important */
+    }
+  }, [audio]);
+
   const save = useCallback(() => {
     try {
       const data: Saved = {
@@ -549,23 +563,24 @@ export function usePlayer() {
         autoRadio: autoRadioRef.current,
       };
       localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+      savePosition();
     } catch {
       /* storage unavailable or full: not important */
     }
-  }, [audio]);
+  }, [audio, savePosition]);
 
   useEffect(save, [queue, volume, muted, autoRadio, save]);
 
   useEffect(() => {
-    const timer = window.setInterval(() => !audio.paused && save(), SAVE_EVERY_MS);
-    audio.addEventListener("pause", save);
-    window.addEventListener("beforeunload", save);
+    const timer = window.setInterval(() => !audio.paused && savePosition(), SAVE_EVERY_MS);
+    audio.addEventListener("pause", savePosition);
+    window.addEventListener("beforeunload", savePosition);
     return () => {
       window.clearInterval(timer);
-      audio.removeEventListener("pause", save);
-      window.removeEventListener("beforeunload", save);
+      audio.removeEventListener("pause", savePosition);
+      window.removeEventListener("beforeunload", savePosition);
     };
-  }, [audio, save]);
+  }, [audio, savePosition]);
 
   // Media keys and the OS "now playing" panel (SMTC on Windows) via the Media Session API.
   useEffect(() => {

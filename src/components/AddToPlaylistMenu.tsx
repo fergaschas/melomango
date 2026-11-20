@@ -12,16 +12,14 @@ export interface QueueActions {
   startRadio?: (t: Track) => void;
 }
 
-/** "+" button: play next / add to the queue, or add `track` to a playlist (or a new one). */
+/**
+ * "+" button: play next / add to the queue, or add `track` to a playlist (or a new one).
+ *
+ * Closed, it reads no context: it sits in every song row, and a like or a download
+ * elsewhere must not re-render thousands of them. The menu itself does, while open.
+ */
 export function AddToPlaylistMenu({ track, queue }: { track: Track; queue?: QueueActions }) {
-  const library = useLibrary();
-  const matchFix = useMatchFix();
-  const downloads = useDownloads();
   const [open, setOpen] = useState(false);
-  const downloaded = downloads.isDownloaded(track);
-  const loading = downloads.progressOf(track);
-  const inProgress = loading && (loading.state === "queued" || loading.state === "downloading");
-  const [newName, setNewName] = useState("");
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -38,15 +36,6 @@ export function AddToPlaylistMenu({ track, queue }: { track: Track; queue?: Queu
     };
   }, [open]);
 
-  async function createAndAdd(e: FormEvent) {
-    e.preventDefault();
-    if (!newName.trim()) return;
-    const playlist = await library.createPlaylist(newName);
-    await library.addToPlaylist(playlist, track);
-    setNewName("");
-    setOpen(false);
-  }
-
   return (
     <div className="menu-anchor" ref={ref} onClick={(e) => e.stopPropagation()}>
       <button
@@ -57,130 +46,151 @@ export function AddToPlaylistMenu({ track, queue }: { track: Track; queue?: Queu
       >
         <PlusIcon size={18} />
       </button>
-      {open && (
-        <div className="menu" role="menu">
-          {queue && (
-            <>
-              <button
-                role="menuitem"
-                className="menu-item"
-                onClick={() => {
-                  setOpen(false);
-                  queue.playNext(track);
-                  library.notify(`«${track.title}» sonará a continuación`);
-                }}
-              >
-                <span className="menu-icon-label">
-                  <PlayNextIcon size={16} /> Reproducir a continuación
-                </span>
-              </button>
-              <button
-                role="menuitem"
-                className="menu-item"
-                onClick={() => {
-                  setOpen(false);
-                  queue.addToQueue(track);
-                  library.notify(`«${track.title}» añadida a la cola`);
-                }}
-              >
-                <span className="menu-icon-label">
-                  <QueueAddIcon size={16} /> Añadir a la cola
-                </span>
-              </button>
-              {queue.startRadio && (
-                <button
-                  role="menuitem"
-                  className="menu-item"
-                  onClick={() => {
-                    setOpen(false);
-                    queue.startRadio?.(track);
-                    library.notify(`Radio de «${track.title}»: después vendrán canciones parecidas`);
-                  }}
-                >
-                  <span className="menu-icon-label">
-                    <RadioIcon size={16} /> Iniciar radio
-                  </span>
-                </button>
-              )}
-              <hr className="menu-sep" />
-            </>
-          )}
+      {open && <Menu track={track} queue={queue} close={() => setOpen(false)} />}
+    </div>
+  );
+}
+
+function Menu({ track, queue, close }: { track: Track; queue?: QueueActions; close: () => void }) {
+  const library = useLibrary();
+  const matchFix = useMatchFix();
+  const downloads = useDownloads();
+  const downloaded = downloads.isDownloaded(track);
+  const loading = downloads.progressOf(track);
+  const inProgress = loading && (loading.state === "queued" || loading.state === "downloading");
+  const [newName, setNewName] = useState("");
+
+  async function createAndAdd(e: FormEvent) {
+    e.preventDefault();
+    if (!newName.trim()) return;
+    const playlist = await library.createPlaylist(newName);
+    await library.addToPlaylist(playlist, track);
+    setNewName("");
+    close();
+  }
+
+  return (
+    <div className="menu" role="menu">
+      {queue && (
+        <>
           <button
             role="menuitem"
             className="menu-item"
             onClick={() => {
-              setOpen(false);
-              if (downloaded || inProgress) downloads.remove([track]);
-              else {
-                downloads.download([track]);
-                library.notify(`Descargando «${track.title}»…`);
-              }
+              close();
+              queue.playNext(track);
+              library.notify(`«${track.title}» sonará a continuación`);
             }}
           >
             <span className="menu-icon-label">
-              {downloaded ? (
-                <>
-                  <DownloadDoneIcon size={16} /> Borrar la descarga
-                </>
-              ) : inProgress ? (
-                <>
-                  <CloseIcon size={16} /> Cancelar la descarga
-                  {percent(loading) !== null && ` (${percent(loading)} %)`}
-                </>
-              ) : (
-                <>
-                  <DownloadIcon size={16} /> Descargar
-                </>
-              )}
+              <PlayNextIcon size={16} /> Reproducir a continuación
+            </span>
+          </button>
+          <button
+            role="menuitem"
+            className="menu-item"
+            onClick={() => {
+              close();
+              queue.addToQueue(track);
+              library.notify(`«${track.title}» añadida a la cola`);
+            }}
+          >
+            <span className="menu-icon-label">
+              <QueueAddIcon size={16} /> Añadir a la cola
+            </span>
+          </button>
+          {queue.startRadio && (
+            <button
+              role="menuitem"
+              className="menu-item"
+              onClick={() => {
+                close();
+                queue.startRadio?.(track);
+                library.notify(`Radio de «${track.title}»: después vendrán canciones parecidas`);
+              }}
+            >
+              <span className="menu-icon-label">
+                <RadioIcon size={16} /> Iniciar radio
+              </span>
+            </button>
+          )}
+          <hr className="menu-sep" />
+        </>
+      )}
+      <button
+        role="menuitem"
+        className="menu-item"
+        onClick={() => {
+          close();
+          if (downloaded || inProgress) downloads.remove([track]);
+          else {
+            downloads.download([track]);
+            library.notify(`Descargando «${track.title}»…`);
+          }
+        }}
+      >
+        <span className="menu-icon-label">
+          {downloaded ? (
+            <>
+              <DownloadDoneIcon size={16} /> Borrar la descarga
+            </>
+          ) : inProgress ? (
+            <>
+              <CloseIcon size={16} /> Cancelar la descarga
+              {percent(loading) !== null && ` (${percent(loading)} %)`}
+            </>
+          ) : (
+            <>
+              <DownloadIcon size={16} /> Descargar
+            </>
+          )}
+        </span>
+      </button>
+      <hr className="menu-sep" />
+      {matchFix.canFix(track) && (
+        <>
+          <button
+            role="menuitem"
+            className="menu-item"
+            onClick={() => {
+              close();
+              matchFix.open(track);
+            }}
+          >
+            <span className="menu-icon-label">
+              <SwapIcon size={16} /> No es esta canción…
             </span>
           </button>
           <hr className="menu-sep" />
-          {matchFix.canFix(track) && (
-            <>
-              <button
-                role="menuitem"
-                className="menu-item"
-                onClick={() => {
-                  setOpen(false);
-                  matchFix.open(track);
-                }}
-              >
-                <span className="menu-icon-label">
-                  <SwapIcon size={16} /> No es esta canción…
-                </span>
-              </button>
-              <hr className="menu-sep" />
-            </>
-          )}
-          <p className="menu-title">Añadir a playlist</p>
-          {library.playlists.map((p) => (
-            <button
-              key={p.id}
-              role="menuitem"
-              className="menu-item"
-              onClick={async () => {
-                setOpen(false);
-                await library.addToPlaylist(p, track);
-              }}
-            >
-              <span>{p.name}</span>
-              <span className="menu-count">{p.trackCount}</span>
-            </button>
-          ))}
-          <form className="menu-new" onSubmit={createAndAdd}>
-            <input
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              placeholder="Nueva playlist…"
-              aria-label="Nombre de la nueva playlist"
-              autoFocus={library.playlists.length === 0}
-            />
-            <button className="btn primary small" disabled={!newName.trim()}>
-              Crear
-            </button>
-          </form>
-        </div>
+        </>
       )}
+      <p className="menu-title">Añadir a playlist</p>
+      {library.playlists.map((p) => (
+        <button
+          key={p.id}
+          role="menuitem"
+          className="menu-item"
+          onClick={async () => {
+            close();
+            await library.addToPlaylist(p, track);
+          }}
+        >
+          <span>{p.name}</span>
+          <span className="menu-count">{p.trackCount}</span>
+        </button>
+      ))}
+      <form className="menu-new" onSubmit={createAndAdd}>
+        <input
+          value={newName}
+          onChange={(e) => setNewName(e.target.value)}
+          placeholder="Nueva playlist…"
+          aria-label="Nombre de la nueva playlist"
+          autoFocus={library.playlists.length === 0}
+        />
+        <button className="btn primary small" disabled={!newName.trim()}>
+          Crear
+        </button>
+      </form>
     </div>
   );
 }

@@ -35,7 +35,7 @@ export function HomeView({
 
   useEffect(() => {
     likedTracks().then(setLiked).catch(() => {});
-  }, [library.version]);
+  }, [library.likesVersion]);
 
   useEffect(() => {
     if (!source?.supportsTrending) {
