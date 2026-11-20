@@ -214,6 +214,29 @@ impl PluginSource {
             .collect())
     }
 
+    /// Name and songs of one of the source's playlists (capability "playlist"), if it can.
+    pub async fn playlist(&self, id: &str) -> anyhow::Result<Option<(String, Vec<Track>)>> {
+        if !self.has("playlist") {
+            return Ok(None);
+        }
+        #[derive(Deserialize)]
+        struct List {
+            #[serde(default)]
+            title: String,
+            tracks: Vec<Track>,
+        }
+        let list: List = self.call("playlist", Some(id)).await?;
+        let tracks = list
+            .tracks
+            .into_iter()
+            .map(|mut t| {
+                t.source = self.manifest.id.clone();
+                t
+            })
+            .collect();
+        Ok(Some((list.title, tracks)))
+    }
+
     // ---------- Requirements ----------
 
     pub async fn requirements(&self) -> anyhow::Result<Vec<Requirement>> {

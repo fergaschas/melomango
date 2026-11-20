@@ -31,7 +31,7 @@ Al instalarlo, Melomango copia la carpeta a `%APPDATA%\com.melomango.app\plugins
 | `protocol` | sí | Debe ser `1`. |
 | `executable` | sí | Ruta relativa dentro de la carpeta. En Windows se prueba con `.exe` si no tiene extensión. |
 | `args` | no | Argumentos que se anteponen a cada comando. |
-| `capabilities` | no | `"trending"` o `"radio"` si implementa esos comandos. `"library"` para plugins de biblioteca y `"requirements"` si necesita programas externos (ver abajo). En los plugins de música, `search` y `stream` son obligatorios. |
+| `capabilities` | no | `"trending"`, `"radio"` o `"playlist"` si implementa esos comandos. `"library"` para plugins de biblioteca y `"requirements"` si necesita programas externos (ver abajo). En los plugins de música, `search` y `stream` son obligatorios. |
 | `description` | no | Texto corto para la lista de plugins. |
 | `author`, `homepage`, `tags` | no | Metadatos para el buscador de plugins (los usa el script de publicación del índice). |
 
@@ -44,6 +44,7 @@ Cada llamada ejecuta el programa una vez (directorio de trabajo: la carpeta del 
 <executable> <args...> trending         → {"tracks": [Track, ...]}
 <executable> <args...> stream <id>      → {"url": "https://...", "headers": {"User-Agent": "..."}}
 <executable> <args...> radio <id>       → {"tracks": [Track, ...]}   (opcional, capacidad "radio")
+<executable> <args...> playlist <id>    → {"title": "...", "tracks": [Track, ...]}   (opcional, capacidad "playlist")
 ```
 
 `Track`:
@@ -59,6 +60,8 @@ Cada llamada ejecuta el programa una vez (directorio de trabajo: la carpeta del 
 - Si una URL caduca, Melomango vuelve a llamar a `stream` automáticamente.
 - `radio` devuelve canciones parecidas a `<id>` para la radio automática (el plugin de YouTube usa la lista «Mix» de
   cada vídeo). Sin esa capacidad, Melomango busca más canciones del mismo artista.
+- `playlist` devuelve el título y las canciones de una lista de la fuente; Melomango lo usa para importar playlists
+  pegando su enlace (el plugin de YouTube, para listas de YouTube y YouTube Music).
 
 ## Plugins de biblioteca (`"library"`)
 

@@ -2064,3 +2064,24 @@ kbd {
     grid-template-columns: 1fr;
   }
 }
+
+/* ---------- Import from a link ---------- */
+.link-import {
+  display: flex;
+  gap: 8px;
+}
+
+.link-import input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font: inherit;
+}
+
+.link-import input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}

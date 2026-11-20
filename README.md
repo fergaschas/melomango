@@ -132,6 +132,12 @@ En **⬇ Importar playlists → Spotify sin Premium → Elegir archivo…** pued
 Se importan tus playlists y tus Me gusta (no los álbumes guardados: ninguno de los dos archivos trae sus canciones).
 Para actualizar, vuelve a exportar e importar: las playlists se reemplazan, no se duplican.
 
+#### Pegando un enlace
+
+En **⬇ Importar playlists → Pegar un enlace** vale el enlace de una playlist o un álbum público de Spotify (se copian
+las 100 primeras canciones), YouTube o YouTube Music (con el plugin de YouTube 0.5.0 o posterior) o Deezer. Sin
+iniciar sesión, y luego se actualizan con **Sincronizar**.
+
 #### Con el plugin (al momento y con sincronización; necesita Premium)
 
 El plugin **Spotify** importa tus playlists, tus «Canciones que te gustan» y tus álbumes guardados usando la API de

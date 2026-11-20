@@ -5,6 +5,7 @@ import {
   connectLibrary,
   disconnectLibrary,
   importCollection,
+  importLink,
   importSpotifyExport,
   type PlaylistSummary,
   libraryCollections,
@@ -48,6 +49,8 @@ export function ServicesDialog({ onClose, onOpenPlugins, onOpenPlaylist }: Props
           Trae tus playlists de otros servicios. Solo se copian los datos de las canciones: al reproducirlas,
           Melomango busca cada una en YouTube.
         </p>
+
+        <LinkImportPanel onOpenPlaylist={onOpenPlaylist} />
 
         {error && <p className="notice error">{error}</p>}
         {!connections && !error && <p className="status">Comprobando conexiones…</p>}
@@ -299,6 +302,80 @@ function SpotifyExportPanel({ onOpenPlaylist }: { onOpenPlaylist: (id: number) =
               <div className="source-text">
                 <span className="source-name">{p.name}</span>
                 <span className="source-desc">{p.trackCount} canciones</span>
+              </div>
+              <button className="btn ghost small" onClick={() => onOpenPlaylist(p.id)}>
+                Abrir
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/** Paste a Spotify, YouTube or Deezer playlist (or album) link to copy it into the library. */
+function LinkImportPanel({ onOpenPlaylist }: { onOpenPlaylist: (id: number) => void }) {
+  const library = useLibrary();
+  const [url, setUrl] = useState("");
+  const [importing, setImporting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [imported, setImported] = useState<{ playlist: PlaylistSummary; limited: boolean }[]>([]);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!url.trim()) return;
+    setImporting(true);
+    setError(null);
+    try {
+      const result = await importLink(url.trim());
+      await library.refresh();
+      library.notify(`«${result.playlist.name}» importada: ${result.playlist.trackCount} canciones`);
+      setImported((list) => [result, ...list.filter((r) => r.playlist.id !== result.playlist.id)]);
+      setUrl("");
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  return (
+    <div className="service">
+      <div className="service-head">
+        <div>
+          <strong>Pegar un enlace</strong>
+          <span className="service-status">Playlists y álbumes de Spotify, YouTube, YouTube Music o Deezer</span>
+        </div>
+      </div>
+      <form className="link-import" onSubmit={submit}>
+        <input
+          id="import-link"
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          placeholder="https://open.spotify.com/playlist/…"
+          aria-label="Enlace de la playlist o el álbum"
+          disabled={importing}
+        />
+        <button className="btn primary small" disabled={importing || !url.trim()}>
+          {importing ? "Importando…" : "Importar"}
+        </button>
+      </form>
+      <p className="muted-note">
+        Sin iniciar sesión. Las playlists deben ser públicas; de Spotify se copian las 100 primeras canciones. Luego
+        puedes actualizarlas con «Sincronizar».
+      </p>
+      {error && <p className="notice error">{error}</p>}
+      {imported.length > 0 && (
+        <ul className="source-list collection-list">
+          {imported.map(({ playlist: p, limited }) => (
+            <li key={p.id}>
+              <PlaylistCover artworkUrls={p.artworkUrls} size={44} />
+              <div className="source-text">
+                <span className="source-name">{p.name}</span>
+                <span className="source-desc">
+                  {p.trackCount} canciones{limited ? " (Spotify solo muestra las 100 primeras)" : ""}
+                </span>
               </div>
               <button className="btn ghost small" onClick={() => onOpenPlaylist(p.id)}>
                 Abrir

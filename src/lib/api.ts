@@ -275,6 +275,10 @@ export const chooseMatch = (track: Track, choice: Track) =>
 /** Plugin id of playlists imported from Spotify's data export (they can't be synced). */
 export const SPOTIFY_EXPORT = "spotify-export";
 
+/** Imports the playlist or album behind a Spotify, YouTube or Deezer link. */
+export const importLink = (url: string) =>
+  invoke<{ playlist: PlaylistSummary; limited: boolean }>("import_link", { url });
+
 /** Imports the playlists and liked songs of a Spotify data export (its zip or JSON files). */
 export const importSpotifyExport = (paths: string[]) =>
   invoke<PlaylistSummary[]>("import_spotify_export", { paths });

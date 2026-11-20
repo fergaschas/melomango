@@ -3,6 +3,7 @@ mod catalog;
 mod discord;
 mod exportify;
 mod library;
+mod links;
 mod lyrics;
 mod matcher;
 mod radio;
@@ -83,6 +84,32 @@ impl AppState {
             .find(|p| p.id() == id)
             .cloned()
             .ok_or_else(|| format!("el plugin {id} no está instalado"))
+    }
+
+    /// Name and songs behind a pasted playlist or album link. `fresh` skips caches (syncing).
+    async fn fetch_link(&self, link: &links::Link, fresh: bool) -> anyhow::Result<(String, Vec<Track>)> {
+        use links::Link;
+        match link {
+            Link::SpotifyPlaylist(id) => links::spotify_collection(&self.http, "playlist", id).await,
+            Link::SpotifyAlbum(id) => links::spotify_collection(&self.http, "album", id).await,
+            Link::YouTubePlaylist(id) => {
+                let youtube = self
+                    .plugin("youtube")
+                    .map_err(|_| anyhow::anyhow!("instala el plugin de YouTube para importar listas de YouTube"))?;
+                youtube
+                    .playlist(id)
+                    .await?
+                    .ok_or_else(|| anyhow::anyhow!("actualiza el plugin de YouTube para importar listas de YouTube"))
+            }
+            Link::DeezerPlaylist(id) => {
+                let page = self.artists.playlist(id, fresh).await?;
+                Ok((page.playlist.title, page.tracks))
+            }
+            Link::DeezerAlbum(id) => {
+                let page = self.artists.album(id).await?;
+                Ok((page.album.title, page.tracks))
+            }
+        }
     }
 
     fn library_plugin(&self, id: &str) -> Result<Arc<PluginSource>, String> {
@@ -347,13 +374,36 @@ async fn sync_playlist(state: State<'_, AppState>, id: i64) -> Result<PlaylistSu
         .playlist_link(id)
         .map_err(err)?
         .ok_or("esta playlist no está vinculada a ningún servicio")?;
-    let tracks = if link.plugin_id == artists::PLAYLIST_ORIGIN {
-        let id = link.remote_id.trim_start_matches("playlist:");
-        state.artists.playlist(id, true).await.map_err(|e| format!("{e:#}"))?.tracks
+    let tracks = if let Some(source) = links::Link::from_origin(&link.plugin_id, &link.remote_id) {
+        state.fetch_link(&source, true).await.map_err(|e| format!("{e:#}"))?.1
     } else {
         state.library_plugin(&link.plugin_id)?.collection_tracks(&link.remote_id).await.map_err(err)?
     };
     state.library.import_playlist(&link.plugin_id, &link.remote_id, "importada", &tracks).map_err(err)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ImportedLink {
+    playlist: PlaylistSummary,
+    /// Spotify's public page only lists the first 100 songs.
+    limited: bool,
+}
+
+/// Imports the playlist or album behind a pasted Spotify, YouTube or Deezer link.
+#[tauri::command]
+async fn import_link(state: State<'_, AppState>, url: String) -> Result<ImportedLink, String> {
+    let link = links::parse(&url).ok_or(
+        "no reconozco ese enlace: pega el de una playlist o un álbum de Spotify, YouTube (o YouTube Music) o Deezer",
+    )?;
+    let (name, tracks) = state.fetch_link(&link, true).await.map_err(|e| format!("{e:#}"))?;
+    if tracks.is_empty() {
+        return Err("esa playlist está vacía".into());
+    }
+    let limited = matches!(link, links::Link::SpotifyPlaylist(_)) && tracks.len() >= links::SPOTIFY_EMBED_LIMIT;
+    let (origin, remote_id) = link.origin();
+    let playlist = state.library.import_playlist(origin, &remote_id, &name, &tracks).map_err(err)?;
+    Ok(ImportedLink { playlist, limited })
 }
 
 /// Imports the playlists and liked songs of a Spotify data export (zip or its JSON files).
@@ -598,6 +648,7 @@ pub fn run() {
             move_in_playlist,
             get_lyrics,
             import_spotify_export,
+            import_link,
             match_options,
             choose_match,
             record_play,
