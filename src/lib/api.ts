@@ -102,6 +102,8 @@ export interface PlaylistLink {
 }
 
 export interface Playlist extends PlaylistSummary {
+  /** When each track (same order as `tracks`) was added, in ms since the epoch. */
+  addedAt: number[];
   tracks: Track[];
   link: PlaylistLink | null;
 }

@@ -108,10 +108,13 @@ pub struct PlaylistSummary {
 }
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Playlist {
     #[serde(flatten)]
     pub summary: PlaylistSummary,
     pub tracks: Vec<Track>,
+    /// When each track (same order) was added, in milliseconds since the epoch.
+    pub added_at: Vec<i64>,
     /// Set when the playlist was imported from another service and can be re-synced.
     pub link: Option<PlaylistLink>,
 }
@@ -316,14 +319,15 @@ impl Library {
             bail!("la playlist no existe");
         }
         self.with(|c| {
-            let tracks = c
+            let rows = c
                 .prepare(
-                    "SELECT t.* FROM playlist_tracks p JOIN tracks t USING (source, id)
+                    "SELECT t.*, p.added_at FROM playlist_tracks p JOIN tracks t USING (source, id)
                      WHERE p.playlist_id = ?1 ORDER BY p.position",
                 )?
-                .query_map([id], track_from_row)?
+                .query_map([id], |r| Ok((track_from_row(r)?, r.get::<_, i64>("added_at")?)))?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
-            Ok(Playlist { summary: summary(c, id)?, tracks, link: link(c, id)? })
+            let (tracks, added_at) = rows.into_iter().unzip();
+            Ok(Playlist { summary: summary(c, id)?, tracks, added_at, link: link(c, id)? })
         })
     }
 
@@ -753,6 +757,9 @@ mod tests {
         assert_eq!((p.name.as_str(), p.track_count), ("Pegada", 2));
         assert_eq!(ids(&lib.playlist(p.id).unwrap().tracks), ["a", "b"]);
         assert!(lib.playlist(p.id).unwrap().link.is_none(), "not linked: nothing to sync");
+        let full = lib.playlist(p.id).unwrap();
+        assert_eq!(full.added_at.len(), full.tracks.len());
+        assert!(full.added_at.iter().all(|t| *t > 0));
         assert!(lib.create_playlist_with("  ", &[]).is_err());
     }
 

@@ -6,6 +6,23 @@ import type { Player } from "../hooks/usePlayer";
 import { PlayIcon, SyncIcon, TrashIcon } from "./Icons";
 import { PlaylistCover } from "./PlaylistCover";
 import { TrackList } from "./TrackList";
+import { TrackTools, useArrangement } from "./TrackTools";
+import type { SortKey } from "../lib/sortTracks";
+
+const LIKES_SORTS: [SortKey, string][] = [
+  ["custom", "Añadidas recientemente"],
+  ["title", "Título"],
+  ["artist", "Artista"],
+  ["duration", "Duración"],
+];
+const PLAYLIST_SORTS: [SortKey, string][] = [
+  ["custom", "Tu orden"],
+  ["added", "Fecha en que se añadió"],
+  ["title", "Título"],
+  ["artist", "Artista"],
+  ["duration", "Duración"],
+];
+const NO_TRACKS: Track[] = [];
 
 function PlayAllButton({ tracks, player }: { tracks: Track[]; player: Player }) {
   return (
@@ -25,6 +42,7 @@ export function LikesView({ player }: { player: Player }) {
   }, [version]);
 
   const total = tracks?.reduce((sum, t) => sum + t.durationSecs, 0) ?? 0;
+  const arranged = useArrangement("likes", tracks ?? NO_TRACKS);
 
   return (
     <>
@@ -36,7 +54,7 @@ export function LikesView({ player }: { player: Player }) {
           <p className="subtitle">
             {tracks ? `${tracks.length} canciones · ${formatTotal(total)}` : "…"}
           </p>
-          <div className="collection-actions">{tracks && <PlayAllButton tracks={tracks} player={player} />}</div>
+          <div className="collection-actions">{tracks && <PlayAllButton tracks={arranged.visible} player={player} />}</div>
         </div>
       </header>
       {error && <p className="status error">{error}</p>}
@@ -44,13 +62,28 @@ export function LikesView({ player }: { player: Player }) {
         <p className="status">Aún no te gusta nada. Pulsa el ♡ de cualquier canción para guardarla aquí.</p>
       )}
       {tracks && tracks.length > 0 && (
-        <TrackList
-          tracks={tracks}
-          current={player.current}
-          isPlaying={player.isPlaying}
-          queue={player}
-          onPlay={(i) => player.playQueue(tracks, i)}
-        />
+        <>
+          <TrackTools
+            filter={arranged.filter}
+            onFilter={arranged.setFilter}
+            sort={arranged.sort}
+            onSort={arranged.setSort}
+            options={LIKES_SORTS}
+            shown={arranged.visible.length}
+            total={tracks.length}
+          />
+          {arranged.visible.length === 0 ? (
+            <p className="status">Ninguna canción coincide con «{arranged.filter}».</p>
+          ) : (
+            <TrackList
+              tracks={arranged.visible}
+              current={player.current}
+              isPlaying={player.isPlaying}
+              queue={player}
+              onPlay={(i) => player.playQueue(arranged.visible, i)}
+            />
+          )}
+        </>
       )}
     </>
   );
@@ -74,6 +107,8 @@ export function PlaylistView({ id, player, onDeleted }: { id: number; player: Pl
   }, [id, library.version]);
 
   useEffect(() => setEditing(false), [id]);
+
+  const arranged = useArrangement(`playlist.${id}`, playlist?.tracks ?? NO_TRACKS, playlist?.addedAt);
 
   if (error) return <p className="status error">{error}</p>;
   if (!playlist) return <p className="status">Pelando mangos…</p>;
@@ -114,7 +149,10 @@ export function PlaylistView({ id, player, onDeleted }: { id: number; player: Pl
       const tracks = [...p.tracks];
       const [item] = tracks.splice(from, 1);
       tracks.splice(to, 0, item);
-      return { ...p, tracks };
+      const addedAt = [...p.addedAt];
+      const [when] = addedAt.splice(from, 1);
+      addedAt.splice(to, 0, when);
+      return { ...p, tracks, addedAt };
     });
     library.moveInPlaylist(id, from, to);
   }
@@ -165,7 +203,7 @@ export function PlaylistView({ id, player, onDeleted }: { id: number; player: Pl
             {playlist.trackCount} canciones · {formatTotal(playlist.durationSecs)}
           </p>
           <div className="collection-actions">
-            <PlayAllButton tracks={playlist.tracks} player={player} />
+            <PlayAllButton tracks={arranged.visible} player={player} />
             {playlist.link && playlist.link.pluginId !== SPOTIFY_EXPORT && (
               <button className="btn ghost" onClick={onSync} disabled={syncing}>
                 <SyncIcon size={16} /> {syncing ? "Sincronizando…" : "Sincronizar"}
@@ -183,16 +221,33 @@ export function PlaylistView({ id, player, onDeleted }: { id: number; player: Pl
         </p>
       ) : (
         <>
-          <TrackList
-            tracks={playlist.tracks}
-            current={player.current}
-            isPlaying={player.isPlaying}
-            queue={player}
-            onPlay={(i) => player.playQueue(playlist.tracks, i)}
-            onRemove={(t) => library.removeFromPlaylist(id, t)}
-            onMove={onMove}
+          <TrackTools
+            filter={arranged.filter}
+            onFilter={arranged.setFilter}
+            sort={arranged.sort}
+            onSort={arranged.setSort}
+            options={PLAYLIST_SORTS}
+            shown={arranged.visible.length}
+            total={playlist.tracks.length}
           />
-          <p className="hint">Arrastra las canciones para cambiar el orden.</p>
+          {arranged.visible.length === 0 ? (
+            <p className="status">Ninguna canción coincide con «{arranged.filter}».</p>
+          ) : (
+            <TrackList
+              tracks={arranged.visible}
+              current={player.current}
+              isPlaying={player.isPlaying}
+              queue={player}
+              onPlay={(i) => player.playQueue(arranged.visible, i)}
+              onRemove={(t) => library.removeFromPlaylist(id, t)}
+              onMove={arranged.canReorder ? onMove : undefined}
+            />
+          )}
+          <p className="hint">
+            {arranged.canReorder
+              ? "Arrastra las canciones para cambiar el orden."
+              : "Para reordenar arrastrando, elige «Tu orden» y quita el filtro."}
+          </p>
         </>
       )}
     </>

@@ -35,6 +35,9 @@ Melomango otra vez muestra la ventana que ya está en marcha.
 el tiempo. Melomango habla con la app de Discord de tu equipo (no envía nada por internet) y se puede desactivar en
 **Ajustes**, abajo en la barra lateral.
 
+**Ordenar y filtrar**: en tus playlists y en Me gusta puedes filtrar por título o artista y ordenar por tu orden, fecha
+en que se añadió, título, artista o duración (el orden se recuerda en cada lista).
+
 **Historial** (en la barra lateral): lo que has escuchado, por días. Una canción cuenta tras sonar 30 segundos (o la
 mitad, si es más corta). Se guarda solo en tu equipo y se puede borrar.
 
