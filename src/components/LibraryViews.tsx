@@ -101,16 +101,21 @@ export function PlaylistView({ id, player, onDeleted }: { id: number; player: Pl
   const [name, setName] = useState("");
   const [syncing, setSyncing] = useState(false);
 
+  // Mounted with `key={id}`, so another playlist starts from scratch (nothing left over from
+  // this one). A slow answer from an earlier load must not overwrite a newer one either.
   useEffect(() => {
+    let cancelled = false;
     getPlaylist(id)
       .then((p) => {
+        if (cancelled) return;
         setPlaylist(p);
         setError(null);
       })
-      .catch((e) => setError(String(e)));
+      .catch((e) => !cancelled && setError(String(e)));
+    return () => {
+      cancelled = true;
+    };
   }, [id, library.version]);
-
-  useEffect(() => setEditing(false), [id]);
 
   const arranged = useArrangement(`playlist.${id}`, playlist?.tracks ?? NO_TRACKS, playlist?.addedAt);
 

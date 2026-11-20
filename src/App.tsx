@@ -322,7 +322,7 @@ export default function App() {
                 {view.kind === "album" && <AlbumView key={view.id} id={view.id} player={player} />}
                 {view.kind === "publicPlaylist" && <PublicPlaylistView key={view.id} id={view.id} player={player} />}
                 {view.kind === "playlist" && (
-                  <PlaylistView id={view.id} player={player} onDeleted={() => setView({ kind: "likes" })} />
+                  <PlaylistView key={view.id} id={view.id} player={player} onDeleted={() => setView({ kind: "likes" })} />
                 )}
                 {(view.kind === "trending" || view.kind === "search") && (
                   <BrowseView
