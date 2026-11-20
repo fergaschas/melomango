@@ -5,9 +5,9 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use tauri::{
+    AppHandle, Emitter, Manager, Wry,
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Emitter, Manager, Wry,
 };
 
 /// Event sent to the page for the player buttons ("toggle", "prev", "next").
@@ -45,7 +45,8 @@ impl Tray {
                 _ => {}
             })
             .on_tray_icon_event(|tray, event| {
-                if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event
+                if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } =
+                    event
                 {
                     show_main(tray.app_handle());
                 }

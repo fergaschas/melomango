@@ -11,7 +11,7 @@
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     sync::watch,
@@ -56,7 +56,9 @@ pub enum Status {
     /// Something to show, but the Discord app isn't running here.
     NotRunning,
     Connected,
-    Error { message: String },
+    Error {
+        message: String,
+    },
 }
 
 pub struct Presence {
@@ -194,10 +196,7 @@ fn field(text: &str) -> String {
 }
 
 fn epoch_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
 }
 
 // ---------- IPC ----------
@@ -485,7 +484,8 @@ mod tests {
         let (presence, task) = Presence::with_pipes("1234567890", vec![name]);
         let handle = tokio::spawn(task);
         presence.set(Some(now_playing("Copenhague")));
-        let update = tokio::time::timeout(Duration::from_secs(3), updates.recv()).await.expect("no esperó 24 s").unwrap();
+        let update =
+            tokio::time::timeout(Duration::from_secs(3), updates.recv()).await.expect("no esperó 24 s").unwrap();
         assert_eq!(update["args"]["activity"]["details"], "Copenhague");
         tokio::time::sleep(Duration::from_millis(100)).await;
         assert_eq!(presence.status(), Status::Connected);

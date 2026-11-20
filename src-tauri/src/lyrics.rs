@@ -158,11 +158,7 @@ fn pick_best(results: Vec<Record>, duration: f64) -> Option<Record> {
         .filter(|r| r.has_synced() || r.plain_lyrics.is_some() || r.instrumental)
         // Unknown duration (e.g. imported from Spotify's data export): any version will do.
         .filter(|r| duration <= 0.0 || diff(r) <= MAX_DURATION_DIFF)
-        .min_by(|a, b| {
-            b.has_synced()
-                .cmp(&a.has_synced())
-                .then(diff(a).total_cmp(&diff(b)))
-        })
+        .min_by(|a, b| b.has_synced().cmp(&a.has_synced()).then(diff(a).total_cmp(&diff(b))))
 }
 
 fn into_lyrics(record: Record) -> Lyrics {
@@ -273,7 +269,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_failing_exact_lookup_falls_back_to_the_search() {
-        let search = r#"[{"duration": 200.0, "instrumental": false, "plainLyrics": "hola", "syncedLyrics": "[00:01.00] hola"}]"#;
+        let search =
+            r#"[{"duration": 200.0, "instrumental": false, "plainLyrics": "hola", "syncedLyrics": "[00:01.00] hola"}]"#;
         for status in [429, 500, 503] {
             let mut service = LyricsService::new(reqwest::Client::new());
             service.api = fake_lrclib(status, search).await;

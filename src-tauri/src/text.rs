@@ -2,7 +2,7 @@
 //! (matcher, radio, lyrics, artist pages, history, imports), so they all read a name the
 //! same way.
 
-use unicode_normalization::{char::is_combining_mark, UnicodeNormalization};
+use unicode_normalization::{UnicodeNormalization, char::is_combining_mark};
 
 /// "Shakira, Burna Boy" / "Bad Bunny & Drake" / "Daft Punk feat. Pharrell" / "A x B"
 /// -> the first artist.

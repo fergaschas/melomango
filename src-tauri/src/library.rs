@@ -11,8 +11,8 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use anyhow::{bail, Context};
-use rusqlite::{params, Connection, OptionalExtension, Row};
+use anyhow::{Context, bail};
+use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde::Serialize;
 
 use crate::models::Track;
@@ -149,11 +149,7 @@ impl StoredKind {
     }
 
     fn parse(s: &str) -> Self {
-        if s == "cache" {
-            StoredKind::Cache
-        } else {
-            StoredKind::Download
-        }
+        if s == "cache" { StoredKind::Cache } else { StoredKind::Download }
     }
 }
 
@@ -250,8 +246,8 @@ pub struct Library {
 
 impl Library {
     pub fn open(path: &Path) -> anyhow::Result<Self> {
-        let conn = Connection::open(path)
-            .with_context(|| format!("no se pudo abrir la biblioteca {}", path.display()))?;
+        let conn =
+            Connection::open(path).with_context(|| format!("no se pudo abrir la biblioteca {}", path.display()))?;
         Self::init(conn)
     }
 
@@ -324,10 +320,7 @@ impl Library {
                     params![track.source, track.id, now()],
                 )?;
             } else {
-                tx.execute(
-                    "DELETE FROM likes WHERE source = ?1 AND id = ?2",
-                    params![track.source, track.id],
-                )?;
+                tx.execute("DELETE FROM likes WHERE source = ?1 AND id = ?2", params![track.source, track.id])?;
             }
             tx.commit()
         })
@@ -350,11 +343,9 @@ impl Library {
 
     pub fn stored_kind(&self, source: &str, id: &str) -> anyhow::Result<Option<StoredKind>> {
         self.with(|c| {
-            c.query_row(
-                "SELECT kind FROM downloads WHERE source = ?1 AND id = ?2",
-                params![source, id],
-                |r| r.get::<_, String>(0),
-            )
+            c.query_row("SELECT kind FROM downloads WHERE source = ?1 AND id = ?2", params![source, id], |r| {
+                r.get::<_, String>(0)
+            })
             .optional()
         })
         .map(|k| k.map(|k| StoredKind::parse(&k)))
@@ -374,11 +365,9 @@ impl Library {
     /// Songs and bytes in the cache.
     pub fn cache_usage(&self) -> anyhow::Result<(u32, u64)> {
         self.with(|c| {
-            c.query_row(
-                "SELECT COUNT(*), COALESCE(SUM(size), 0) FROM downloads WHERE kind = 'cache'",
-                [],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
+            c.query_row("SELECT COUNT(*), COALESCE(SUM(size), 0) FROM downloads WHERE kind = 'cache'", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
         })
     }
 
@@ -490,9 +479,8 @@ impl Library {
                 "SELECT t.*, p.played_at FROM plays p JOIN tracks t USING (source, id)
                  ORDER BY p.played_at DESC, p.play_id DESC LIMIT ?1",
             )?;
-            let rows = stmt.query_map([limit], |r| {
-                Ok(Play { track: track_from_row(r)?, played_at: r.get("played_at")? })
-            })?;
+            let rows =
+                stmt.query_map([limit], |r| Ok(Play { track: track_from_row(r)?, played_at: r.get("played_at")? }))?;
             rows.collect()
         })
     }
@@ -596,10 +584,7 @@ impl Library {
         let name = clean_name(name)?;
         self.with(|c| {
             let ts = now();
-            c.execute(
-                "INSERT INTO playlists (name, created_at, updated_at) VALUES (?1, ?2, ?2)",
-                params![name, ts],
-            )?;
+            c.execute("INSERT INTO playlists (name, created_at, updated_at) VALUES (?1, ?2, ?2)", params![name, ts])?;
             summary(c, c.last_insert_rowid())
         })
     }
@@ -630,10 +615,7 @@ impl Library {
     pub fn rename_playlist(&self, id: i64, name: &str) -> anyhow::Result<()> {
         let name = clean_name(name)?;
         let changed = self.with(|c| {
-            c.execute(
-                "UPDATE playlists SET name = ?2, updated_at = ?3 WHERE id = ?1",
-                params![id, name, now()],
-            )
+            c.execute("UPDATE playlists SET name = ?2, updated_at = ?3 WHERE id = ?1", params![id, name, now()])
         })?;
         ensure_found(changed)
     }
@@ -644,10 +626,8 @@ impl Library {
     }
 
     pub fn playlist(&self, id: i64) -> anyhow::Result<Playlist> {
-        let exists = self.with(|c| {
-            c.query_row("SELECT 1 FROM playlists WHERE id = ?1", [id], |_| Ok(()))
-                .optional()
-        })?;
+        let exists =
+            self.with(|c| c.query_row("SELECT 1 FROM playlists WHERE id = ?1", [id], |_| Ok(())).optional())?;
         if exists.is_none() {
             bail!("la playlist no existe");
         }
@@ -786,12 +766,8 @@ impl Library {
 
     pub fn track(&self, source: &str, id: &str) -> anyhow::Result<Option<Track>> {
         self.with(|c| {
-            c.query_row(
-                "SELECT * FROM tracks WHERE source = ?1 AND id = ?2",
-                params![source, id],
-                track_from_row,
-            )
-            .optional()
+            c.query_row("SELECT * FROM tracks WHERE source = ?1 AND id = ?2", params![source, id], track_from_row)
+                .optional()
         })
     }
 
@@ -820,10 +796,7 @@ impl Library {
     }
 
     fn playlist_exists(&self, id: i64) -> anyhow::Result<()> {
-        let found = self.with(|c| {
-            c.query_row("SELECT 1 FROM playlists WHERE id = ?1", [id], |_| Ok(()))
-                .optional()
-        })?;
+        let found = self.with(|c| c.query_row("SELECT 1 FROM playlists WHERE id = ?1", [id], |_| Ok(())).optional())?;
         if found.is_none() {
             bail!("la playlist no existe");
         }
@@ -832,10 +805,7 @@ impl Library {
 }
 
 fn now() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
 }
 
 /// One playlist of an import, inside the caller's transaction.
@@ -857,10 +827,7 @@ fn import_into(
     let id = match existing {
         Some(id) => id,
         None => {
-            tx.execute(
-                "INSERT INTO playlists (name, created_at, updated_at) VALUES (?1, ?2, ?2)",
-                params![name, ts],
-            )?;
+            tx.execute("INSERT INTO playlists (name, created_at, updated_at) VALUES (?1, ?2, ?2)", params![name, ts])?;
             let id = tx.last_insert_rowid();
             tx.execute(
                 "INSERT INTO playlist_links (playlist_id, plugin_id, remote_id, synced_at) VALUES (?1, ?2, ?3, ?4)",
@@ -878,10 +845,7 @@ fn import_into(
     let mut position = 0i64;
     for track in tracks {
         upsert_track(tx, track)?;
-        let added_at = added_before
-            .get(&(track.source.clone(), track.id.clone()))
-            .copied()
-            .unwrap_or(ts);
+        let added_at = added_before.get(&(track.source.clone(), track.id.clone())).copied().unwrap_or(ts);
         position += tx.execute(
             "INSERT OR IGNORE INTO playlist_tracks (playlist_id, source, id, position, added_at)
              VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -1133,7 +1097,12 @@ mod tests {
         let path = std::env::temp_dir().join(format!("melomango-sync-{}.db", std::process::id()));
         let lib = Library::open(&path).unwrap();
         let (journal, sync): (String, i64) = lib
-            .with(|c| Ok((c.pragma_query_value(None, "journal_mode", |r| r.get(0))?, c.pragma_query_value(None, "synchronous", |r| r.get(0))?)))
+            .with(|c| {
+                Ok((
+                    c.pragma_query_value(None, "journal_mode", |r| r.get(0))?,
+                    c.pragma_query_value(None, "synchronous", |r| r.get(0))?,
+                ))
+            })
             .unwrap();
         assert_eq!((journal.as_str(), sync), ("wal", 1), "1 = NORMAL");
         drop(lib);
@@ -1170,7 +1139,10 @@ mod tests {
             for i in 0..20_000i64 {
                 let t = Track { artist: format!("Artista {}", i % 2_000), ..track(&format!("s{}", i % 5_000)) };
                 upsert_track(&tx, &t)?;
-                tx.execute("INSERT INTO plays (source, id, played_at) VALUES (?1, ?2, ?3)", params![t.source, t.id, base + i * 1000])?;
+                tx.execute(
+                    "INSERT INTO plays (source, id, played_at) VALUES (?1, ?2, ?3)",
+                    params![t.source, t.id, base + i * 1000],
+                )?;
             }
             tx.commit()
         })
@@ -1203,7 +1175,10 @@ mod tests {
             for i in 0..20_000i64 {
                 let t = track(&format!("c{}", i % 1_000));
                 upsert_track(&tx, &t)?;
-                tx.execute("INSERT INTO plays (source, id, played_at) VALUES (?1, ?2, ?3)", params![t.source, t.id, 1_000 + i])?;
+                tx.execute(
+                    "INSERT INTO plays (source, id, played_at) VALUES (?1, ?2, ?3)",
+                    params![t.source, t.id, 1_000 + i],
+                )?;
             }
             tx.commit()
         })
@@ -1229,11 +1204,13 @@ mod tests {
         })
         .unwrap();
         let (a, b) = ([sp("1")], [sp("2")]);
-        let result = lib.import_many("spotify-export", &[("playlist:A", "A", &a[..]), ("playlist:Rota", "Rota", &b[..])]);
+        let result =
+            lib.import_many("spotify-export", &[("playlist:A", "A", &a[..]), ("playlist:Rota", "Rota", &b[..])]);
         assert!(result.is_err());
         assert!(lib.playlists().unwrap().is_empty(), "the first one is not left half imported");
 
-        let ok = lib.import_many("spotify-export", &[("playlist:A", "A", &a[..]), ("playlist:B", "  ", &b[..])]).unwrap();
+        let ok =
+            lib.import_many("spotify-export", &[("playlist:A", "A", &a[..]), ("playlist:B", "  ", &b[..])]).unwrap();
         let names: Vec<_> = ok.iter().map(|p| p.name.as_str()).collect();
         assert_eq!(names, ["A", "Playlist importada"], "a playlist without a name gets one");
     }
@@ -1320,7 +1297,9 @@ mod tests {
         // 2026-11-10 12:00 local-ish (UTC noon keeps the same day in most zones).
         let nov = 1_794_312_000_000i64;
         let oct = nov - 31 * 86_400_000;
-        for (t, when) in [(&shakira, nov), (&duet, nov + 1), (&shakira, nov + 2), (&track("a"), nov + 3), (&track("a"), oct)] {
+        for (t, when) in
+            [(&shakira, nov), (&duet, nov + 1), (&shakira, nov + 2), (&track("a"), nov + 3), (&track("a"), oct)]
+        {
             lib.record_play_at(t, when).unwrap();
         }
         let months = lib.summary_months().unwrap();

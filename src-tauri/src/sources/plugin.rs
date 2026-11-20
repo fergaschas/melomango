@@ -32,9 +32,9 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use async_trait::async_trait;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use super::MusicSource;
 use crate::models::{SourceInfo, SourceKind, StreamInfo, Track};
@@ -124,26 +124,16 @@ impl PluginSource {
     /// Reads and validates the plugin in `dir`.
     pub fn load(dir: &Path) -> anyhow::Result<Self> {
         let path = dir.join(MANIFEST);
-        let text = fs::read_to_string(&path)
-            .with_context(|| format!("no se encontró {}", path.display()))?;
+        let text = fs::read_to_string(&path).with_context(|| format!("no se encontró {}", path.display()))?;
         let manifest: Manifest =
             serde_json::from_str(&text).with_context(|| format!("{} no es válido", path.display()))?;
 
         validate_id(&manifest.id)?;
         if manifest.protocol != PROTOCOL_VERSION {
-            bail!(
-                "el plugin usa el protocolo {} y Melomango entiende el {PROTOCOL_VERSION}",
-                manifest.protocol
-            );
+            bail!("el plugin usa el protocolo {} y Melomango entiende el {PROTOCOL_VERSION}", manifest.protocol);
         }
         let exe = resolve_executable(dir, &manifest.executable)?;
-        Ok(Self {
-            manifest,
-            dir: dir.to_path_buf(),
-            exe,
-            data_dir: None,
-            connecting: tokio::sync::Mutex::new(()),
-        })
+        Ok(Self { manifest, dir: dir.to_path_buf(), exe, data_dir: None, connecting: tokio::sync::Mutex::new(()) })
     }
 
     pub fn id(&self) -> &str {
@@ -517,8 +507,8 @@ mod job {
     use windows_sys::Win32::{
         Foundation::CloseHandle,
         System::JobObjects::{
-            AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation, SetInformationJobObject,
-            JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+            AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+            JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation, SetInformationJobObject,
         },
     };
 
@@ -596,8 +586,7 @@ fn copy_dir(src: &Path, dst: &Path) -> anyhow::Result<()> {
         if entry.file_type()?.is_dir() {
             copy_dir(&entry.path(), &to)?;
         } else {
-            fs::copy(entry.path(), &to)
-                .with_context(|| format!("no se pudo copiar {}", entry.path().display()))?;
+            fs::copy(entry.path(), &to).with_context(|| format!("no se pudo copiar {}", entry.path().display()))?;
         }
     }
     Ok(())
@@ -673,9 +662,15 @@ mod tests {
     fn a_broken_package_leaves_the_installed_version_alone() {
         let root = temp_dir("broken");
         let plugins = root.join("plugins");
-        write_plugin(&root.join("good"), r#"{"id":"demo","name":"Demo","version":"1","protocol":1,"executable":"bin"}"#);
+        write_plugin(
+            &root.join("good"),
+            r#"{"id":"demo","name":"Demo","version":"1","protocol":1,"executable":"bin"}"#,
+        );
         install(&root.join("good"), &plugins, None).unwrap();
-        write_plugin(&root.join("bad"), r#"{"id":"demo","name":"Demo","version":"2","protocol":1,"executable":"nope"}"#);
+        write_plugin(
+            &root.join("bad"),
+            r#"{"id":"demo","name":"Demo","version":"2","protocol":1,"executable":"nope"}"#,
+        );
         assert!(install(&root.join("bad"), &plugins, None).is_err());
         assert_eq!(discover(&plugins, &root.join("data"))[0].manifest.version, "1");
         let _ = fs::remove_dir_all(&root);
@@ -750,7 +745,8 @@ mod tests {
     #[tokio::test]
     async fn the_whole_process_tree_ends_with_the_job() {
         let count = || {
-            let out = std::process::Command::new("tasklist").args(["/FI", "IMAGENAME eq PING.EXE", "/NH"]).output().unwrap();
+            let out =
+                std::process::Command::new("tasklist").args(["/FI", "IMAGENAME eq PING.EXE", "/NH"]).output().unwrap();
             String::from_utf8_lossy(&out.stdout).matches("PING.EXE").count()
         };
         let before = count();

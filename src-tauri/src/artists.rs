@@ -7,8 +7,8 @@
 
 use std::{collections::HashMap, sync::Mutex, time::Duration};
 
-use anyhow::{anyhow, bail, Context};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use anyhow::{Context, anyhow, bail};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
 
 use crate::models::Track;
@@ -266,7 +266,12 @@ impl ArtistService {
         Ok(CatalogSearch {
             artists,
             albums: albums.map(|p| p.data).unwrap_or_default().into_iter().map(RawAlbumHit::into_hit).collect(),
-            playlists: playlists.map(|p| p.data).unwrap_or_default().into_iter().map(RawPlaylist::into_public).collect(),
+            playlists: playlists
+                .map(|p| p.data)
+                .unwrap_or_default()
+                .into_iter()
+                .map(RawPlaylist::into_public)
+                .collect(),
         })
     }
 
@@ -314,9 +319,8 @@ impl ArtistService {
         while tracks.len() < total && pages < MAX_PLAYLIST_PAGES {
             pages += 1;
             let (index, limit) = (tracks.len().to_string(), PLAYLIST_PAGE.to_string());
-            let page: Page<RawTrack> = self
-                .get_query(&format!("/playlist/{id}/tracks"), &[("index", &index), ("limit", &limit)])
-                .await?;
+            let page: Page<RawTrack> =
+                self.get_query(&format!("/playlist/{id}/tracks"), &[("index", &index), ("limit", &limit)]).await?;
             if page.data.is_empty() {
                 break;
             }
@@ -343,12 +347,8 @@ impl ArtistService {
         if name.is_empty() {
             bail!("falta el nombre del artista");
         }
-        let found: Page<RawArtist> = self
-            .get_query("/search/artist", &[("q", name), ("limit", "10")])
-            .await?;
-        pick_artist(name, &found.data)
-            .map(|a| a.id.to_string())
-            .ok_or_else(|| anyhow!("Deezer no conoce a «{name}»"))
+        let found: Page<RawArtist> = self.get_query("/search/artist", &[("q", name), ("limit", "10")]).await?;
+        pick_artist(name, &found.data).map(|a| a.id.to_string()).ok_or_else(|| anyhow!("Deezer no conoce a «{name}»"))
     }
 
     async fn get<T: DeserializeOwned>(&self, path: &str) -> anyhow::Result<T> {
@@ -605,8 +605,13 @@ mod tests {
     }
 
     /// A fake Deezer: `answer(path with query, how many times it was asked)` gives the body.
-    async fn fake_deezer(answer: fn(&str, usize) -> String) -> (String, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
-        use std::sync::{atomic::{AtomicUsize, Ordering}, Arc};
+    async fn fake_deezer(
+        answer: fn(&str, usize) -> String,
+    ) -> (String, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        };
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
@@ -631,7 +636,9 @@ mod tests {
 
     fn songs(ids: std::ops::Range<u32>) -> String {
         let songs: Vec<String> = ids
-            .map(|i| format!(r#"{{"id": {i}, "title": "Canción {i}", "duration": 200, "artist": {{"name": "Artista"}}}}"#))
+            .map(|i| {
+                format!(r#"{{"id": {i}, "title": "Canción {i}", "duration": 200, "artist": {{"name": "Artista"}}}}"#)
+            })
             .collect();
         songs.join(",")
     }
@@ -677,7 +684,9 @@ mod tests {
 
     #[tokio::test]
     async fn other_deezer_errors_are_not_retried() {
-        let (url, calls) = fake_deezer(|_, _| r#"{"error": {"type": "DataException", "message": "no data", "code": 800}}"#.into()).await;
+        let (url, calls) =
+            fake_deezer(|_, _| r#"{"error": {"type": "DataException", "message": "no data", "code": 800}}"#.into())
+                .await;
         let mut service = ArtistService::new(reqwest::Client::new());
         service.api = url;
         service.quota_wait = Duration::from_millis(1);

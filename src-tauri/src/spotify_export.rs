@@ -14,14 +14,9 @@
 //! The same import also takes Exportify's CSVs (see [`crate::exportify`]).
 
 use crate::text::fingerprint;
-use std::{
-    collections::HashMap,
-    fs,
-    io::Read,
-    path::Path,
-};
+use std::{collections::HashMap, fs, io::Read, path::Path};
 
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use percent_encoding::percent_decode_str;
 use serde::Deserialize;
 
@@ -132,7 +127,8 @@ pub fn read(paths: &[impl AsRef<Path>]) -> anyhow::Result<Import> {
         }
     }
     if !liked.is_empty() {
-        collections.insert(0, Collection { remote_id: "liked".into(), name: "Me gusta de Spotify".into(), tracks: liked });
+        collections
+            .insert(0, Collection { remote_id: "liked".into(), name: "Me gusta de Spotify".into(), tracks: liked });
     }
     if collections.is_empty() {
         if !problems.is_empty() {
@@ -315,7 +311,6 @@ fn local_track(uri: &str) -> Option<Track> {
     track("", title, artist, seconds.parse().unwrap_or(0))
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -378,7 +373,10 @@ mod tests {
         let run = &collections[1].tracks;
         assert_eq!(run.len(), 2);
         assert_eq!(run[0].id, "4fakeSpotifyId");
-        assert_eq!((run[1].title.as_str(), run[1].artist.as_str(), run[1].duration_secs), ("Segundo premio", "Los Planetas", 245));
+        assert_eq!(
+            (run[1].title.as_str(), run[1].artist.as_str(), run[1].duration_secs),
+            ("Segundo premio", "Los Planetas", 245)
+        );
         assert!(run[1].id.starts_with("local:"));
         fs::remove_dir_all(&dir).unwrap();
     }
@@ -410,8 +408,14 @@ mod tests {
         let mut zip = zip::ZipWriter::new(fs::File::create(&path).unwrap());
         let options = zip::write::SimpleFileOptions::default();
         for (name, data) in [
-            ("liked.csv", "\"Track URI\",\"Track Name\",\"Artist Name(s)\",\"Track Duration (ms)\"\n\"spotify:track:2saoko\",\"Saoko\",\"ROSALÍA\",\"137875\"\n"),
-            ("para_correr.csv", "\"Track URI\",\"Track Name\",\"Artist Name(s)\"\n\"spotify:track:x\",\"Dai Dai\",\"Shakira\"\n"),
+            (
+                "liked.csv",
+                "\"Track URI\",\"Track Name\",\"Artist Name(s)\",\"Track Duration (ms)\"\n\"spotify:track:2saoko\",\"Saoko\",\"ROSALÍA\",\"137875\"\n",
+            ),
+            (
+                "para_correr.csv",
+                "\"Track URI\",\"Track Name\",\"Artist Name(s)\"\n\"spotify:track:x\",\"Dai Dai\",\"Shakira\"\n",
+            ),
             ("saved_albums.csv", "\"Album URI\",\"Album Name\"\n\"spotify:album:1\",\"RAM\"\n"),
         ] {
             zip.start_file(name, options).unwrap();

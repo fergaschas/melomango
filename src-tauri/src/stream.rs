@@ -13,9 +13,9 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use anyhow::{anyhow, bail, Context};
+use anyhow::{Context, anyhow, bail};
 use percent_encoding::percent_decode_str;
-use tauri::http::{header, Request, Response};
+use tauri::http::{Request, Response, header};
 use tokio::sync::{OnceCell, Semaphore};
 
 use crate::{
@@ -166,20 +166,13 @@ async fn serve(
     downloads: &Downloads,
     request: &Request<Vec<u8>>,
 ) -> anyhow::Result<Response<Vec<u8>>> {
-    let path = percent_decode_str(request.uri().path().trim_start_matches('/'))
-        .decode_utf8()
-        .context("ruta no válida")?;
-    let (source_id, track_id) = path
-        .split_once('/')
-        .ok_or_else(|| anyhow!("se esperaba <fuente>/<id>, llegó {path}"))?;
+    let path =
+        percent_decode_str(request.uri().path().trim_start_matches('/')).decode_utf8().context("ruta no válida")?;
+    let (source_id, track_id) =
+        path.split_once('/').ok_or_else(|| anyhow!("se esperaba <fuente>/<id>, llegó {path}"))?;
     let open = || open(registry, library, http, source_id, track_id);
 
-    let requested = capped_range(
-        request
-            .headers()
-            .get(header::RANGE)
-            .and_then(|v| v.to_str().ok()),
-    );
+    let requested = capped_range(request.headers().get(header::RANGE).and_then(|v| v.to_str().ok()));
 
     // Downloaded: straight from disk, no connection needed.
     let local = downloads.local(library, source_id, track_id);
@@ -195,10 +188,7 @@ async fn serve(
     let key = format!("{source_id}/{track_id}");
     let slot = cache.slot(&key);
     let was_cached = slot.initialized();
-    let info = slot
-        .get_or_try_init(open)
-        .await?
-        .clone();
+    let info = slot.get_or_try_init(open).await?.clone();
     let mut upstream = fetch(http, &info, &range).await?;
 
     // Signed URLs expire: if a cached one is refused, resolve again from the source. Other
@@ -221,9 +211,7 @@ async fn serve(
         }
     }
     let body = upstream.bytes().await?.to_vec();
-    Ok(response
-        .header(header::CONTENT_LENGTH, body.len())
-        .body(body)?)
+    Ok(response.header(header::CONTENT_LENGTH, body.len()).body(body)?)
 }
 
 /// The CORS check the WebView makes before a `fetch` with a Range header (the player does
@@ -289,11 +277,7 @@ pub(crate) async fn open(
 
 /// Asks the source for the stream and follows redirects once, so later chunks go
 /// straight to the final server.
-async fn resolve(
-    http: &reqwest::Client,
-    source: &dyn MusicSource,
-    track_id: &str,
-) -> anyhow::Result<StreamInfo> {
+async fn resolve(http: &reqwest::Client, source: &dyn MusicSource, track_id: &str) -> anyhow::Result<StreamInfo> {
     let mut info = source.stream(track_id).await?;
     // Some servers (YouTube) answer 403 for the first moments after issuing a URL.
     let mut attempt = 0;
@@ -434,11 +418,9 @@ mod tests {
         let plugins_dir = std::env::temp_dir().join(format!("melomango-e2e-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&plugins_dir);
 
-        let listing = catalog::browse(&http, &[catalog::RegistryInfo {
-            url: catalog::OFFICIAL_INDEX.into(),
-            official: true,
-        }])
-        .await;
+        let listing =
+            catalog::browse(&http, &[catalog::RegistryInfo { url: catalog::OFFICIAL_INDEX.into(), official: true }])
+                .await;
         assert!(listing.errors.is_empty(), "{:?}", listing.errors);
         assert!(listing.plugins.iter().any(|p| p.id == "youtube" && p.available));
         catalog::install(&http, catalog::OFFICIAL_INDEX, "youtube", &plugins_dir, &plugins_dir.join("data"), false)

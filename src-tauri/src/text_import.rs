@@ -3,8 +3,8 @@
 //! The songs are metadata only (source "lista"): when played, the matcher finds each one
 //! in the playable sources, like songs imported from Spotify.
 
-use crate::text::fingerprint;
 use crate::models::Track;
+use crate::text::fingerprint;
 
 /// Source id of songs from a pasted list.
 pub const SOURCE: &str = "lista";
@@ -91,7 +91,6 @@ fn split_song(line: &str) -> (&str, &str) {
 fn clean(s: &str) -> String {
     s.trim().trim_matches(['"', '«', '»', '“', '”']).trim().to_string()
 }
-
 
 #[cfg(test)]
 mod tests {

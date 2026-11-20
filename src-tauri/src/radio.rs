@@ -10,8 +10,8 @@ use crate::{
     library::Library,
     matcher,
     models::Track,
-    text::{main_artist, trim_featuring},
     sources::Registry,
+    text::{main_artist, trim_featuring},
 };
 
 /// Songs added to the queue each time the radio fills it.

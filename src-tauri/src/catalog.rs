@@ -13,14 +13,13 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use anyhow::{anyhow, bail, Context};
+use anyhow::{Context, anyhow, bail};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::sources::plugin;
 
-pub const OFFICIAL_INDEX: &str =
-    "https://raw.githubusercontent.com/fergaschas/melomango-plugins/main/index.json";
+pub const OFFICIAL_INDEX: &str = "https://raw.githubusercontent.com/fergaschas/melomango-plugins/main/index.json";
 const INDEX_VERSION: u32 = 1;
 const MAX_DOWNLOAD_BYTES: usize = 200 * 1024 * 1024;
 /// An index lists plugins: even a big one is a few hundred KB.
@@ -316,11 +315,7 @@ fn plugin_root(dir: &Path) -> anyhow::Result<PathBuf> {
     if dir.join("plugin.json").is_file() {
         return Ok(dir.to_path_buf());
     }
-    let subdirs: Vec<PathBuf> = fs::read_dir(dir)?
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| p.is_dir())
-        .collect();
+    let subdirs: Vec<PathBuf> = fs::read_dir(dir)?.flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect();
     match subdirs.as_slice() {
         [only] if only.join("plugin.json").is_file() => Ok(only.clone()),
         _ => bail!("el paquete no contiene plugin.json"),

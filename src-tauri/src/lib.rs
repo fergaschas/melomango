@@ -8,14 +8,14 @@ mod links;
 mod lyrics;
 mod matcher;
 mod mini;
-mod radio;
 mod models;
+mod radio;
 mod sources;
-mod text;
-mod text_import;
 mod spotify_export;
 mod startup;
 mod stream;
+mod text;
+mod text_import;
 mod tray;
 
 use std::{
@@ -27,14 +27,14 @@ use tauri::{Emitter, Manager, State};
 use tauri_plugin_opener::OpenerExt;
 
 use artists::{AlbumPage, ArtistPage, ArtistService, CatalogSearch, PlaylistPage, Suggestions};
-use catalog::{Catalog, RegistryInfo, Registries};
+use catalog::{Catalog, Registries, RegistryInfo};
 use library::{Download, Library, MonthSummary, Play, Playlist, PlaylistSummary, StoredKind};
-use serde::Serialize;
 use lyrics::{Lyrics, LyricsService};
 use models::{SourceInfo, Track};
+use serde::Serialize;
 use sources::{
-    plugin::{self, Collection, LibraryStatus, PluginSource, Requirement},
     MusicSource, Registry,
+    plugin::{self, Collection, LibraryStatus, PluginSource, Requirement},
 };
 use stream::StreamCache;
 
@@ -63,15 +63,10 @@ impl AppState {
     }
 
     fn reload(&self) {
-        let plugins: Vec<Arc<PluginSource>> = plugin::discover(&self.plugins_dir, &self.plugin_data_dir)
-            .into_iter()
-            .map(Arc::new)
-            .collect();
-        let sources: Vec<Arc<dyn MusicSource>> = plugins
-            .iter()
-            .filter(|p| p.is_source())
-            .map(|p| p.clone() as Arc<dyn MusicSource>)
-            .collect();
+        let plugins: Vec<Arc<PluginSource>> =
+            plugin::discover(&self.plugins_dir, &self.plugin_data_dir).into_iter().map(Arc::new).collect();
+        let sources: Vec<Arc<dyn MusicSource>> =
+            plugins.iter().filter(|p| p.is_source()).map(|p| p.clone() as Arc<dyn MusicSource>).collect();
         *self.registry.write().unwrap() = Arc::new(Registry::new(sources));
         *self.plugins.write().unwrap() = plugins;
     }
@@ -259,9 +254,7 @@ async fn remove_registry(app: tauri::AppHandle, url: String) -> Result<Vec<Regis
 
 #[tauri::command]
 fn open_plugins_dir(app: tauri::AppHandle, state: State<'_, AppState>) -> Result<(), String> {
-    app.opener()
-        .open_path(state.plugins_dir.to_string_lossy(), None::<&str>)
-        .map_err(|e| e.to_string())
+    app.opener().open_path(state.plugins_dir.to_string_lossy(), None::<&str>).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -485,11 +478,8 @@ async fn import_text(app: tauri::AppHandle, name: String, text: String) -> Resul
 async fn import_spotify_export(app: tauri::AppHandle, paths: Vec<String>) -> Result<ImportedExport, String> {
     blocking(app, move |state| {
         let export = spotify_export::read(&paths).map_err(err)?;
-        let playlists: Vec<(&str, &str, &[Track])> = export
-            .collections
-            .iter()
-            .map(|c| (c.remote_id.as_str(), c.name.as_str(), c.tracks.as_slice()))
-            .collect();
+        let playlists: Vec<(&str, &str, &[Track])> =
+            export.collections.iter().map(|c| (c.remote_id.as_str(), c.name.as_str(), c.tracks.as_slice())).collect();
         let playlists = state.library.import_many(spotify_export::ORIGIN, &playlists).map_err(err)?;
         Ok(ImportedExport { playlists, problems: export.problems })
     })
@@ -599,9 +589,7 @@ async fn album_page(app: tauri::AppHandle, id: String) -> Result<AlbumPage, Stri
 async fn radio_tracks(state: State<'_, AppState>, track: Track, exclude: Vec<String>) -> Result<Vec<Track>, String> {
     let registry = state.registry();
     let exclude = exclude.into_iter().collect();
-    radio::tracks(&registry, &state.library, &state.http, &track, &exclude)
-        .await
-        .map_err(|e| format!("{e:#}"))
+    radio::tracks(&registry, &state.library, &state.http, &track, &exclude).await.map_err(|e| format!("{e:#}"))
 }
 
 /// Records that the user listened to `track` (called once it has played a while).

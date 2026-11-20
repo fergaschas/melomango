@@ -14,8 +14,8 @@ use crate::{
     library::Library,
     lyrics,
     models::Track,
-    text::trim_featuring,
     sources::{MusicSource, Registry},
+    text::trim_featuring,
 };
 
 /// Preferred sources to play imported tracks from, best first. Any other installed
@@ -23,8 +23,21 @@ use crate::{
 const PREFERRED: &[&str] = &["youtube"];
 /// Words that mark another version of the song (unless the original title has them too).
 const OTHER_VERSIONS: &[&str] = &[
-    "live", "directo", "vivo", "cover", "karaoke", "instrumental", "remix", "sped", "slowed",
-    "reverb", "8d", "nightcore", "acoustic", "acustico", "acústico",
+    "live",
+    "directo",
+    "vivo",
+    "cover",
+    "karaoke",
+    "instrumental",
+    "remix",
+    "sped",
+    "slowed",
+    "reverb",
+    "8d",
+    "nightcore",
+    "acoustic",
+    "acustico",
+    "acústico",
 ];
 /// Below this score a candidate is probably another song.
 const MIN_SCORE: f64 = 0.45;
@@ -60,9 +73,7 @@ pub async fn options(
     track_id: &str,
     query: Option<String>,
 ) -> anyhow::Result<MatchOptions> {
-    let track = library
-        .track(source_id, track_id)?
-        .ok_or_else(|| anyhow!("esta canción no está en tu biblioteca"))?;
+    let track = library.track(source_id, track_id)?.ok_or_else(|| anyhow!("esta canción no está en tu biblioteca"))?;
     let custom = query.map(|q| q.trim().to_string()).filter(|q| !q.is_empty());
     let query = custom.clone().unwrap_or_else(|| default_query(&track));
 
@@ -85,9 +96,7 @@ pub async fn options(
     }
     candidates.truncate(MAX_OPTIONS);
 
-    let current = library
-        .track_match(source_id, track_id)?
-        .map(|(source, id)| MatchRef { source, id });
+    let current = library.track_match(source_id, track_id)?.map(|(source, id)| MatchRef { source, id });
     Ok(MatchOptions { track, query, current, candidates })
 }
 
@@ -107,9 +116,7 @@ pub async fn resolve(
         return Ok((source, track_id.to_string()));
     }
 
-    let track = library
-        .track(source_id, track_id)?
-        .ok_or_else(|| anyhow!("fuente desconocida: {source_id}"))?;
+    let track = library.track(source_id, track_id)?.ok_or_else(|| anyhow!("fuente desconocida: {source_id}"))?;
 
     if let Some((play_source, play_id)) = library.track_match(source_id, track_id)? {
         if let Ok(source) = registry.get(&play_source) {
@@ -183,7 +190,8 @@ fn score(wanted: &Track, durations: &[u32], candidate: &Track) -> f64 {
 
     // The main artist appears in the candidate's artist or title.
     let artist_words = words(main_artist(&wanted.artist));
-    let artist = if !artist_words.is_empty() && artist_words.iter().all(|w| candidate_text.contains(w)) { 1.0 } else { 0.0 };
+    let artist =
+        if !artist_words.is_empty() && artist_words.iter().all(|w| candidate_text.contains(w)) { 1.0 } else { 0.0 };
 
     // Duration: same length ≈ 1, a minute off ≈ 0 (videos often have a few extra seconds),
     // against the closest known version. None known: judge by title and artist alone.
@@ -194,9 +202,8 @@ fn score(wanted: &Track, durations: &[u32], candidate: &Track) -> f64 {
 
     // Penalise live versions, covers, remixes... unless the original is one too.
     let wanted_all = words(&wanted.title);
-    let other_version = OTHER_VERSIONS
-        .iter()
-        .any(|w| candidate_text.iter().any(|c| c == w) && !wanted_all.iter().any(|t| t == w));
+    let other_version =
+        OTHER_VERSIONS.iter().any(|w| candidate_text.iter().any(|c| c == w) && !wanted_all.iter().any(|t| t == w));
 
     let mut s = match duration {
         Some(duration) => 0.5 * title + 0.25 * artist + 0.25 * duration,
@@ -216,10 +223,7 @@ fn score(wanted: &Track, durations: &[u32], candidate: &Track) -> f64 {
 
 /// Lowercase alphanumeric words, accents removed.
 fn words(text: &str) -> Vec<String> {
-    let folded: String = crate::text::fold(text)
-        .chars()
-        .map(|c| if c.is_alphanumeric() { c } else { ' ' })
-        .collect();
+    let folded: String = crate::text::fold(text).chars().map(|c| if c.is_alphanumeric() { c } else { ' ' }).collect();
     folded.split_whitespace().map(str::to_string).collect()
 }
 
@@ -334,7 +338,9 @@ mod tests {
         ];
         let registry = Registry::new(vec![Arc::new(FakeSource(results))]);
         let library = Library::in_memory();
-        library.import_playlist("spotify", "liked", "Me gusta", &[t("spotify", "1", "Shakira, Burna Boy", "Dai Dai", 223)]).unwrap();
+        library
+            .import_playlist("spotify", "liked", "Me gusta", &[t("spotify", "1", "Shakira, Burna Boy", "Dai Dai", 223)])
+            .unwrap();
         library.set_track_match("spotify", "1", "youtube", "live").unwrap();
 
         let options = options(&registry, &library, "spotify", "1", None).await.unwrap();

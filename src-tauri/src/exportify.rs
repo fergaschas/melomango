@@ -5,38 +5,109 @@
 //!
 //! Unlike Spotify's own data export, these include durations and album covers.
 
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 
 use crate::{models::Track, spotify_export::track};
 
 /// Column titles in Exportify's languages (from its translation files) plus common
 /// ones from other tools, compared lowercased.
 const TRACK_URI: &[&str] = &[
-    "track uri", "track-uri", "låtens uri", "nummer uri", "parça uri", "uri da faixa", "uri de la canción",
-    "uri della traccia", "uri du titre", "uri κομματιού", "رابط الأغنية (uri)", "トラックuri", "曲目 uri", "歌 link",
-    "spotify uri", "uri", "spotify - id",
+    "track uri",
+    "track-uri",
+    "låtens uri",
+    "nummer uri",
+    "parça uri",
+    "uri da faixa",
+    "uri de la canción",
+    "uri della traccia",
+    "uri du titre",
+    "uri κομματιού",
+    "رابط الأغنية (uri)",
+    "トラックuri",
+    "曲目 uri",
+    "歌 link",
+    "spotify uri",
+    "uri",
+    "spotify - id",
 ];
 const TRACK_NAME: &[&str] = &[
-    "track name", "track-name", "låtens namn", "nom du titre", "nombre de la canción", "nome da faixa",
-    "nome della traccia", "nummernaam", "parça adı", "όνομα κομματιού", "اسم الأغنية", "トラック名", "曲目名称",
-    "曲目名稱", "歌名", "title", "song", "song name", "track", "name",
+    "track name",
+    "track-name",
+    "låtens namn",
+    "nom du titre",
+    "nombre de la canción",
+    "nome da faixa",
+    "nome della traccia",
+    "nummernaam",
+    "parça adı",
+    "όνομα κομματιού",
+    "اسم الأغنية",
+    "トラック名",
+    "曲目名称",
+    "曲目名稱",
+    "歌名",
+    "title",
+    "song",
+    "song name",
+    "track",
+    "name",
 ];
 const ARTIST_NAMES: &[&str] = &[
-    "artist name(s)", "artist 名", "artistens namn", "künstlername(n)", "naam van artiest", "nom(s) de l'artiste",
-    "nombre(s) del artista", "nome dell'artista", "nome(s) do artista", "sanatçı adı", "όνομα/τα καλλιτέχνη",
-    "أسماء الفنانين", "アーティスト名", "艺人名称", "藝人名稱", "artist name", "artist", "artists", "artist(s)",
+    "artist name(s)",
+    "artist 名",
+    "artistens namn",
+    "künstlername(n)",
+    "naam van artiest",
+    "nom(s) de l'artiste",
+    "nombre(s) del artista",
+    "nome dell'artista",
+    "nome(s) do artista",
+    "sanatçı adı",
+    "όνομα/τα καλλιτέχνη",
+    "أسماء الفنانين",
+    "アーティスト名",
+    "艺人名称",
+    "藝人名稱",
+    "artist name",
+    "artist",
+    "artists",
+    "artist(s)",
 ];
 const DURATION_MS: &[&str] = &[
-    "track duration (ms)", "track-dauer (ms)", "duración de la canción (ms)", "durata della traccia (ms)",
-    "duração da faixa (ms)", "durée du titre (ms)", "låtlängd (ms)", "nummerduur (ms)", "parça süresi (ms)",
-    "διάρκεια κομματιού (ms)", "مدة الأغنية (بالمللي ثانية)", "トラックの長さ（ミリ秒）", "曲目时长（毫秒）",
-    "曲目時長（毫秒）", "曲目長度（毫秒）", "duration (ms)", "duration_ms",
+    "track duration (ms)",
+    "track-dauer (ms)",
+    "duración de la canción (ms)",
+    "durata della traccia (ms)",
+    "duração da faixa (ms)",
+    "durée du titre (ms)",
+    "låtlängd (ms)",
+    "nummerduur (ms)",
+    "parça süresi (ms)",
+    "διάρκεια κομματιού (ms)",
+    "مدة الأغنية (بالمللي ثانية)",
+    "トラックの長さ（ミリ秒）",
+    "曲目时长（毫秒）",
+    "曲目時長（毫秒）",
+    "曲目長度（毫秒）",
+    "duration (ms)",
+    "duration_ms",
 ];
 const IMAGE_URL: &[&str] = &[
-    "album image url", "album afbeelding-url", "album-bild-url", "albumets bild-url", "albüm resim url'si",
-    "url da imagem do álbum", "url de l'image de l'album", "url de la imagen del álbum",
-    "url dell'immagine dell'album", "url εικόνας άλμπουμ", "رابط صورة الألبوم", "アルバム画像url", "专辑封面 url",
-    "專輯封面 url", "專輯封面條 link",
+    "album image url",
+    "album afbeelding-url",
+    "album-bild-url",
+    "albumets bild-url",
+    "albüm resim url'si",
+    "url da imagem do álbum",
+    "url de l'image de l'album",
+    "url de la imagen del álbum",
+    "url dell'immagine dell'album",
+    "url εικόνας άλμπουμ",
+    "رابط صورة الألبوم",
+    "アルバム画像url",
+    "专辑封面 url",
+    "專輯封面 url",
+    "專輯封面條 link",
 ];
 const PLAYLIST_NAME: &[&str] = &["playlist name", "playlist", "nombre de la playlist"];
 
@@ -53,24 +124,21 @@ pub fn read(file_name: &str, data: &[u8]) -> anyhow::Result<Content> {
     let stem = file_stem(file_name);
     let text = decode(data);
     let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
-    let mut reader = csv::ReaderBuilder::new()
-        .flexible(true)
-        .delimiter(delimiter(text))
-        .from_reader(text.as_bytes());
+    let mut reader = csv::ReaderBuilder::new().flexible(true).delimiter(delimiter(text)).from_reader(text.as_bytes());
     let headers: Vec<String> = reader
         .headers()
         .with_context(|| format!("{file_name} no es un CSV válido"))?
         .iter()
         .map(|h| h.trim().to_lowercase())
         .collect();
-    let rows: Vec<csv::StringRecord> = reader
-        .records()
-        .collect::<Result<_, _>>()
-        .with_context(|| format!("{file_name} no es un CSV válido"))?;
+    let rows: Vec<csv::StringRecord> =
+        reader.records().collect::<Result<_, _>>().with_context(|| format!("{file_name} no es un CSV válido"))?;
 
     let column = |aliases: &[&str]| aliases.iter().find_map(|a| headers.iter().position(|h| h == a));
     let (Some(name), Some(artist)) = (column(TRACK_NAME), column(ARTIST_NAMES)) else {
-        if stem.eq_ignore_ascii_case("saved_albums") || headers.iter().any(|h| h.contains("album") && !h.contains("track")) {
+        if stem.eq_ignore_ascii_case("saved_albums")
+            || headers.iter().any(|h| h.contains("album") && !h.contains("track"))
+        {
             return Ok(Content::Ignored);
         }
         bail!("no reconozco las columnas de {file_name}: necesita al menos el título y el artista de cada canción");
@@ -118,8 +186,8 @@ fn decode(data: &[u8]) -> std::borrow::Cow<'_, str> {
     }
     /// 0x80..=0x9F in Windows-1252 (the rest of the bytes are the same as Latin-1).
     const HIGH: [char; 32] = [
-        '€', '\u{81}', '‚', 'ƒ', '„', '…', '†', '‡', 'ˆ', '‰', 'Š', '‹', 'Œ', '\u{8d}', 'Ž', '\u{8f}',
-        '\u{90}', '‘', '’', '“', '”', '•', '–', '—', '˜', '™', 'š', '›', 'œ', '\u{9d}', 'ž', 'Ÿ',
+        '€', '\u{81}', '‚', 'ƒ', '„', '…', '†', '‡', 'ˆ', '‰', 'Š', '‹', 'Œ', '\u{8d}', 'Ž', '\u{8f}', '\u{90}', '‘',
+        '’', '“', '”', '•', '–', '—', '˜', '™', 'š', '›', 'œ', '\u{9d}', 'ž', 'Ÿ',
     ];
     data.iter()
         .map(|&b| if (0x80..0xa0).contains(&b) { HIGH[(b - 0x80) as usize] } else { b as char })
@@ -205,7 +273,10 @@ mod tests {
             \"spotify:track:9\",\"Copenhague\",\"Vetusta Morla\",\"304000\"\n";
         let lists = playlists(read("indie.csv", es.as_bytes()).unwrap());
         let t = &lists[0].1[0];
-        assert_eq!((t.id.as_str(), t.title.as_str(), t.artist.as_str(), t.duration_secs), ("9", "Copenhague", "Vetusta Morla", 304));
+        assert_eq!(
+            (t.id.as_str(), t.title.as_str(), t.artist.as_str(), t.duration_secs),
+            ("9", "Copenhague", "Vetusta Morla", 304)
+        );
     }
 
     #[test]
@@ -229,15 +300,15 @@ mod tests {
     fn reads_a_csv_saved_by_spanish_excel() {
         // Excel with Spanish settings: «;» between columns, and Windows-1252 instead of UTF-8.
         let text = "Track URI;Track Name;Artist Name(s)\r\nspotify:track:1;Canción del Mariachi;Los Lobos, Antonio Banderas\r\nspotify:track:2;Pájaros de barro;Manolo García\r\n";
-        let cp1252: Vec<u8> = text
-            .chars()
-            .map(|c| u8::try_from(u32::from(c)).expect("Latin-1 text"))
-            .collect();
+        let cp1252: Vec<u8> = text.chars().map(|c| u8::try_from(u32::from(c)).expect("Latin-1 text")).collect();
         assert!(std::str::from_utf8(&cp1252).is_err(), "really not UTF-8");
         let lists = playlists(read("para_la_carretera.csv", &cp1252).unwrap());
         let tracks = &lists[0].1;
         assert_eq!(tracks.len(), 2);
-        assert_eq!((tracks[0].title.as_str(), tracks[0].artist.as_str()), ("Canción del Mariachi", "Los Lobos, Antonio Banderas"));
+        assert_eq!(
+            (tracks[0].title.as_str(), tracks[0].artist.as_str()),
+            ("Canción del Mariachi", "Los Lobos, Antonio Banderas")
+        );
         assert_eq!(tracks[1].title, "Pájaros de barro");
     }
 
