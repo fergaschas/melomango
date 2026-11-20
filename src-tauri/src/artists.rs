@@ -100,6 +100,14 @@ pub struct PlaylistPage {
     pub duration_secs: u32,
 }
 
+/// Quick suggestions while typing in the search box.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Suggestions {
+    pub artists: Vec<ArtistRef>,
+    pub tracks: Vec<Track>,
+}
+
 /// Artists, albums and playlists matching a search.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -114,11 +122,18 @@ pub struct ArtistService {
     artists: Mutex<HashMap<String, ArtistPage>>,
     albums: Mutex<HashMap<String, AlbumPage>>,
     playlists: Mutex<HashMap<String, PlaylistPage>>,
+    suggestions: Mutex<HashMap<String, Suggestions>>,
 }
 
 impl ArtistService {
     pub fn new(http: reqwest::Client) -> Self {
-        Self { http, artists: Mutex::default(), albums: Mutex::default(), playlists: Mutex::default() }
+        Self {
+            http,
+            artists: Mutex::default(),
+            albums: Mutex::default(),
+            playlists: Mutex::default(),
+            suggestions: Mutex::default(),
+        }
     }
 
     /// The page of the artist with Deezer id `id`, or else the best match for `name`.
@@ -234,6 +249,34 @@ impl ArtistService {
             albums: albums.map(|p| p.data).unwrap_or_default().into_iter().map(RawAlbumHit::into_hit).collect(),
             playlists: playlists.map(|p| p.data).unwrap_or_default().into_iter().map(RawPlaylist::into_public).collect(),
         })
+    }
+
+    /// A few artists and songs for what is being typed (cached: typing back and forth is free).
+    pub async fn suggest(&self, query: &str) -> anyhow::Result<Suggestions> {
+        let query = query.trim();
+        let key = format!("suggest:{}", query.to_lowercase());
+        if let Some(found) = self.suggestions.lock().unwrap().get(&key) {
+            return Ok(found.clone());
+        }
+        let artist_params = [("q", query), ("limit", "3")];
+        let track_params = [("q", query), ("limit", "5")];
+        let (artists, tracks) = tokio::join!(
+            self.get_query::<Page<RawArtist>>("/search/artist", &artist_params),
+            self.get_query::<Page<RawTrack>>("/search/track", &track_params),
+        );
+        if let (Err(e), Err(_)) = (&artists, &tracks) {
+            bail!("{e:#}");
+        }
+        let found = Suggestions {
+            artists: artists.map(|p| p.data).unwrap_or_default().into_iter().map(RawArtist::into_ref).collect(),
+            tracks: tracks.map(|p| p.data).unwrap_or_default().into_iter().map(|t| t.into_track(None)).collect(),
+        };
+        let mut cache = self.suggestions.lock().unwrap();
+        if cache.len() >= 500 {
+            cache.clear();
+        }
+        cache.insert(key, found.clone());
+        Ok(found)
     }
 
     /// A public playlist and its songs. `fresh` skips the cache (when syncing a saved copy).
@@ -571,5 +614,9 @@ mod tests {
         assert!(!found.playlists.is_empty());
         let playlist = service.playlist(&found.playlists[0].id, false).await.unwrap();
         assert!(!playlist.tracks.is_empty());
+
+        let hints = service.suggest("vetusta mo").await.unwrap();
+        assert_eq!(hints.artists[0].name, "Vetusta Morla");
+        assert!(!hints.tracks.is_empty());
     }
 }

@@ -22,7 +22,7 @@ use std::{
 use tauri::{Manager, State};
 use tauri_plugin_opener::OpenerExt;
 
-use artists::{AlbumPage, ArtistPage, ArtistService, CatalogSearch, PlaylistPage};
+use artists::{AlbumPage, ArtistPage, ArtistService, CatalogSearch, PlaylistPage, Suggestions};
 use catalog::{Catalog, RegistryInfo, Registries};
 use library::{Library, MonthSummary, Play, Playlist, PlaylistSummary};
 use serde::Serialize;
@@ -483,6 +483,18 @@ async fn catalog_search(state: State<'_, AppState>, query: String) -> Result<Cat
     state.artists.search(&query).await.map_err(|e| format!("{e:#}"))
 }
 
+/// Artists and songs to suggest while typing a search (from Deezer).
+#[tauri::command]
+async fn search_suggestions(state: State<'_, AppState>, query: String) -> Result<Suggestions, String> {
+    if query.trim().chars().count() < 2 {
+        return Ok(Suggestions { artists: Vec::new(), tracks: Vec::new() });
+    }
+    let found = state.artists.suggest(&query).await.map_err(|e| format!("{e:#}"))?;
+    // Suggested songs can be played straight away (matched to YouTube).
+    state.library.remember_tracks(&found.tracks).map_err(err)?;
+    Ok(found)
+}
+
 /// A public Deezer playlist with its songs.
 #[tauri::command]
 async fn deezer_playlist(state: State<'_, AppState>, id: String) -> Result<PlaylistPage, String> {
@@ -690,6 +702,7 @@ pub fn run() {
             artist_page,
             album_page,
             catalog_search,
+            search_suggestions,
             deezer_playlist,
             save_deezer_playlist,
             discord_set,

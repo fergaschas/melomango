@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DEFAULT_SOURCE, listPlugins, listSources, searchTracks, trackKey, trendingTracks, type SourceInfo, type Track } from "./lib/api";
 import { MatchFixContext, type MatchFix } from "./lib/matchFix";
 import { useLibrary } from "./lib/library";
@@ -26,9 +26,11 @@ import { HomeView } from "./components/HomeView";
 import { AlbumView, ArtistView, PublicPlaylistView } from "./components/CatalogViews";
 import { SearchResults, type SearchFilter } from "./components/SearchResults";
 import { ErrorNotice } from "./components/ErrorNotice";
+import { SearchBox } from "./components/SearchBox";
+import { addRecent, loadRecent, saveRecent } from "./lib/recentSearches";
 import { NavContext, type Nav } from "./lib/nav";
 import { LyricsPanel } from "./components/LyricsPanel";
-import { BackIcon, PuzzleIcon, SearchIcon } from "./components/Icons";
+import { BackIcon, PuzzleIcon } from "./components/Icons";
 import logo from "../app-icon.svg";
 import "./App.css";
 
@@ -210,9 +212,9 @@ export default function App() {
     }
   }, [sourceId]);
 
-  function onSearch(e: FormEvent) {
-    e.preventDefault();
-    const q = query.trim();
+  function runSearch(text: string) {
+    const q = text.trim();
+    if (q) saveRecent(addRecent(loadRecent(), q));
     setView(q ? { kind: "search", query: q } : { kind: "home" });
   }
 
@@ -239,18 +241,15 @@ export default function App() {
             >
               <BackIcon size={20} />
             </button>
-            <form className="search" onSubmit={onSearch}>
-              <SearchIcon size={18} />
-              <input
-                ref={searchRef}
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder={`Busca en ${source?.name ?? "…"}…`}
-                aria-label="Buscar"
-                title="Buscar (Ctrl+F)"
-                onKeyDown={(e) => e.key === "Escape" && e.currentTarget.blur()}
-              />
-            </form>
+            <SearchBox
+            value={query}
+            onChange={setQuery}
+            onSearch={runSearch}
+            onOpenArtist={nav.openArtist}
+            onPlayTrack={(track) => player.playQueue([track], 0)}
+            placeholder={`Busca en ${source?.name ?? "…"}…`}
+            inputRef={searchRef}
+          />
             <div className="source-tabs" role="tablist" aria-label="Fuente de música">
               {sources.map((s) => (
                 <button

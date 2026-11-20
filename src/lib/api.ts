@@ -232,6 +232,14 @@ export interface CatalogSearch {
 /** Plugin id of saved Deezer playlists (synced from Deezer). */
 export const DEEZER_ORIGIN = "deezer";
 
+export interface Suggestions {
+  artists: ArtistRef[];
+  tracks: Track[];
+}
+
+/** Artists and songs to suggest while typing a search. */
+export const searchSuggestions = (query: string) => invoke<Suggestions>("search_suggestions", { query });
+
 export const catalogSearch = (query: string) => invoke<CatalogSearch>("catalog_search", { query });
 export const deezerPlaylist = (id: string) => invoke<PublicPlaylistPage>("deezer_playlist", { id });
 export const saveDeezerPlaylist = (id: string) => invoke<PlaylistSummary>("save_deezer_playlist", { id });
