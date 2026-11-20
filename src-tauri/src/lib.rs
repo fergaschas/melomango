@@ -1,5 +1,6 @@
 mod artists;
 mod catalog;
+mod discord;
 mod exportify;
 mod library;
 mod lyrics;
@@ -43,6 +44,7 @@ struct AppState {
     library: Library,
     lyrics: LyricsService,
     artists: ArtistService,
+    discord: discord::Presence,
     http: reqwest::Client,
     streams: StreamCache,
 }
@@ -363,6 +365,17 @@ fn import_spotify_export(state: State<'_, AppState>, paths: Vec<String>) -> Resu
         .collect()
 }
 
+/// Shows what is playing in Discord ("Escuchando Melomango"), or clears it with `null`.
+#[tauri::command]
+fn discord_set(state: State<'_, AppState>, now: Option<discord::NowPlaying>) {
+    state.discord.set(now);
+}
+
+#[tauri::command]
+fn discord_status(state: State<'_, AppState>) -> discord::Status {
+    state.discord.status()
+}
+
 /// An artist's page (popular songs, releases, similar artists), by Deezer id or by name.
 #[tauri::command]
 async fn artist_page(state: State<'_, AppState>, name: String, id: Option<String>) -> Result<ArtistPage, String> {
@@ -458,6 +471,8 @@ pub fn run() {
             let http = reqwest::Client::builder()
                 .user_agent(concat!("Melomango/", env!("CARGO_PKG_VERSION")))
                 .build()?;
+            let (discord, discord_task) = discord::Presence::new(discord::APPLICATION_ID);
+            tauri::async_runtime::spawn(discord_task);
             let state = AppState {
                 registry: Default::default(),
                 plugins: Default::default(),
@@ -468,6 +483,7 @@ pub fn run() {
                 library: Library::open(&data_dir.join("library.db"))?,
                 lyrics: LyricsService::new(http.clone()),
                 artists: ArtistService::new(http.clone()),
+                discord,
                 http,
                 streams: StreamCache::default(),
             };
@@ -524,6 +540,8 @@ pub fn run() {
             radio_tracks,
             artist_page,
             album_page,
+            discord_set,
+            discord_status,
             recent_plays,
             clear_history,
             prefetch_stream

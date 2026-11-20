@@ -3,7 +3,7 @@ import { useLibrary } from "../lib/library";
 import type { View } from "../App";
 import type { Updater } from "../hooks/useUpdater";
 import { updateStatusText } from "./UpdateCard";
-import { ClockIcon, HomeIcon, ImportIcon, KeyboardIcon, PlusIcon } from "./Icons";
+import { ClockIcon, HomeIcon, ImportIcon, KeyboardIcon, PlusIcon, SettingsIcon } from "./Icons";
 import { PlaylistCover } from "./PlaylistCover";
 
 export function Sidebar({
@@ -12,12 +12,14 @@ export function Sidebar({
   updater,
   onImport,
   onShowShortcuts,
+  onShowSettings,
 }: {
   view: View;
   onNavigate: (v: View) => void;
   updater: Updater;
   onImport: () => void;
   onShowShortcuts: () => void;
+  onShowSettings: () => void;
 }) {
   const library = useLibrary();
   const [creating, setCreating] = useState(false);
@@ -119,6 +121,9 @@ export function Sidebar({
         {updateStatusText(updater) && <span className="update-status">{updateStatusText(updater)}</span>}
         <button className="link-btn shortcuts-link" onClick={onShowShortcuts} title="Atajos de teclado (?)">
           <KeyboardIcon size={14} /> Atajos de teclado
+        </button>
+        <button className="link-btn shortcuts-link" onClick={onShowSettings}>
+          <SettingsIcon size={14} /> Ajustes
         </button>
       </footer>
     </nav>

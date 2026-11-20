@@ -145,6 +145,23 @@ export interface Lyrics {
 
 export const getLyrics = (track: Track) => invoke<Lyrics>("get_lyrics", { track });
 
+// ---------- Discord ("Escuchando Melomango") ----------
+
+export interface NowPlaying {
+  title: string;
+  artist: string;
+  artworkUrl: string | null;
+  durationSecs: number;
+  positionSecs: number;
+}
+
+export type DiscordStatus =
+  | { state: "unavailable" | "idle" | "notRunning" | "connected" }
+  | { state: "error"; message: string };
+
+export const discordSet = (now: NowPlaying | null) => invoke<void>("discord_set", { now }).catch(() => {});
+export const discordStatus = () => invoke<DiscordStatus>("discord_status");
+
 // ---------- Artists and albums (data from Deezer) ----------
 
 export interface ArtistRef {

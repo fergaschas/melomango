@@ -1930,3 +1930,24 @@ kbd {
     height: 110px;
   }
 }
+
+/* ---------- Settings ---------- */
+.settings-row {
+  margin: 0;
+  background: var(--surface-soft);
+}
+
+.settings-status {
+  margin: 10px 2px 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.settings-status.connected {
+  color: #2f8f5b;
+  font-weight: 600;
+}
+
+.settings-status.error {
+  color: var(--accent-text);
+}

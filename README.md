@@ -23,6 +23,10 @@ radio** en el menú + de cualquier canción la empieza desde ahí.
 [Deezer](https://developers.deezer.com/api) (sin cuenta) y la música suena desde YouTube, como las canciones
 importadas de Spotify. **Atrás** (o Alt+←) vuelve a la página anterior.
 
+**Discord**: mientras suena algo, tu perfil muestra «Escuchando Melomango» con la canción, el artista, la portada y
+el tiempo. Melomango habla con la app de Discord de tu equipo (no envía nada por internet) y se puede desactivar en
+**Ajustes**, abajo en la barra lateral.
+
 **Historial** (en la barra lateral): lo que has escuchado, por días. Una canción cuenta tras sonar 30 segundos (o la
 mitad, si es más corta). Se guarda solo en tu equipo y se puede borrar.
 

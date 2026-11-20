@@ -48,6 +48,8 @@ export function usePlayer() {
   const [muted, setMuted] = useState(saved?.muted ?? false);
   const [autoRadio, setAutoRadio] = useState(saved?.autoRadio ?? true);
   const [radioLoading, setRadioLoading] = useState(false);
+  /** Bumped on every seek, for things that follow the position (Discord's progress bar). */
+  const [seekCount, setSeekCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   const queueRef = useRef(queue);
@@ -309,6 +311,7 @@ export function usePlayer() {
           }
         },
       ],
+      ["seeked", () => setSeekCount((n) => n + 1)],
       ["play", () => setIsPlaying(true)],
       ["pause", () => setIsPlaying(false)],
       ["ended", () => next(true)],
@@ -403,6 +406,7 @@ export function usePlayer() {
       (autoRadio && queue.repeat === "off" && queue.index >= 0),
     autoRadio,
     radioLoading,
+    seekCount,
     toggleAutoRadio,
     startRadio,
     playQueue,

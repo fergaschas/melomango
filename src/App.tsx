@@ -5,6 +5,8 @@ import { useLibrary } from "./lib/library";
 import { usePlayer, type Player } from "./hooks/usePlayer";
 import { useUpdater } from "./hooks/useUpdater";
 import { useShortcuts } from "./hooks/useShortcuts";
+import { useDiscordPresence, useDiscordSetting } from "./hooks/useDiscord";
+import { SettingsDialog } from "./components/SettingsDialog";
 import { setupRequirements } from "./lib/requirements";
 import { UpdateCard } from "./components/UpdateCard";
 import { TrackList } from "./components/TrackList";
@@ -129,6 +131,9 @@ export default function App() {
   }, [goBack]);
   const [panel, setPanel] = useState<SidePanel>(savedPanel);
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [discordEnabled, setDiscordEnabled] = useDiscordSetting();
+  useDiscordPresence(player, discordEnabled);
   const [fixing, setFixing] = useState<Track | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -256,6 +261,7 @@ export default function App() {
             updater={updater}
             onImport={() => setShowServices(true)}
             onShowShortcuts={() => setShowShortcuts(true)}
+          onShowSettings={() => setShowSettings(true)}
           />
 
           <main className="content" ref={contentRef}>
@@ -287,6 +293,14 @@ export default function App() {
           )}
 
           {showShortcuts && <ShortcutsDialog onClose={() => setShowShortcuts(false)} />}
+
+        {showSettings && (
+          <SettingsDialog
+            discordEnabled={discordEnabled}
+            onDiscordChange={setDiscordEnabled}
+            onClose={() => setShowSettings(false)}
+          />
+        )}
 
           {fixing && (
             <MatchDialog track={fixing} onClose={() => setFixing(null)} onChosen={() => onMatchChosen(fixing)} />
