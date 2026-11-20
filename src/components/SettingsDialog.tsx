@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { discordStatus, type DiscordStatus } from "../lib/api";
 import { CloseIcon } from "./Icons";
 import type { Theme } from "../lib/theme";
+import { MAX_CROSSFADE } from "../lib/crossfade";
 
 const THEMES: [Theme, string][] = [
   ["system", "Como Windows"],
@@ -24,6 +25,8 @@ interface Props {
   onCloseToTrayChange: (on: boolean) => void;
   theme: Theme;
   onThemeChange: (theme: Theme) => void;
+  crossfade: number;
+  onCrossfadeChange: (secs: number) => void;
   onClose: () => void;
 }
 
@@ -34,6 +37,8 @@ export function SettingsDialog({
   onCloseToTrayChange,
   theme,
   onThemeChange,
+  crossfade,
+  onCrossfadeChange,
   onClose,
 }: Props) {
   const [status, setStatus] = useState<DiscordStatus | null>(null);
@@ -88,6 +93,28 @@ export function SettingsDialog({
                 {label}
               </button>
             ))}
+          </div>
+        </div>
+
+        <div className="settings-row crossfade-row">
+          <label htmlFor="crossfade">
+            <strong>Fundido entre canciones</strong>
+            <span className="radio-switch-note">
+              La siguiente empieza antes de que acabe la actual y se mezclan suavemente.
+            </span>
+          </label>
+          <div className="crossfade-control">
+            <input
+              type="range"
+              id="crossfade"
+              min={0}
+              max={MAX_CROSSFADE}
+              step={1}
+              value={crossfade}
+              onChange={(e) => onCrossfadeChange(Number(e.target.value))}
+              aria-valuetext={crossfade ? `${crossfade} segundos` : "Desactivado"}
+            />
+            <span className="crossfade-value">{crossfade ? `${crossfade} s` : "No"}</span>
           </div>
         </div>
 

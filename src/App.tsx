@@ -341,6 +341,8 @@ export default function App() {
             onCloseToTrayChange={setCloseToTray}
             theme={theme}
             onThemeChange={setTheme}
+            crossfade={player.crossfade}
+            onCrossfadeChange={player.setCrossfade}
             onClose={() => setShowSettings(false)}
           />
         )}

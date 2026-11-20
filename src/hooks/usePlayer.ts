@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { prefetchStream, radioTracks, recordPlay, streamUrl, trackKey, type Track } from "../lib/api";
 import * as q from "../lib/queue";
+import { clampCrossfade, fadeGains, loadCrossfade, saveCrossfade, shouldStartFade } from "../lib/crossfade";
 
 const SAVE_KEY = "melomango.player";
 const SAVE_EVERY_MS = 5000;
@@ -31,6 +32,20 @@ interface Saved {
   autoRadio?: boolean;
 }
 
+/** A blend in progress: `old` fades out while `incoming` (now the main element) fades in. */
+interface Fade {
+  old: HTMLAudioElement;
+  incoming: HTMLAudioElement;
+  timer: number | null;
+}
+
+/** Stops an element and lets go of its stream. */
+function release(el: HTMLAudioElement) {
+  el.pause();
+  el.removeAttribute("src");
+  el.load();
+}
+
 function loadSaved(): Saved | null {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
@@ -41,7 +56,10 @@ function loadSaved(): Saved | null {
 }
 
 export function usePlayer() {
-  const [audio] = useState(() => new Audio());
+  // Two elements, so the next song can start while the current one fades out (crossfade).
+  // `audio` is the one playing the current song; the other is idle or fading out.
+  const [elements] = useState(() => [new Audio(), new Audio()] as const);
+  const [audio, setAudio] = useState<HTMLAudioElement>(elements[0]);
   const [saved] = useState(loadSaved);
   const [queue, setQueue] = useState<q.QueueState>(() => {
     try {
@@ -64,9 +82,18 @@ export function usePlayer() {
   /** Bumped on every seek, for things that follow the position (Discord's progress bar). */
   const [seekCount, setSeekCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [crossfade, setCrossfadeState] = useState(loadCrossfade);
 
   const queueRef = useRef(queue);
   queueRef.current = queue;
+  /** The main element, switched right away when a blend starts (before React re-renders). */
+  const mainRef = useRef(audio);
+  mainRef.current = audio;
+  const volumeRef = useRef(volume);
+  volumeRef.current = volume;
+  const crossfadeRef = useRef(crossfade);
+  crossfadeRef.current = crossfade;
+  const fade = useRef<Fade | null>(null);
   /** Position to jump to once the restored track's metadata is known. */
   const pendingSeek = useRef<number | null>(null);
   /** False until the user plays something: errors while restoring stay silent. */
@@ -98,14 +125,68 @@ export function usePlayer() {
     setIsLoading(false);
   }, []);
 
+  /** Ends a blend now: the old song stops and the new one plays at full volume. */
+  const endFade = useCallback(() => {
+    const f = fade.current;
+    if (!f) return;
+    fade.current = null;
+    if (f.timer !== null) window.clearInterval(f.timer);
+    if (f.old !== mainRef.current) release(f.old);
+    mainRef.current.volume = volumeRef.current;
+  }, []);
+
   /** Plays the queue's current entry, from `resumeAt` seconds or the start. */
-  const start = useCallback((next: q.QueueState, resumeAt: number | null = null) => {
-    pendingSeek.current = resumeAt;
-    userStarted.current = true;
-    // Updated right away: what runs next in the same event (e.g. the radio) sees it.
-    queueRef.current = next;
-    setQueue(next);
-    setLoadKey((k) => k + 1);
+  const start = useCallback(
+    (next: q.QueueState, resumeAt: number | null = null, blend = false) => {
+      if (!blend) endFade();
+      pendingSeek.current = resumeAt;
+      userStarted.current = true;
+      // Updated right away: what runs next in the same event (e.g. the radio) sees it.
+      queueRef.current = next;
+      setQueue(next);
+      setLoadKey((k) => k + 1);
+    },
+    [endFade],
+  );
+
+  /** Starts the next song on the idle element while the current one keeps playing. */
+  const beginFade = useCallback(() => {
+    if (fade.current) return;
+    const result = q.advance(queueRef.current, true);
+    if (result === "stop" || result === "same") return; // the radio or a repeat take over at the end
+    const old = mainRef.current;
+    const incoming = old === elements[0] ? elements[1] : elements[0];
+    fade.current = { old, incoming, timer: null };
+    mainRef.current = incoming;
+    setAudio(incoming);
+    start(result, null, true);
+  }, [elements, start]);
+
+  /** Once the new song sounds, blend the two volumes. */
+  const rampFade = useCallback(() => {
+    const f = fade.current;
+    if (!f || f.timer !== null) return;
+    const { old, incoming } = f;
+    const left = Number.isFinite(old.duration) ? old.duration - old.currentTime : 0;
+    const finished = old.ended || old.paused || left <= 0;
+    const secs = crossfadeRef.current;
+    const fadeOut = finished ? 0 : Math.min(secs, left);
+    // If the old song already ran out (the new one was slow to load), just a short fade in.
+    const fadeIn = finished ? 0.3 : Math.max(secs, fadeOut);
+    const startedAt = performance.now();
+    f.timer = window.setInterval(() => {
+      const t = (performance.now() - startedAt) / 1000;
+      const g = fadeGains(t, fadeIn, fadeOut);
+      incoming.volume = volumeRef.current * g.in;
+      if (!old.ended) old.volume = volumeRef.current * g.out;
+      if (g.in >= 1 && (g.out <= 0 || old.ended)) endFade();
+    }, 50);
+  }, [endFade]);
+
+  const setCrossfade = useCallback((secs: number) => {
+    const value = clampCrossfade(secs);
+    setCrossfadeState(value);
+    saveCrossfade(value);
   }, []);
 
   const playQueue = useCallback((tracks: Track[], index: number) => start(q.play(queueRef.current, tracks, index)), [start]);
@@ -119,8 +200,11 @@ export function usePlayer() {
     }
     userStarted.current = true;
     if (audio.paused) audio.play().catch(onPlayRejected);
-    else audio.pause();
-  }, [audio, onPlayRejected, start]);
+    else {
+      endFade(); // pausing mid-blend silences both songs
+      audio.pause();
+    }
+  }, [audio, onPlayRejected, start, endFade]);
 
   /** Appends songs like the last queued one. Resolves whether it found any. */
   const fillRadio = useCallback((): Promise<boolean> => {
@@ -251,6 +335,8 @@ export function usePlayer() {
     resetListened();
     // A different URL makes the WebView fetch it again instead of reusing what it has.
     audio.src = streamUrl(current) + (reloads.current ? `?r=${reloads.current}` : "");
+    // Starting a blend: the new song comes in from silence.
+    if (fade.current?.incoming === audio) audio.volume = 0;
     setDuration(current.durationSecs);
     setError(null);
     if (restoring) {
@@ -264,12 +350,13 @@ export function usePlayer() {
   }, [loadKey]);
 
   useEffect(() => {
-    audio.volume = volume;
+    // Mid-blend the fade sets both volumes (from volumeRef).
+    if (!fade.current) audio.volume = volume;
   }, [audio, volume]);
 
   useEffect(() => {
-    audio.muted = muted;
-  }, [audio, muted]);
+    elements.forEach((el) => (el.muted = muted));
+  }, [elements, muted]);
 
   // While the last queued song plays, the radio already looks for what comes after.
   const isLast = q.atEnd(queue);
@@ -291,6 +378,9 @@ export function usePlayer() {
         "timeupdate",
         () => {
           setTime(audio.currentTime);
+          if (!audio.paused && shouldStartFade(crossfadeRef.current, audio.currentTime, audio.duration)) {
+            beginFade();
+          }
           // Count real playback time towards the history.
           const l = listened.current;
           const now = audio.currentTime;
@@ -333,12 +423,14 @@ export function usePlayer() {
         () => {
           setError(null);
           setIsLoading(false);
+          if (fade.current?.incoming === audio) rampFade();
         },
       ],
       ["waiting", () => setIsLoading(true)],
       [
         "error",
         () => {
+          endFade();
           setIsPlaying(false);
           setIsLoading(false);
           // A restored track failing in the background (e.g. offline) is retried on play.
@@ -351,9 +443,11 @@ export function usePlayer() {
         },
       ],
     ];
-    listeners.forEach(([ev, fn]) => audio.addEventListener(ev, fn));
-    return () => listeners.forEach(([ev, fn]) => audio.removeEventListener(ev, fn));
-  }, [audio, next]);
+    // An element that stopped being the main one (it is fading out) no longer drives the player.
+    const guarded = listeners.map(([ev, fn]): [string, () => void] => [ev, () => audio === mainRef.current && fn()]);
+    guarded.forEach(([ev, fn]) => audio.addEventListener(ev, fn));
+    return () => guarded.forEach(([ev, fn]) => audio.removeEventListener(ev, fn));
+  }, [audio, next, beginFade, rampFade, endFade]);
 
   // Remember the queue, position and volume for next time.
   const save = useCallback(() => {
@@ -361,7 +455,7 @@ export function usePlayer() {
       const data: Saved = {
         queue: q.serialize(queueRef.current),
         time: pendingSeek.current ?? audio.currentTime,
-        volume: audio.volume,
+        volume: volumeRef.current,
         muted: audio.muted,
         autoRadio: autoRadioRef.current,
       };
@@ -425,6 +519,8 @@ export function usePlayer() {
     autoRadio,
     radioLoading,
     seekCount,
+    crossfade,
+    setCrossfade,
     toggleAutoRadio,
     startRadio,
     playQueue,
