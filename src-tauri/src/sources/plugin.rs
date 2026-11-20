@@ -44,6 +44,10 @@ const MANIFEST: &str = "plugin.json";
 const CALL_TIMEOUT: Duration = Duration::from_secs(60);
 /// `connect` waits for the user to log in; `install-requirement` may download software.
 const LONG_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+/// Most a plugin may answer: a few thousand tracks are a few MB.
+const MAX_OUTPUT: u64 = 32 * 1024 * 1024;
+/// Of its error output only the last line is shown.
+const MAX_STDERR: u64 = 1024 * 1024;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -67,6 +71,8 @@ pub struct PluginSource {
     dir: PathBuf,
     exe: PathBuf,
     data_dir: Option<PathBuf>,
+    /// Held while a login (`connect`, up to 10 minutes) waits: only one at a time.
+    connecting: tokio::sync::Mutex<()>,
 }
 
 /// Login state of a library plugin.
@@ -136,6 +142,7 @@ impl PluginSource {
             dir: dir.to_path_buf(),
             exe,
             data_dir: None,
+            connecting: tokio::sync::Mutex::new(()),
         })
     }
 
@@ -165,12 +172,15 @@ impl PluginSource {
             "connect" | "install-requirement" => LONG_TIMEOUT,
             _ => CALL_TIMEOUT,
         };
+        let arg = safe_arg(command, arg)?;
         let mut cmd = tokio::process::Command::new(&self.exe);
         cmd.args(&self.manifest.args)
             .arg(command)
             .args(arg)
             .current_dir(&self.dir)
             .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
             .kill_on_drop(true);
         if let Some(data_dir) = &self.data_dir {
             fs::create_dir_all(data_dir).ok();
@@ -179,18 +189,28 @@ impl PluginSource {
         #[cfg(windows)]
         cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW: no console flashing
 
-        let output = tokio::time::timeout(timeout, cmd.output())
+        let name = &self.manifest.name;
+        let mut child = cmd.spawn().with_context(|| format!("no se pudo ejecutar el plugin {name}"))?;
+        // kill_on_drop only ends the plugin itself: what it started (yt-dlp, a cmd.exe in
+        // between) would outlive a timeout. On Windows a job takes the whole tree with it.
+        #[cfg(windows)]
+        let _tree = child.raw_handle().and_then(job::KillTreeOnDrop::new);
+        let (stdout, stderr) = (child.stdout.take(), child.stderr.take());
+        let run = async {
+            let (out, err) = tokio::try_join!(read_capped(stdout, MAX_OUTPUT), read_capped(stderr, MAX_STDERR))?;
+            anyhow::Ok((child.wait().await?, out, err))
+        };
+        let (status, stdout, stderr) = tokio::time::timeout(timeout, run)
             .await
-            .with_context(|| format!("el plugin {} tardó demasiado", self.manifest.name))?
-            .with_context(|| format!("no se pudo ejecutar el plugin {}", self.manifest.name))?;
+            .with_context(|| format!("el plugin {name} tardó demasiado"))?
+            .with_context(|| format!("el plugin {name} falló"))?;
 
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
+        if !status.success() {
+            let stderr = String::from_utf8_lossy(&stderr);
             let message = stderr.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("sin detalles");
-            bail!("{}: {}", self.manifest.name, message.trim());
+            bail!("{name}: {}", message.trim());
         }
-        serde_json::from_slice(&output.stdout)
-            .with_context(|| format!("respuesta no válida del plugin {}", self.manifest.name))
+        serde_json::from_slice(&stdout).with_context(|| format!("respuesta no válida del plugin {name}"))
     }
 
     async fn tracks(&self, command: &str, arg: Option<&str>) -> anyhow::Result<Vec<Track>> {
@@ -261,6 +281,10 @@ impl PluginSource {
 
     /// Opens the service's login in the browser and waits for it to finish.
     pub async fn connect(&self) -> anyhow::Result<LibraryStatus> {
+        // Each login waits up to 10 minutes: pressing again must not start another one.
+        let Ok(_waiting) = self.connecting.try_lock() else {
+            bail!("ya hay un inicio de sesión de {} esperando: termínalo en el navegador", self.manifest.name);
+        };
         self.call("connect", None).await
     }
 
@@ -459,7 +483,84 @@ pub fn forget_data(id: &str, data_root: &Path) {
     }
 }
 
-fn validate_id(id: &str) -> anyhow::Result<()> {
+/// What the user typed (a search) or an id goes to the plugin as an argument, and a
+/// plugin that hands it to another program (yt-dlp) could take «-x» for an option.
+/// Searches lose leading dashes; ids may not start with one.
+fn safe_arg<'a>(command: &str, arg: Option<&'a str>) -> anyhow::Result<Option<&'a str>> {
+    let Some(arg) = arg else { return Ok(None) };
+    if command == "search" {
+        return Ok(Some(arg.trim_start_matches(|c: char| c == '-' || c.is_whitespace())));
+    }
+    if arg.starts_with('-') {
+        bail!("id no válido: «{arg}»");
+    }
+    Ok(Some(arg))
+}
+
+/// Everything `reader` gives, up to `max` bytes: more is an error (and the plugin is ended).
+async fn read_capped(reader: Option<impl tokio::io::AsyncRead + Unpin>, max: u64) -> anyhow::Result<Vec<u8>> {
+    use tokio::io::AsyncReadExt;
+    let mut data = Vec::new();
+    if let Some(reader) = reader {
+        reader.take(max + 1).read_to_end(&mut data).await?;
+    }
+    if data.len() as u64 > max {
+        bail!("respuesta demasiado grande");
+    }
+    Ok(data)
+}
+
+/// Windows job objects: ending a process together with all it started.
+#[cfg(windows)]
+mod job {
+    use std::os::windows::io::RawHandle;
+    use windows_sys::Win32::{
+        Foundation::CloseHandle,
+        System::JobObjects::{
+            AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation, SetInformationJobObject,
+            JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+        },
+    };
+
+    /// When dropped, the process given and everything it started are ended.
+    pub struct KillTreeOnDrop(RawHandle);
+
+    // The job handle is only closed, from whichever thread drops it.
+    unsafe impl Send for KillTreeOnDrop {}
+    unsafe impl Sync for KillTreeOnDrop {}
+
+    impl KillTreeOnDrop {
+        /// None if the process can't be put in a job (then only it is ended, as before).
+        pub fn new(process: RawHandle) -> Option<Self> {
+            // SAFETY: plain Win32 calls on a handle we own; the struct is zeroed as the API expects.
+            unsafe {
+                let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
+                if job.is_null() {
+                    return None;
+                }
+                let guard = Self(job);
+                let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
+                info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+                let set = SetInformationJobObject(
+                    job,
+                    JobObjectExtendedLimitInformation,
+                    (&info as *const JOBOBJECT_EXTENDED_LIMIT_INFORMATION).cast(),
+                    std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+                );
+                (set != 0 && AssignProcessToJobObject(job, process) != 0).then_some(guard)
+            }
+        }
+    }
+
+    impl Drop for KillTreeOnDrop {
+        fn drop(&mut self) {
+            // SAFETY: the handle came from CreateJobObjectW and is closed once.
+            unsafe { CloseHandle(self.0) };
+        }
+    }
+}
+
+pub(crate) fn validate_id(id: &str) -> anyhow::Result<()> {
     let ok = !id.is_empty()
         && id.len() <= 40
         && id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_');
@@ -624,6 +725,48 @@ mod tests {
         fs::write(root.join(MANIFEST), manifest).unwrap();
         assert!(PluginSource::load(&root).unwrap().requirements().await.unwrap().is_empty());
         let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn user_text_never_reaches_a_plugin_as_an_option() {
+        assert_eq!(safe_arg("search", Some("--exec rm")).unwrap(), Some("exec rm"));
+        assert_eq!(safe_arg("search", Some(" - Shakira")).unwrap(), Some("Shakira"));
+        assert_eq!(safe_arg("search", Some("AC/DC - Back")).unwrap(), Some("AC/DC - Back"));
+        assert!(safe_arg("stream", Some("-o/tmp/x")).is_err());
+        assert_eq!(safe_arg("stream", Some("dQw4w9WgXcQ")).unwrap(), Some("dQw4w9WgXcQ"));
+        assert_eq!(safe_arg("trending", None).unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn output_beyond_the_limit_is_refused() {
+        let endless = tokio::io::repeat(b'x');
+        assert!(read_capped(Some(endless), 1024).await.is_err());
+        let small: &[u8] = b"{}";
+        assert_eq!(read_capped(Some(small), 1024).await.unwrap(), b"{}");
+    }
+
+    /// A process started by the plugin (here, ping started by cmd) ends with it.
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn the_whole_process_tree_ends_with_the_job() {
+        let count = || {
+            let out = std::process::Command::new("tasklist").args(["/FI", "IMAGENAME eq PING.EXE", "/NH"]).output().unwrap();
+            String::from_utf8_lossy(&out.stdout).matches("PING.EXE").count()
+        };
+        let before = count();
+        let mut child = tokio::process::Command::new("cmd")
+            .args(["/C", "ping -n 30 127.0.0.1 >NUL"])
+            .creation_flags(0x0800_0000)
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap();
+        let tree = job::KillTreeOnDrop::new(child.raw_handle().unwrap()).expect("job");
+        tokio::time::sleep(Duration::from_millis(800)).await;
+        assert_eq!(count(), before + 1, "ping is running");
+        drop(tree);
+        let _ = child.wait().await;
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        assert_eq!(count(), before, "ping ended with the job");
     }
 
     #[test]

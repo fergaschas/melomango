@@ -2316,6 +2316,7 @@ dependencies = [
  "tauri-plugin-updater",
  "tokio",
  "unicode-normalization",
+ "windows-sys 0.61.2",
  "zip 2.6.1",
 ]
 

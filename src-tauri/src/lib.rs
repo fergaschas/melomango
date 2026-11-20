@@ -51,6 +51,8 @@ struct AppState {
     artists: ArtistService,
     discord: discord::Presence,
     http: reqwest::Client,
+    /// Only https: for plugin repositories and downloads (see `catalog::client`).
+    catalog_http: reqwest::Client,
     streams: StreamCache,
     downloads: downloads::Downloads,
 }
@@ -197,7 +199,7 @@ async fn uninstall_plugin(app: tauri::AppHandle, id: String) -> Result<(), Strin
 
 #[tauri::command]
 async fn browse_plugins(state: State<'_, AppState>) -> Result<Catalog, String> {
-    Ok(catalog::browse(&state.http, &state.registries.list()).await)
+    Ok(catalog::browse(&state.catalog_http, &state.registries.list()).await)
 }
 
 /// The repository the installed plugin `id` came from, if installing it from `registry`
@@ -216,7 +218,7 @@ async fn install_catalog_plugin(
 ) -> Result<SourceInfo, String> {
     let state = app.state::<AppState>();
     let id = catalog::install(
-        &state.http,
+        &state.catalog_http,
         &registry,
         &id,
         &state.plugins_dir,
@@ -786,6 +788,7 @@ pub fn run() {
                 artists: ArtistService::new(http.clone()),
                 discord,
                 http,
+                catalog_http: catalog::client(concat!("Melomango/", env!("CARGO_PKG_VERSION")))?,
                 streams: StreamCache::default(),
                 downloads: downloads::Downloads::new(data_dir.join("downloads")),
             };

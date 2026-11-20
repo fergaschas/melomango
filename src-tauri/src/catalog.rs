@@ -23,6 +23,20 @@ pub const OFFICIAL_INDEX: &str =
     "https://raw.githubusercontent.com/fergaschas/melomango-plugins/main/index.json";
 const INDEX_VERSION: u32 = 1;
 const MAX_DOWNLOAD_BYTES: usize = 200 * 1024 * 1024;
+/// An index lists plugins: even a big one is a few hundred KB.
+const MAX_INDEX_BYTES: usize = 5 * 1024 * 1024;
+
+/// The client for repositories and plugin downloads. Only https, redirects included: an
+/// index (or zip) sent through http could be swapped on the way, SHA-256 and all, and a
+/// plugin runs code on this computer. The shared client follows https → http redirects.
+pub fn client(user_agent: &str) -> reqwest::Result<reqwest::Client> {
+    reqwest::Client::builder()
+        .user_agent(user_agent)
+        .https_only(true)
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .read_timeout(std::time::Duration::from_secs(30))
+        .build()
+}
 
 #[derive(Debug, Deserialize)]
 struct Index {
@@ -151,14 +165,11 @@ impl Registries {
 
 async fn fetch_index(http: &reqwest::Client, url: &str) -> anyhow::Result<Index> {
     require_https(url)?;
-    let index: Index = http
-        .get(url)
-        .send()
-        .await?
-        .error_for_status()?
-        .json()
-        .await
-        .context("el índice no tiene un formato válido")?;
+    let response = http.get(url).send().await?.error_for_status()?;
+    let bytes = read_limited(response, MAX_INDEX_BYTES, "el índice es demasiado grande").await?;
+    let mut index: Index = serde_json::from_slice(&bytes).context("el índice no tiene un formato válido")?;
+    // Ids end up in folder names: one like "../x" is not a plugin anyone should install.
+    index.plugins.retain(|p| plugin::validate_id(&p.id).is_ok());
     if index.version != INDEX_VERSION {
         bail!("versión de índice {} no soportada", index.version);
     }
@@ -218,6 +229,7 @@ pub async fn install(
     data_root: &Path,
     replace_other_origin: bool,
 ) -> anyhow::Result<String> {
+    plugin::validate_id(id)?;
     let other_origin = origin_change(plugins_dir, registry_url, id);
     if let Some(from) = &other_origin {
         if !replace_other_origin {
@@ -272,15 +284,20 @@ pub async fn install(
 }
 
 async fn download_limited(http: &reqwest::Client, url: &str) -> anyhow::Result<Vec<u8>> {
-    let mut response = http.get(url).send().await?.error_for_status()?;
-    if response.content_length().is_some_and(|len| len as usize > MAX_DOWNLOAD_BYTES) {
-        bail!("el plugin es demasiado grande");
+    let response = http.get(url).send().await?.error_for_status()?;
+    read_limited(response, MAX_DOWNLOAD_BYTES, "el plugin es demasiado grande").await
+}
+
+/// The body of `response`, failing with `too_big` past `max` bytes (without reading on).
+async fn read_limited(mut response: reqwest::Response, max: usize, too_big: &str) -> anyhow::Result<Vec<u8>> {
+    if response.content_length().is_some_and(|len| len as usize > max) {
+        bail!("{too_big}");
     }
     let mut bytes = Vec::new();
     while let Some(chunk) = response.chunk().await? {
         bytes.extend_from_slice(&chunk);
-        if bytes.len() > MAX_DOWNLOAD_BYTES {
-            bail!("el plugin es demasiado grande");
+        if bytes.len() > max {
+            bail!("{too_big}");
         }
     }
     Ok(bytes)
@@ -379,6 +396,44 @@ mod tests {
         assert_eq!(origin_change(&plugins, third_party, "spotify"), None, "updates from the same place");
         assert_eq!(origin_change(&plugins, OFFICIAL_INDEX, "spotify").as_deref(), Some(third_party));
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn the_catalog_client_refuses_plain_http() {
+        let http = client("Melomango-tests").unwrap();
+        let err = http.get("http://127.0.0.1:9/index.json").send().await.unwrap_err();
+        assert!(err.is_builder() || err.to_string().contains("scheme"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn refuses_a_bad_id_before_touching_anything() {
+        let dir = std::env::temp_dir().join(format!("melomango-badid-{}", std::process::id()));
+        let err = install(&reqwest::Client::new(), OFFICIAL_INDEX, "../evil", &dir, &dir, false).await.unwrap_err();
+        assert!(err.to_string().contains("no válido"), "{err}");
+        assert!(!dir.exists());
+    }
+
+    #[tokio::test]
+    async fn bodies_beyond_the_limit_are_refused() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/", listener.local_addr().unwrap());
+        tokio::spawn(async move {
+            while let Ok((mut socket, _)) = listener.accept().await {
+                let _ = socket.read(&mut [0; 1024]).await;
+                let body = vec![b'x'; 4096];
+                let head = "HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\nconnection: close\r\n\r\n";
+                let _ = socket.write_all(head.as_bytes()).await;
+                let _ = socket.write_all(format!("{:x}\r\n", body.len()).as_bytes()).await;
+                let _ = socket.write_all(&body).await;
+                let _ = socket.write_all(b"\r\n0\r\n\r\n").await;
+            }
+        });
+        let response = reqwest::get(&url).await.unwrap();
+        let err = read_limited(response, 1024, "demasiado grande").await.unwrap_err();
+        assert!(err.to_string().contains("demasiado grande"));
+        let response = reqwest::get(&url).await.unwrap();
+        assert_eq!(read_limited(response, 8192, "x").await.unwrap().len(), 4096);
     }
 
     #[test]
