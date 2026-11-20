@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { Track } from "../lib/api";
 import { useLibrary } from "../lib/library";
 import { useMatchFix } from "../lib/matchFix";
@@ -21,13 +21,20 @@ export interface QueueActions {
 export function AddToPlaylistMenu({ track, queue }: { track: Track; queue?: QueueActions }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const button = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (!open) return;
     const close = (e: MouseEvent) => {
       if (!ref.current?.contains(e.target as Node)) setOpen(false);
     };
-    const esc = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    // Escape closes the menu (only: a dialog around it stays) and goes back to its button.
+    const esc = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      setOpen(false);
+      button.current?.focus();
+    };
     document.addEventListener("mousedown", close);
     document.addEventListener("keydown", esc);
     return () => {
@@ -39,14 +46,26 @@ export function AddToPlaylistMenu({ track, queue }: { track: Track; queue?: Queu
   return (
     <div className="menu-anchor" ref={ref} onClick={(e) => e.stopPropagation()}>
       <button
+        ref={button}
         className={`row-action${open ? " on" : ""}`}
         onClick={() => setOpen((o) => !o)}
+        aria-haspopup="menu"
+        aria-expanded={open}
         aria-label="Añadir a la cola o a una playlist"
         title="Añadir a la cola o a una playlist"
       >
         <PlusIcon size={18} />
       </button>
-      {open && <Menu track={track} queue={queue} close={() => setOpen(false)} />}
+      {open && (
+        <Menu
+          track={track}
+          queue={queue}
+          close={() => {
+            setOpen(false);
+            button.current?.focus();
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -59,6 +78,23 @@ function Menu({ track, queue, close }: { track: Track; queue?: QueueActions; clo
   const loading = downloads.progressOf(track);
   const inProgress = loading && (loading.state === "queued" || loading.state === "downloading");
   const [newName, setNewName] = useState("");
+  const menu = useRef<HTMLDivElement>(null);
+
+  // Opening it puts the focus on its first option.
+  useEffect(() => {
+    menu.current?.querySelector<HTMLElement>("[role=menuitem]")?.focus();
+  }, []);
+
+  /** Arrows, Home and End move between the options (not while typing a new name). */
+  const onKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (e.target instanceof HTMLInputElement) return;
+    const items = [...(menu.current?.querySelectorAll<HTMLElement>("[role=menuitem]") ?? [])];
+    const at = items.indexOf(document.activeElement as HTMLElement);
+    const next = { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: items.length - 1 }[e.key];
+    if (next === undefined || items.length === 0) return;
+    e.preventDefault();
+    items[(next + items.length) % items.length]?.focus();
+  };
 
   async function createAndAdd(e: FormEvent) {
     e.preventDefault();
@@ -70,7 +106,7 @@ function Menu({ track, queue, close }: { track: Track; queue?: QueueActions; clo
   }
 
   return (
-    <div className="menu" role="menu">
+    <div className="menu" role="menu" aria-label={`Opciones de «${track.title}»`} ref={menu} onKeyDown={onKeyDown}>
       {queue && (
         <>
           <button

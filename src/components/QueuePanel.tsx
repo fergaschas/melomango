@@ -107,13 +107,18 @@ export function QueuePanel({ player, onClose }: { player: Player; onClose: () =>
                   track={item.track}
                   onPlay={() => player.jumpTo(item.uid)}
                   onRemove={() => player.removeFromQueue(item.uid)}
+                  // Without a mouse: Alt+↑/↓ moves it (within what is still to play).
+                  onMoveBy={(step) => {
+                    const to = position + step;
+                    if (to > index && to < index + 1 + upcoming.length) player.moveInQueue(position, to);
+                  }}
                 />
               </li>
               </Fragment>
             );
           })}
         </ol>
-        {upcoming.length > 1 && <p className="hint">Arrastra para cambiar el orden.</p>}
+        {upcoming.length > 1 && <p className="hint">Arrastra para cambiar el orden (o Alt+↑/↓ con el teclado).</p>}
       </div>
     </aside>
   );
@@ -124,15 +129,31 @@ function QueueRow({
   active,
   onPlay,
   onRemove,
+  onMoveBy,
 }: {
   track: Track;
   active?: boolean;
   onPlay?: () => void;
   onRemove?: () => void;
+  onMoveBy?: (step: -1 | 1) => void;
 }) {
   return (
     <div className={`queue-row${active ? " active" : ""}`}>
-      <button className="queue-main" onClick={onPlay} disabled={!onPlay} title={onPlay ? "Reproducir ahora" : undefined}>
+      <button
+        className="queue-main"
+        onClick={onPlay}
+        disabled={!onPlay}
+        title={onPlay ? (onMoveBy ? "Reproducir ahora (Alt+↑/↓ para moverla)" : "Reproducir ahora") : undefined}
+        aria-keyshortcuts={onMoveBy ? "Alt+ArrowUp Alt+ArrowDown" : undefined}
+        onKeyDown={(e) => {
+          if (!onMoveBy || !e.altKey || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
+          e.preventDefault();
+          const button = e.currentTarget;
+          onMoveBy(e.key === "ArrowUp" ? -1 : 1);
+          // React moves the row node, and moving a node drops its focus: put it back.
+          requestAnimationFrame(() => button.focus());
+        }}
+      >
         <Artwork src={track.artworkUrl} />
         <span className="track-text">
           <span className="track-title">{track.title}</span>

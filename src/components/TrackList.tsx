@@ -36,6 +36,8 @@ interface RowActions {
   dragOver: (index: number) => boolean;
   drop: (index: number) => void;
   dragEnd: () => void;
+  /** Moves a row one place up (-1) or down (1), from the keyboard (Alt+↑/↓). */
+  moveBy: (index: number, step: -1 | 1) => void;
 }
 
 export function TrackList({ tracks, current, isPlaying, onPlay, onRemove, removeLabel, onMove, queue }: Props) {
@@ -78,6 +80,7 @@ export function TrackList({ tracks, current, isPlaying, onPlay, onRemove, remove
         setDragFrom(null);
         setDragOver(null);
       },
+      moveBy: (i, step) => latest.current.onMove?.(i, i + step),
     }),
     [],
   );
@@ -108,6 +111,7 @@ export function TrackList({ tracks, current, isPlaying, onPlay, onRemove, remove
             progress={downloads.progressOf(track)}
             dropTarget={dragOver === i && dragFrom !== i}
             draggable={!!onMove}
+            last={i === tracks.length - 1}
             removable={!!onRemove}
             removeLabel={removeLabel}
             queue={queueActions}
@@ -129,6 +133,8 @@ interface RowProps {
   progress: DownloadProgress | undefined;
   dropTarget: boolean;
   draggable: boolean;
+  /** The last row (it can't move down). */
+  last: boolean;
   removable: boolean;
   removeLabel?: string;
   queue?: QueueActions;
@@ -145,31 +151,32 @@ const TrackRow = memo(function TrackRow({
   progress,
   dropTarget,
   draggable,
+  last,
   removable,
   removeLabel,
   queue,
   actions,
 }: RowProps) {
+  // Reordering without a mouse: Alt+↑/↓ on the row's play button.
   const onKey = (e: KeyboardEvent) => {
-    // Ignore keys typed inside the row's own controls (e.g. the new-playlist input).
-    if (e.target !== e.currentTarget) return;
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      actions.play(i);
-    }
+    if (!draggable || !e.altKey) return;
+    const step = e.key === "ArrowUp" ? -1 : e.key === "ArrowDown" ? 1 : 0;
+    if (step === 0 || (step === -1 && i === 0) || (step === 1 && last)) return;
+    e.preventDefault();
+    const button = e.currentTarget as HTMLElement;
+    actions.moveBy(i, step);
+    // React moves the row node, and moving a node drops its focus: put it back.
+    requestAnimationFrame(() => button.focus());
   };
   const classes = ["track", active && "active", dropTarget && "drop-target"].filter(Boolean).join(" ");
+  // A plain list item (it holds buttons of its own: like, menu, remove, artist links);
+  // clicking anywhere on it still plays, and its first button does it from the keyboard.
   return (
     <li
       className={classes}
-      role="button"
-      tabIndex={0}
       onClick={() => actions.play(i)}
-      onKeyDown={onKey}
       onMouseEnter={() => !active && actions.prefetch(track)}
       onMouseLeave={actions.cancelPrefetch}
-      onFocus={(e) => e.target === e.currentTarget && !active && actions.prefetch(track)}
-      onBlur={actions.cancelPrefetch}
       draggable={draggable}
       onDragStart={() => actions.dragStart(i)}
       onDragOver={(e) => actions.dragOver(i) && e.preventDefault()}
@@ -179,14 +186,27 @@ const TrackRow = memo(function TrackRow({
         actions.drop(i);
       }}
     >
-      <span className="track-num">
+      <button
+        className="track-num"
+        onClick={(e) => {
+          e.stopPropagation();
+          actions.play(i);
+        }}
+        onKeyDown={onKey}
+        onFocus={() => !active && actions.prefetch(track)}
+        onBlur={actions.cancelPrefetch}
+        aria-label={`${playing ? "Sonando" : "Reproducir"}: ${track.title}, de ${track.artist}`}
+        aria-current={active ? "true" : undefined}
+        aria-keyshortcuts={draggable ? "Alt+ArrowUp Alt+ArrowDown" : undefined}
+        title={draggable ? "Reproducir (Alt+↑/↓ para moverla)" : "Reproducir"}
+      >
         {playing ? <PauseIcon size={14} /> : <span className="n">{i + 1}</span>}
         {!playing && (
           <span className="hover-play">
             <PlayIcon size={14} />
           </span>
         )}
-      </span>
+      </button>
       <span className="track-main">
         <Artwork src={track.artworkUrl} />
         <span className="track-text">

@@ -343,8 +343,13 @@ export default function App() {
 
           <UpdateCard updater={updater} />
 
+          {/* Always there, so screen readers notice when its text changes (a live region
+              added together with its text is often not announced). */}
+          <div className="sr-only" role="status" aria-live="polite">
+            {toast ?? ""}
+          </div>
           {toast && (
-            <div className="toast" role="status">
+            <div className="toast" aria-hidden="true">
               {toast}
             </div>
           )}

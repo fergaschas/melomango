@@ -18,6 +18,7 @@ import {
 import { installPluginRequirement, pluginRequirements, type Requirement } from "../lib/api";
 import { setupRequirements } from "../lib/requirements";
 import { CloseIcon, SearchIcon } from "./Icons";
+import { useDialog } from "../lib/useDialog";
 
 interface Props {
   sources: SourceInfo[];
@@ -29,6 +30,7 @@ type Tab = "explore" | "installed";
 type Notice = { kind: "ok" | "error" | "info"; text: string } | null;
 
 export function PluginsDialog({ sources, onChanged, onClose }: Props) {
+  const dialog = useDialog<HTMLElement>(onClose);
   const [tab, setTab] = useState<Tab>("explore");
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice>(null);
@@ -60,7 +62,7 @@ export function PluginsDialog({ sources, onChanged, onClose }: Props) {
 
   return (
     <div className="dialog-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <section className="dialog" role="dialog" aria-modal="true" aria-labelledby="plugins-title">
+      <section ref={dialog} tabIndex={-1} className="dialog" role="dialog" aria-modal="true" aria-labelledby="plugins-title">
         <header className="dialog-header">
           <h2 id="plugins-title">Plugins</h2>
           <button className="icon-btn" onClick={onClose} aria-label="Cerrar">

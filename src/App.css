@@ -243,7 +243,7 @@ button:disabled {
   transition: background 0.12s;
 }
 
-.track:focus-visible {
+.track:focus-within:has(.track-num:focus-visible) {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
@@ -271,6 +271,25 @@ button:disabled {
   place-items: center;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+  /* A button that looks like the number it was. */
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+  height: 100%;
+}
+
+.track-num:focus-visible {
+  outline: none;
+}
+
+.track-num:focus-visible .n {
+  visibility: hidden;
+}
+
+.track-num:focus-visible .hover-play {
+  display: block;
 }
 
 .track-num > * {
@@ -2796,4 +2815,17 @@ kbd {
   .spinner {
     animation-duration: 2.4s;
   }
+}
+
+/* Read by screen readers, not shown. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
