@@ -686,8 +686,13 @@ pub fn run() {
             std::fs::create_dir_all(&plugins_dir)?;
             let plugin_data_dir = data_dir.join("plugin-data");
 
+            // Without timeouts a server that hangs leaves a stream, a download or the lyrics
+            // waiting forever. The read timeout counts between two pieces of an answer, not
+            // the whole answer, so long downloads keep going while data flows.
             let http = reqwest::Client::builder()
                 .user_agent(concat!("Melomango/", env!("CARGO_PKG_VERSION")))
+                .connect_timeout(std::time::Duration::from_secs(10))
+                .read_timeout(std::time::Duration::from_secs(30))
                 .build()?;
             let library = match Library::open(&data_dir.join("library.db")) {
                 Ok(library) => library,
