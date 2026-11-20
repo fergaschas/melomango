@@ -596,11 +596,32 @@ export function usePlayer() {
   useEffect(() => {
     if (!("mediaSession" in navigator)) return;
     const ms = navigator.mediaSession;
-    ms.setActionHandler("play", toggle);
-    ms.setActionHandler("pause", toggle);
+    // Separate handlers: a «pause» from the system (or headphones) while already paused
+    // must not start the music, as a shared toggle did.
+    ms.setActionHandler("play", () => mainRef.current.paused && toggle());
+    ms.setActionHandler("pause", () => !mainRef.current.paused && toggle());
     ms.setActionHandler("nexttrack", () => next());
     ms.setActionHandler("previoustrack", prev);
-  }, [toggle, next, prev]);
+    ms.setActionHandler("seekto", (d) => d.seekTime !== undefined && seek(d.seekTime));
+  }, [toggle, next, prev, seek]);
+
+  // The system's progress bar (it moves on its own between updates while playing).
+  useEffect(() => {
+    if (!("mediaSession" in navigator) || !navigator.mediaSession.setPositionState) return;
+    try {
+      if (!current || !Number.isFinite(duration) || duration <= 0) {
+        navigator.mediaSession.setPositionState();
+        return;
+      }
+      navigator.mediaSession.setPositionState({
+        duration,
+        position: Math.min(Math.max(0, clock.get()), duration),
+        playbackRate: 1,
+      });
+    } catch {
+      /* the position may be past a duration that just changed: the next update fixes it */
+    }
+  }, [current, duration, isPlaying, seekCount, clock]);
 
   return {
     current,
