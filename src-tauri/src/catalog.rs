@@ -436,6 +436,19 @@ mod tests {
         assert_eq!(read_limited(response, 8192, "x").await.unwrap().len(), 4096);
     }
 
+    /// The official repository and GitHub's download redirects work with the https-only
+    /// client the app uses: `cargo test -- --ignored https_only`
+    #[tokio::test]
+    #[ignore = "necesita red"]
+    async fn installs_from_the_official_repository_with_the_https_only_client() {
+        let http = client("Melomango-tests").unwrap();
+        let dir = std::env::temp_dir().join(format!("melomango-https-only-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        assert_eq!(install(&http, OFFICIAL_INDEX, "youtube", &dir, &dir.join("data"), false).await.unwrap(), "youtube");
+        assert!(dir.join("youtube/plugin.json").is_file());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn finds_plugin_root_in_subfolder() {
         let dir = std::env::temp_dir().join(format!("melomango-root-{}", std::process::id()));
