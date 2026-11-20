@@ -306,10 +306,8 @@ impl ArtistService {
     /// A public playlist and its songs. `fresh` skips the cache (when syncing a saved copy).
     pub async fn playlist(&self, id: &str, fresh: bool) -> anyhow::Result<PlaylistPage> {
         let key = format!("playlist:{id}");
-        if !fresh {
-            if let Some(page) = self.playlists.lock().unwrap().get(&key) {
-                return Ok(page.clone());
-            }
+        if !fresh && let Some(page) = self.playlists.lock().unwrap().get(&key) {
+            return Ok(page.clone());
         }
         let raw: RawPlaylistFull = self.get(&format!("/playlist/{id}")).await?;
         let mut tracks = raw.tracks.data;
@@ -732,7 +730,7 @@ mod tests {
             related: Vec::new(),
         };
         service.artists.lock().unwrap().insert(format!("name:{}", normalize("")), page);
-        let err = service.artist("  ", None).await.err().expect("must fail");
+        let Err(err) = service.artist("  ", None).await else { panic!("must fail") };
         assert!(err.to_string().contains("falta el nombre"), "{err}");
     }
 

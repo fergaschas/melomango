@@ -142,11 +142,11 @@ fn common_durations(durations: impl Iterator<Item = f64>) -> Vec<u32> {
             None => groups.push((d, 1)),
         }
     }
-    groups.sort_by(|a, b| b.1.cmp(&a.1));
+    groups.sort_by_key(|g| std::cmp::Reverse(g.1));
     groups.into_iter().take(3).map(|(d, _)| d).collect()
 }
 
-fn dedup<'a>(items: [&'a str; 2]) -> Vec<&'a str> {
+fn dedup(items: [&str; 2]) -> Vec<&str> {
     if items[0] == items[1] { vec![items[0]] } else { items.to_vec() }
 }
 

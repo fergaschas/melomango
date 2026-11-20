@@ -181,11 +181,10 @@ impl Downloads {
             if let Some((_, file)) = self.local(library, &track.source, &track.id) {
                 if kind == StoredKind::Download
                     && library.stored_kind(&track.source, &track.id).ok().flatten() == Some(StoredKind::Cache)
+                    && let Err(e) = library.keep_cached(&track.source, &track.id)
                 {
-                    if let Err(e) = library.keep_cached(&track.source, &track.id) {
-                        report(progress(State::Failed, 0, None, Some(format!("{e:#}"))));
-                        return;
-                    }
+                    report(progress(State::Failed, 0, None, Some(format!("{e:#}"))));
+                    return;
                 }
                 report(progress(State::Done, file.size, Some(file.size), None));
                 return;

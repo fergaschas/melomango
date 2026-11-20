@@ -547,8 +547,8 @@ impl Library {
         let distinct_songs = songs.len() as u32;
         let distinct_artists = artists.len() as u32;
         // Stable sorts: equal counts keep the most recent first.
-        songs.sort_by(|a, b| b.1.cmp(&a.1));
-        artists.sort_by(|a, b| b.1.cmp(&a.1));
+        songs.sort_by_key(|s| std::cmp::Reverse(s.1));
+        artists.sort_by_key(|a| std::cmp::Reverse(a.1));
         Ok(MonthSummary {
             month: month.to_string(),
             plays: rows.len() as u32,
@@ -904,11 +904,11 @@ fn renumber(c: &Connection, playlist_id: i64, mv: Option<(usize, usize)>) -> rus
         .prepare("SELECT source, id FROM playlist_tracks WHERE playlist_id = ?1 ORDER BY position")?
         .query_map([playlist_id], |r| Ok((r.get(0)?, r.get(1)?)))?
         .collect::<rusqlite::Result<_>>()?;
-    if let Some((from, to)) = mv {
-        if from < keys.len() {
-            let item = keys.remove(from);
-            keys.insert(to.min(keys.len()), item);
-        }
+    if let Some((from, to)) = mv
+        && from < keys.len()
+    {
+        let item = keys.remove(from);
+        keys.insert(to.min(keys.len()), item);
     }
     let mut stmt =
         c.prepare("UPDATE playlist_tracks SET position = ?4 WHERE playlist_id = ?1 AND source = ?2 AND id = ?3")?;
@@ -1151,7 +1151,7 @@ mod tests {
         let started = std::time::Instant::now();
         let summary = lib.month_summary(&month).unwrap();
         assert!(started.elapsed() < std::time::Duration::from_secs(2), "{:?}", started.elapsed());
-        assert_eq!(summary.plays as usize, 20_000 - 0);
+        assert_eq!(summary.plays as usize, 20_000);
         assert_eq!((summary.songs, summary.artists), (5_000, 2_000));
         assert_eq!(summary.top_tracks[0].plays, 4);
     }
@@ -1235,7 +1235,7 @@ mod tests {
     fn imports_without_duration_keep_known_metadata() {
         let lib = Library::in_memory();
         let full = Track { source: "spotify".into(), ..track("x") };
-        lib.import_playlist("spotify", "liked", "Me gusta de Spotify", &[full.clone()]).unwrap();
+        lib.import_playlist("spotify", "liked", "Me gusta de Spotify", std::slice::from_ref(&full)).unwrap();
         let bare = Track { duration_secs: 0, artwork_url: None, ..full.clone() };
         lib.import_playlist("spotify-export", "liked", "Me gusta de Spotify", &[bare]).unwrap();
         let stored = lib.track("spotify", "x").unwrap().unwrap();

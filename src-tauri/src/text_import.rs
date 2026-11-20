@@ -80,10 +80,11 @@ fn split_song(line: &str) -> (&str, &str) {
         }
     }
     // "Song by Artist"
-    if let Some(pos) = line.to_lowercase().rfind(" by ") {
-        if line.is_char_boundary(pos) && line.is_char_boundary(pos + 4) {
-            return (&line[pos + 4..], &line[..pos]);
-        }
+    if let Some(pos) = line.to_lowercase().rfind(" by ")
+        && line.is_char_boundary(pos)
+        && line.is_char_boundary(pos + 4)
+    {
+        return (&line[pos + 4..], &line[..pos]);
     }
     ("", line)
 }

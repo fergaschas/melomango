@@ -230,10 +230,10 @@ pub async fn install(
 ) -> anyhow::Result<String> {
     plugin::validate_id(id)?;
     let other_origin = origin_change(plugins_dir, registry_url, id);
-    if let Some(from) = &other_origin {
-        if !replace_other_origin {
-            bail!("ya tienes instalado un plugin \"{id}\" de otro repositorio ({from})");
-        }
+    if let Some(from) = &other_origin
+        && !replace_other_origin
+    {
+        bail!("ya tienes instalado un plugin \"{id}\" de otro repositorio ({from})");
     }
     let index = fetch_index(http, registry_url).await?;
     let entry = index
@@ -327,6 +327,22 @@ fn require_https(url: &str) -> anyhow::Result<()> {
         bail!("solo se aceptan direcciones https://");
     }
     Ok(())
+}
+
+/// The YouTube plugin installed from the official repository into a temporary folder,
+/// for tests against the real service. Returns the source and the folder to delete.
+#[cfg(test)]
+pub async fn youtube_for_tests(
+    http: &reqwest::Client,
+) -> (std::sync::Arc<dyn crate::sources::MusicSource>, std::path::PathBuf) {
+    let dir = std::env::temp_dir().join(format!(
+        "melomango-yt-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    install(http, OFFICIAL_INDEX, "youtube", &dir, &dir.join("data"), false).await.unwrap();
+    let source = crate::sources::plugin::discover(&dir, &dir.join("data")).pop().expect("plugin de YouTube");
+    (std::sync::Arc::new(source), dir)
 }
 
 #[cfg(test)]
@@ -453,20 +469,4 @@ mod tests {
         assert_eq!(plugin_root(&dir).unwrap(), dir.join("youtube"));
         let _ = fs::remove_dir_all(&dir);
     }
-}
-
-/// The YouTube plugin installed from the official repository into a temporary folder,
-/// for tests against the real service. Returns the source and the folder to delete.
-#[cfg(test)]
-pub async fn youtube_for_tests(
-    http: &reqwest::Client,
-) -> (std::sync::Arc<dyn crate::sources::MusicSource>, std::path::PathBuf) {
-    let dir = std::env::temp_dir().join(format!(
-        "melomango-yt-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
-    ));
-    install(http, OFFICIAL_INDEX, "youtube", &dir, &dir.join("data"), false).await.unwrap();
-    let source = crate::sources::plugin::discover(&dir, &dir.join("data")).pop().expect("plugin de YouTube");
-    (std::sync::Arc::new(source), dir)
 }

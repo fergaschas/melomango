@@ -211,7 +211,7 @@ fn delimiter(text: &str) -> u8 {
         }
     }
     let best = (0..3).max_by_key(|&i| (counts[i], std::cmp::Reverse(i))).unwrap_or(0);
-    if counts[best] == 0 { b',' } else { [b',', b';', b'\t'][best] }
+    if counts[best] == 0 { b',' } else { b",;\t"[best] }
 }
 
 fn file_stem(file_name: &str) -> &str {

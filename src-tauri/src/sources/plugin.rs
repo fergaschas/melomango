@@ -423,13 +423,11 @@ pub fn install(src: &Path, plugins_dir: &Path, origin: Option<&str>) -> anyhow::
 
     // 2. Swap. Renaming fails (and changes nothing) if the plugin is running right now.
     let replacing = target.exists();
-    if replacing {
-        if let Err(e) = fs::rename(&target, &old) {
-            let _ = fs::remove_dir_all(&new);
-            return Err(e).with_context(|| {
-                format!("no se pudo reemplazar {} (¿está en uso? Inténtalo en un momento)", target.display())
-            });
-        }
+    if replacing && let Err(e) = fs::rename(&target, &old) {
+        let _ = fs::remove_dir_all(&new);
+        return Err(e).with_context(|| {
+            format!("no se pudo reemplazar {} (¿está en uso? Inténtalo en un momento)", target.display())
+        });
     }
     if let Err(e) = fs::rename(&new, &target) {
         if replacing {

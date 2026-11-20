@@ -90,7 +90,7 @@ pub fn read(paths: &[impl AsRef<Path>]) -> anyhow::Result<Import> {
     };
     let mut recognised = false;
     // Playlist1.json, Playlist2.json… in order.
-    files.sort_by(|a, b| natural_key(&a.0).cmp(&natural_key(&b.0)));
+    files.sort_by_key(|f| natural_key(&f.0));
     for (name, data) in &files {
         let base = name.rsplit(['/', '\\']).next().unwrap_or(name);
         let parsed: anyhow::Result<()> = (|| {

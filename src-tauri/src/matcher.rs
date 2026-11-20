@@ -85,10 +85,10 @@ pub async fn options(
             Err(e) => last_error = Some(e),
         }
     }
-    if candidates.is_empty() {
-        if let Some(e) = last_error {
-            return Err(e);
-        }
+    if candidates.is_empty()
+        && let Some(e) = last_error
+    {
+        return Err(e);
     }
     if custom.is_none() {
         let durations: Vec<u32> = (track.duration_secs > 0).then_some(track.duration_secs).into_iter().collect();
@@ -118,10 +118,10 @@ pub async fn resolve(
 
     let track = library.track(source_id, track_id)?.ok_or_else(|| anyhow!("fuente desconocida: {source_id}"))?;
 
-    if let Some((play_source, play_id)) = library.track_match(source_id, track_id)? {
-        if let Ok(source) = registry.get(&play_source) {
-            return Ok((source, play_id));
-        }
+    if let Some((play_source, play_id)) = library.track_match(source_id, track_id)?
+        && let Ok(source) = registry.get(&play_source)
+    {
+        return Ok((source, play_id));
     }
 
     let sources = playback_order(registry);
