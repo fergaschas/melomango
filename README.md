@@ -27,6 +27,10 @@ importadas de Spotify. **Atrás** (o Alt+←) vuelve a la página anterior.
 tipo), **Canciones** (de la fuente elegida), **Artistas**, **Álbumes** y **Playlists** (tus playlists que coinciden y
 playlists públicas de Deezer, que puedes reproducir o guardar en las tuyas y sincronizar después).
 
+**Bandeja del sistema**: Melomango tiene un icono junto al reloj; un clic abre la ventana y su menú pausa, pasa de
+canción o sale. Al cerrar la ventana sigue sonando en la bandeja (se puede cambiar en **Ajustes**), y abrir
+Melomango otra vez muestra la ventana que ya está en marcha.
+
 **Discord**: mientras suena algo, tu perfil muestra «Escuchando Melomango» con la canción, el artista, la portada y
 el tiempo. Melomango habla con la app de Discord de tu equipo (no envía nada por internet) y se puede desactivar en
 **Ajustes**, abajo en la barra lateral.

@@ -145,6 +145,12 @@ export interface Lyrics {
 
 export const getLyrics = (track: Track) => invoke<Lyrics>("get_lyrics", { track });
 
+// ---------- System tray ----------
+
+export const trayUpdate = (title: string | null, playing: boolean) =>
+  invoke<void>("tray_update", { title, playing }).catch(() => {});
+export const setCloseToTray = (on: boolean) => invoke<void>("set_close_to_tray", { on }).catch(() => {});
+
 // ---------- Discord ("Escuchando Melomango") ----------
 
 export interface NowPlaying {

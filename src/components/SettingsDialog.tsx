@@ -13,10 +13,12 @@ const STATUS_TEXT: Record<DiscordStatus["state"], string> = {
 interface Props {
   discordEnabled: boolean;
   onDiscordChange: (on: boolean) => void;
+  closeToTray: boolean;
+  onCloseToTrayChange: (on: boolean) => void;
   onClose: () => void;
 }
 
-export function SettingsDialog({ discordEnabled, onDiscordChange, onClose }: Props) {
+export function SettingsDialog({ discordEnabled, onDiscordChange, closeToTray, onCloseToTrayChange, onClose }: Props) {
   const [status, setStatus] = useState<DiscordStatus | null>(null);
 
   // The connection changes on its own (Discord opened or closed): check while open.
@@ -51,6 +53,25 @@ export function SettingsDialog({ discordEnabled, onDiscordChange, onClose }: Pro
             <CloseIcon />
           </button>
         </header>
+
+        <label className="radio-switch settings-row">
+          <input
+            type="checkbox"
+            id="close-to-tray"
+            checked={closeToTray}
+            onChange={(e) => onCloseToTrayChange(e.target.checked)}
+          />
+          <span className="switch-track" aria-hidden="true">
+            <span className="switch-thumb" />
+          </span>
+          <span>
+            <strong>Seguir sonando al cerrar la ventana</strong>
+            <span className="radio-switch-note">
+              Melomango se queda en la bandeja del sistema, junto al reloj. Para salir del todo, usa «Salir» en el menú
+              de su icono.
+            </span>
+          </span>
+        </label>
 
         <label className="radio-switch settings-row">
           <input

@@ -10,6 +10,7 @@ mod models;
 mod sources;
 mod spotify_export;
 mod stream;
+mod tray;
 
 use std::{
     path::PathBuf,
@@ -370,6 +371,22 @@ fn import_spotify_export(state: State<'_, AppState>, paths: Vec<String>) -> Resu
         .collect()
 }
 
+/// What the tray icon shows: the song in its tooltip and play/pause in its menu.
+#[tauri::command]
+fn tray_update(app: tauri::AppHandle, title: Option<String>, playing: bool) {
+    if let Some(tray) = app.try_state::<tray::Tray>() {
+        tray.update(&app, title.as_deref(), playing);
+    }
+}
+
+/// Whether closing the window hides it in the tray (and the music keeps playing).
+#[tauri::command]
+fn set_close_to_tray(app: tauri::AppHandle, on: bool) {
+    if let Some(tray) = app.try_state::<tray::Tray>() {
+        tray.set_close_to_tray(on);
+    }
+}
+
 /// Shows what is playing in Discord ("Escuchando Melomango"), or clears it with `null`.
 #[tauri::command]
 fn discord_set(state: State<'_, AppState>, now: Option<discord::NowPlaying>) {
@@ -487,6 +504,8 @@ fn prefetch_stream(app: tauri::AppHandle, source: String, id: String) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // Opening Melomango again (e.g. while it plays in the tray) shows the running one.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| tray::show_main(app)))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -518,7 +537,23 @@ pub fn run() {
             };
             state.reload();
             app.manage(state);
+            // Without a tray (some Linux desktops) the app works as before.
+            match tray::Tray::create(app.handle()) {
+                Ok(tray) => {
+                    app.manage(tray);
+                }
+                Err(e) => eprintln!("sin icono en la bandeja: {e}"),
+            }
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                let to_tray = window.app_handle().try_state::<tray::Tray>().is_some_and(|t| t.closes_to_tray());
+                if window.label() == "main" && to_tray {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
         })
         .register_asynchronous_uri_scheme_protocol("stream", |ctx, request, responder| {
             let app = ctx.app_handle().clone();
@@ -574,6 +609,8 @@ pub fn run() {
             save_deezer_playlist,
             discord_set,
             discord_status,
+            tray_update,
+            set_close_to_tray,
             recent_plays,
             clear_history,
             prefetch_stream
