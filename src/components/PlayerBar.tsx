@@ -2,16 +2,38 @@ import { formatTime } from "../lib/api";
 import type { Player } from "../hooks/usePlayer";
 import { Artwork } from "./Artwork";
 import { useLibrary } from "../lib/library";
-import { HeartFilledIcon, HeartIcon, MicIcon, NextIcon, PauseIcon, PlayIcon, PrevIcon, VolumeIcon } from "./Icons";
+import {
+  HeartFilledIcon,
+  HeartIcon,
+  MicIcon,
+  MuteIcon,
+  NextIcon,
+  PauseIcon,
+  PlayIcon,
+  PrevIcon,
+  QueueIcon,
+  RepeatIcon,
+  RepeatOneIcon,
+  ShuffleIcon,
+  VolumeIcon,
+} from "./Icons";
+
+export type SidePanel = "lyrics" | "queue" | null;
 
 interface Props {
   player: Player;
-  lyricsOpen: boolean;
-  onToggleLyrics: () => void;
+  panel: SidePanel;
+  onTogglePanel: (panel: "lyrics" | "queue") => void;
 }
 
-export function PlayerBar({ player, lyricsOpen, onToggleLyrics }: Props) {
-  const { current, isPlaying, isLoading, time, duration, volume, error, hasNext } = player;
+const REPEAT_LABEL = {
+  off: "Repetir (desactivado)",
+  all: "Repetir la lista",
+  one: "Repetir esta canción",
+} as const;
+
+export function PlayerBar({ player, panel, onTogglePanel }: Props) {
+  const { current, isPlaying, isLoading, time, duration, volume, muted, error, hasNext, shuffle, repeat } = player;
   const library = useLibrary();
   const liked = current ? library.isLiked(current) : false;
 
@@ -29,6 +51,7 @@ export function PlayerBar({ player, lyricsOpen, onToggleLyrics }: Props) {
             onClick={() => library.toggleLike(current)}
             aria-label={liked ? "Quitar de Me gusta" : "Añadir a Me gusta"}
             aria-pressed={liked}
+            title={`${liked ? "Quitar de Me gusta" : "Me gusta"} (L)`}
           >
             {liked ? <HeartFilledIcon size={20} /> : <HeartIcon size={20} />}
           </button>
@@ -37,14 +60,37 @@ export function PlayerBar({ player, lyricsOpen, onToggleLyrics }: Props) {
 
       <div className="controls">
         <div className="buttons">
-          <button className="icon-btn" onClick={player.prev} disabled={!current} aria-label="Anterior">
+          <button
+            className={`icon-btn mode-btn${shuffle ? " on" : ""}`}
+            onClick={player.toggleShuffle}
+            aria-pressed={shuffle}
+            aria-label="Aleatorio"
+            title={`Aleatorio${shuffle ? " (activado)" : ""} (S)`}
+          >
+            <ShuffleIcon size={18} />
+          </button>
+          <button className="icon-btn" onClick={player.prev} disabled={!current} aria-label="Anterior" title="Anterior (Ctrl+←)">
             <PrevIcon />
           </button>
-          <button className="play-btn" onClick={player.toggle} disabled={!current} aria-label={isPlaying ? "Pausa" : "Reproducir"}>
+          <button
+            className="play-btn"
+            onClick={player.toggle}
+            disabled={!current}
+            aria-label={isPlaying ? "Pausa" : "Reproducir"}
+            title={`${isPlaying ? "Pausa" : "Reproducir"} (espacio)`}
+          >
             {isPlaying ? <PauseIcon size={22} /> : <PlayIcon size={22} />}
           </button>
-          <button className="icon-btn" onClick={player.next} disabled={!hasNext} aria-label="Siguiente">
+          <button className="icon-btn" onClick={player.next} disabled={!hasNext} aria-label="Siguiente" title="Siguiente (Ctrl+→)">
             <NextIcon />
+          </button>
+          <button
+            className={`icon-btn mode-btn${repeat !== "off" ? " on" : ""}`}
+            onClick={player.cycleRepeat}
+            aria-label={REPEAT_LABEL[repeat]}
+            title={`${REPEAT_LABEL[repeat]} (R)`}
+          >
+            {repeat === "one" ? <RepeatOneIcon size={18} /> : <RepeatIcon size={18} />}
           </button>
         </div>
         <div className="seek">
@@ -65,23 +111,44 @@ export function PlayerBar({ player, lyricsOpen, onToggleLyrics }: Props) {
 
       <div className="volume">
         <button
-          className={`icon-btn lyrics-toggle${lyricsOpen ? " on" : ""}`}
-          onClick={onToggleLyrics}
-          aria-pressed={lyricsOpen}
+          className={`icon-btn lyrics-toggle${panel === "lyrics" ? " on" : ""}`}
+          onClick={() => onTogglePanel("lyrics")}
+          aria-pressed={panel === "lyrics"}
           aria-label="Letra"
-          title="Letra"
+          title="Letra (Y)"
         >
           <MicIcon size={18} />
         </button>
-        <VolumeIcon size={18} />
+        <button
+          className={`icon-btn lyrics-toggle${panel === "queue" ? " on" : ""}`}
+          onClick={() => onTogglePanel("queue")}
+          aria-pressed={panel === "queue"}
+          aria-label="Cola"
+          title="Cola (Q)"
+        >
+          <QueueIcon size={18} />
+        </button>
+        <button
+          className="icon-btn"
+          onClick={player.toggleMute}
+          aria-pressed={muted}
+          aria-label={muted ? "Activar sonido" : "Silenciar"}
+          title={`${muted ? "Activar sonido" : "Silenciar"} (M)`}
+        >
+          {muted ? <MuteIcon size={18} /> : <VolumeIcon size={18} />}
+        </button>
         <input
           type="range"
           min={0}
           max={1}
           step={0.01}
-          value={volume}
-          onChange={(e) => player.setVolume(Number(e.target.value))}
+          value={muted ? 0 : volume}
+          onChange={(e) => {
+            if (muted) player.toggleMute();
+            player.setVolume(Number(e.target.value));
+          }}
           aria-label="Volumen"
+          title="Volumen (Ctrl+↑ / Ctrl+↓)"
         />
       </div>
     </footer>

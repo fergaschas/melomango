@@ -58,7 +58,7 @@ export function LyricsPanel({ player, onClose }: { player: Player; onClose: () =
   };
 
   return (
-    <aside className="lyrics-panel" aria-label="Letra">
+    <aside className="lyrics-panel side-panel" aria-label="Letra">
       <header className="lyrics-header">
         <div className="lyrics-heading">
           <span className="eyebrow">Letra</span>

@@ -1,10 +1,15 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { Track } from "../lib/api";
 import { useLibrary } from "../lib/library";
-import { PlusIcon } from "./Icons";
+import { PlayNextIcon, PlusIcon, QueueAddIcon } from "./Icons";
 
-/** "+" button that opens a small menu to add `track` to a playlist (or a new one). */
-export function AddToPlaylistMenu({ track }: { track: Track }) {
+export interface QueueActions {
+  playNext: (t: Track) => void;
+  addToQueue: (t: Track) => void;
+}
+
+/** "+" button: play next / add to the queue, or add `track` to a playlist (or a new one). */
+export function AddToPlaylistMenu({ track, queue }: { track: Track; queue?: QueueActions }) {
   const library = useLibrary();
   const [open, setOpen] = useState(false);
   const [newName, setNewName] = useState("");
@@ -38,13 +43,44 @@ export function AddToPlaylistMenu({ track }: { track: Track }) {
       <button
         className={`row-action${open ? " on" : ""}`}
         onClick={() => setOpen((o) => !o)}
-        aria-label="Añadir a playlist"
-        title="Añadir a playlist"
+        aria-label="Añadir a la cola o a una playlist"
+        title="Añadir a la cola o a una playlist"
       >
         <PlusIcon size={18} />
       </button>
       {open && (
         <div className="menu" role="menu">
+          {queue && (
+            <>
+              <button
+                role="menuitem"
+                className="menu-item"
+                onClick={() => {
+                  setOpen(false);
+                  queue.playNext(track);
+                  library.notify(`«${track.title}» sonará a continuación`);
+                }}
+              >
+                <span className="menu-icon-label">
+                  <PlayNextIcon size={16} /> Reproducir a continuación
+                </span>
+              </button>
+              <button
+                role="menuitem"
+                className="menu-item"
+                onClick={() => {
+                  setOpen(false);
+                  queue.addToQueue(track);
+                  library.notify(`«${track.title}» añadida a la cola`);
+                }}
+              >
+                <span className="menu-icon-label">
+                  <QueueAddIcon size={16} /> Añadir a la cola
+                </span>
+              </button>
+              <hr className="menu-sep" />
+            </>
+          )}
           <p className="menu-title">Añadir a playlist</p>
           {library.playlists.map((p) => (
             <button

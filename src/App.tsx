@@ -1,12 +1,15 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { DEFAULT_SOURCE, listPlugins, listSources, searchTracks, trendingTracks, type SourceInfo, type Track } from "./lib/api";
 import { useLibrary } from "./lib/library";
 import { usePlayer, type Player } from "./hooks/usePlayer";
 import { useUpdater } from "./hooks/useUpdater";
+import { useShortcuts } from "./hooks/useShortcuts";
 import { setupRequirements } from "./lib/requirements";
 import { UpdateCard } from "./components/UpdateCard";
 import { TrackList } from "./components/TrackList";
-import { PlayerBar } from "./components/PlayerBar";
+import { PlayerBar, type SidePanel } from "./components/PlayerBar";
+import { QueuePanel } from "./components/QueuePanel";
+import { ShortcutsDialog } from "./components/ShortcutsDialog";
 import { PluginsDialog } from "./components/PluginsDialog";
 import { ServicesDialog } from "./components/ServicesDialog";
 import { Sidebar } from "./components/Sidebar";
@@ -23,13 +26,17 @@ export type View =
   | { kind: "playlist"; id: number };
 
 const SOURCE_KEY = "melomango.source";
-const LYRICS_KEY = "melomango.lyricsOpen";
+const PANEL_KEY = "melomango.panel";
+/** Before the queue panel existed, only the lyrics panel was remembered. */
+const OLD_LYRICS_KEY = "melomango.lyricsOpen";
 
-function savedLyricsOpen() {
+function savedPanel(): SidePanel {
   try {
-    return localStorage.getItem(LYRICS_KEY) === "1";
+    const panel = localStorage.getItem(PANEL_KEY);
+    if (panel === "lyrics" || panel === "queue") return panel;
+    return localStorage.getItem(OLD_LYRICS_KEY) === "1" ? "lyrics" : null;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -44,7 +51,8 @@ function savedSource() {
 export default function App() {
   const player = usePlayer();
   const updater = useUpdater();
-  const { toast } = useLibrary();
+  const library = useLibrary();
+  const { toast } = library;
   const [sources, setSources] = useState<SourceInfo[]>([]);
   const [plugins, setPlugins] = useState<SourceInfo[]>([]);
   const [showServices, setShowServices] = useState(false);
@@ -52,7 +60,22 @@ export default function App() {
   const [showPlugins, setShowPlugins] = useState(false);
   const [query, setQuery] = useState("");
   const [view, setView] = useState<View>({ kind: "trending" });
-  const [lyricsOpen, setLyricsOpen] = useState(savedLyricsOpen);
+  const [panel, setPanel] = useState<SidePanel>(savedPanel);
+  const [showShortcuts, setShowShortcuts] = useState(false);
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  const togglePanel = useCallback((which: "lyrics" | "queue") => setPanel((p) => (p === which ? null : which)), []);
+
+  useShortcuts({
+    player,
+    onLike: () => player.current && library.toggleLike(player.current),
+    onSearch: () => {
+      searchRef.current?.focus();
+      searchRef.current?.select();
+    },
+    onTogglePanel: togglePanel,
+    onHelp: () => setShowShortcuts(true),
+  });
 
   const source = sources.find((s) => s.id === sourceId) ?? null;
 
@@ -74,11 +97,11 @@ export default function App() {
 
   useEffect(() => {
     try {
-      localStorage.setItem(LYRICS_KEY, lyricsOpen ? "1" : "0");
+      localStorage.setItem(PANEL_KEY, panel ?? "none");
     } catch {
       /* storage unavailable: not important */
     }
-  }, [lyricsOpen]);
+  }, [panel]);
 
   useEffect(() => {
     try {
@@ -101,7 +124,7 @@ export default function App() {
   }
 
   return (
-    <div className={`app${lyricsOpen ? " with-lyrics" : ""}`}>
+    <div className={`app${panel ? " with-panel" : ""}`}>
       <header className="topbar">
         <button className="logo" onClick={() => setView({ kind: "trending" })}>
           <img className="logo-mark" src={logo} alt="" width={34} height={34} /> Melomango
@@ -109,10 +132,13 @@ export default function App() {
         <form className="search" onSubmit={onSearch}>
           <SearchIcon size={18} />
           <input
+            ref={searchRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder={`Busca en ${source?.name ?? "…"}…`}
             aria-label="Buscar"
+            title="Buscar (Ctrl+F)"
+            onKeyDown={(e) => e.key === "Escape" && e.currentTarget.blur()}
           />
         </form>
         <div className="source-tabs" role="tablist" aria-label="Fuente de música">
@@ -133,7 +159,13 @@ export default function App() {
         </button>
       </header>
 
-      <Sidebar view={view} onNavigate={setView} updater={updater} onImport={() => setShowServices(true)} />
+      <Sidebar
+        view={view}
+        onNavigate={setView}
+        updater={updater}
+        onImport={() => setShowServices(true)}
+        onShowShortcuts={() => setShowShortcuts(true)}
+      />
 
       <main className="content">
         {view.kind === "likes" && <LikesView player={player} />}
@@ -145,9 +177,10 @@ export default function App() {
         )}
       </main>
 
-      {lyricsOpen && <LyricsPanel player={player} onClose={() => setLyricsOpen(false)} />}
+      {panel === "lyrics" && <LyricsPanel player={player} onClose={() => setPanel(null)} />}
+      {panel === "queue" && <QueuePanel player={player} onClose={() => setPanel(null)} />}
 
-      <PlayerBar player={player} lyricsOpen={lyricsOpen} onToggleLyrics={() => setLyricsOpen((o) => !o)} />
+      <PlayerBar player={player} panel={panel} onTogglePanel={togglePanel} />
 
       <UpdateCard updater={updater} />
 
@@ -156,6 +189,8 @@ export default function App() {
           {toast}
         </div>
       )}
+
+      {showShortcuts && <ShortcutsDialog onClose={() => setShowShortcuts(false)} />}
 
       {showPlugins && (
         <PluginsDialog sources={plugins} onChanged={refreshSources} onClose={() => setShowPlugins(false)} />
@@ -250,6 +285,7 @@ function BrowseView({
           current={player.current}
           isPlaying={player.isPlaying}
           onPlay={(i) => player.playQueue(tracks, i)}
+          queue={player}
         />
       )}
     </>

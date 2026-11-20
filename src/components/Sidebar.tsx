@@ -3,7 +3,7 @@ import { useLibrary } from "../lib/library";
 import type { View } from "../App";
 import type { Updater } from "../hooks/useUpdater";
 import { updateStatusText } from "./UpdateCard";
-import { HomeIcon, ImportIcon, PlusIcon } from "./Icons";
+import { HomeIcon, ImportIcon, KeyboardIcon, PlusIcon } from "./Icons";
 import { PlaylistCover } from "./PlaylistCover";
 
 export function Sidebar({
@@ -11,11 +11,13 @@ export function Sidebar({
   onNavigate,
   updater,
   onImport,
+  onShowShortcuts,
 }: {
   view: View;
   onNavigate: (v: View) => void;
   updater: Updater;
   onImport: () => void;
+  onShowShortcuts: () => void;
 }) {
   const library = useLibrary();
   const [creating, setCreating] = useState(false);
@@ -106,6 +108,9 @@ export function Sidebar({
           {updater.state.kind === "available" ? "Actualizar ahora" : "Buscar actualizaciones"}
         </button>
         {updateStatusText(updater) && <span className="update-status">{updateStatusText(updater)}</span>}
+        <button className="link-btn shortcuts-link" onClick={onShowShortcuts} title="Atajos de teclado (?)">
+          <KeyboardIcon size={14} /> Atajos de teclado
+        </button>
       </footer>
     </nav>
   );

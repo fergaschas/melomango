@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { formatTime, prefetchStream, trackKey, type Track } from "../lib/api";
 import { useLibrary } from "../lib/library";
-import { AddToPlaylistMenu } from "./AddToPlaylistMenu";
+import { AddToPlaylistMenu, type QueueActions } from "./AddToPlaylistMenu";
 import { Artwork } from "./Artwork";
 import { CloseIcon, HeartFilledIcon, HeartIcon, PauseIcon, PlayIcon } from "./Icons";
 
@@ -14,11 +14,13 @@ interface Props {
   onRemove?: (track: Track, index: number) => void;
   /** Enables drag & drop reordering. */
   onMove?: (from: number, to: number) => void;
+  /** Adds "play next" and "add to queue" to each row's menu. */
+  queue?: QueueActions;
 }
 
 const PREFETCH_HOVER_MS = 350;
 
-export function TrackList({ tracks, current, isPlaying, onPlay, onRemove, onMove }: Props) {
+export function TrackList({ tracks, current, isPlaying, onPlay, onRemove, onMove, queue }: Props) {
   const library = useLibrary();
   const [dragFrom, setDragFrom] = useState<number | null>(null);
   const [dragOver, setDragOver] = useState<number | null>(null);
@@ -108,7 +110,7 @@ export function TrackList({ tracks, current, isPlaying, onPlay, onRemove, onMove
               >
                 {liked ? <HeartFilledIcon size={18} /> : <HeartIcon size={18} />}
               </button>
-              <AddToPlaylistMenu track={track} />
+              <AddToPlaylistMenu track={track} queue={queue} />
               {onRemove && (
                 <button
                   className="row-action"

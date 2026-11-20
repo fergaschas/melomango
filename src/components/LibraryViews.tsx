@@ -48,6 +48,7 @@ export function LikesView({ player }: { player: Player }) {
           tracks={tracks}
           current={player.current}
           isPlaying={player.isPlaying}
+          queue={player}
           onPlay={(i) => player.playQueue(tracks, i)}
         />
       )}
@@ -186,6 +187,7 @@ export function PlaylistView({ id, player, onDeleted }: { id: number; player: Pl
             tracks={playlist.tracks}
             current={player.current}
             isPlaying={player.isPlaying}
+            queue={player}
             onPlay={(i) => player.playQueue(playlist.tracks, i)}
             onRemove={(t) => library.removeFromPlaylist(id, t)}
             onMove={onMove}

@@ -7,6 +7,10 @@ Sin pagar ni un mango.
 
 Playlists, Me gusta, letras sincronizadas (LRCLIB), importación de playlists de Spotify y fuentes ampliables con plugins.
 
+Reproductor con cola editable (reproducir a continuación, añadir a la cola, arrastrar para reordenar), aleatorio,
+repetir (lista o canción) y atajos de teclado (pulsa **?** para verlos). Al cerrar recuerda la cola, la canción, la
+posición y el volumen.
+
 Fuentes:
 
 - **Audius** (integrada): plataforma descentralizada con API abierta y canciones completas, legal y gratis.
