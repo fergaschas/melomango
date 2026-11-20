@@ -479,20 +479,25 @@ async fn import_text(app: tauri::AppHandle, name: String, text: String) -> Resul
 
 /// Imports the playlists and liked songs of a Spotify data export (zip or its JSON files).
 #[tauri::command]
-async fn import_spotify_export(app: tauri::AppHandle, paths: Vec<String>) -> Result<Vec<PlaylistSummary>, String> {
+async fn import_spotify_export(app: tauri::AppHandle, paths: Vec<String>) -> Result<ImportedExport, String> {
     blocking(app, move |state| {
-        let collections = spotify_export::read(&paths).map_err(err)?;
-        collections
+        let export = spotify_export::read(&paths).map_err(err)?;
+        let playlists: Vec<(&str, &str, &[Track])> = export
+            .collections
             .iter()
-            .map(|c| {
-                state
-                    .library
-                    .import_playlist(spotify_export::ORIGIN, &c.remote_id, &c.name, &c.tracks)
-                    .map_err(err)
-            })
-            .collect()
+            .map(|c| (c.remote_id.as_str(), c.name.as_str(), c.tracks.as_slice()))
+            .collect();
+        let playlists = state.library.import_many(spotify_export::ORIGIN, &playlists).map_err(err)?;
+        Ok(ImportedExport { playlists, problems: export.problems })
     })
     .await
+}
+
+#[derive(Serialize)]
+struct ImportedExport {
+    playlists: Vec<PlaylistSummary>,
+    /// Files (or parts of them) that couldn't be read and were skipped, one line each.
+    problems: Vec<String>,
 }
 
 /// Shrinks the main window to the mini player (always on top), or puts it back.

@@ -339,8 +339,9 @@ export const importLink = (url: string) =>
   invoke<{ playlist: PlaylistSummary; limited: boolean }>("import_link", { url });
 
 /** Imports the playlists and liked songs of a Spotify data export (its zip or JSON files). */
+/** `problems`: files (or parts) that couldn't be read and were skipped, one line each. */
 export const importSpotifyExport = (paths: string[]) =>
-  invoke<PlaylistSummary[]>("import_spotify_export", { paths });
+  invoke<{ playlists: PlaylistSummary[]; problems: string[] }>("import_spotify_export", { paths });
 
 // ---------- Services (library plugins such as Spotify) ----------
 

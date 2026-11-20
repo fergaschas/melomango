@@ -694,7 +694,8 @@ impl Library {
     // ---------- Imported playlists ----------
 
     /// Creates (or refreshes) the playlist linked to `remote_id` of `plugin_id` with
-    /// exactly `tracks`, in order. A previously imported playlist keeps its name.
+    /// exactly `tracks`, in order. A previously imported playlist keeps its name; a new one
+    /// without a name gets a default one.
     pub fn import_playlist(
         &self,
         plugin_id: &str,
@@ -702,56 +703,29 @@ impl Library {
         name: &str,
         tracks: &[Track],
     ) -> anyhow::Result<PlaylistSummary> {
-        let name = clean_name(name)?;
+        let mut imported = self.import_many(plugin_id, &[(remote_id, name, tracks)])?;
+        Ok(imported.remove(0))
+    }
+
+    /// [`import_playlist`](Self::import_playlist) for several playlists, all or none: in
+    /// one transaction, so a failure halfway doesn't leave half an import saved.
+    pub fn import_many(
+        &self,
+        plugin_id: &str,
+        playlists: &[(&str, &str, &[Track])],
+    ) -> anyhow::Result<Vec<PlaylistSummary>> {
         self.with(|c| {
             let tx = c.transaction()?;
             let ts = now();
-            let existing: Option<i64> = tx
-                .query_row(
-                    "SELECT playlist_id FROM playlist_links WHERE plugin_id = ?1 AND remote_id = ?2",
-                    params![plugin_id, remote_id],
-                    |r| r.get(0),
-                )
-                .optional()?;
-            let id = match existing {
-                Some(id) => id,
-                None => {
-                    tx.execute(
-                        "INSERT INTO playlists (name, created_at, updated_at) VALUES (?1, ?2, ?2)",
-                        params![name, ts],
-                    )?;
-                    let id = tx.last_insert_rowid();
-                    tx.execute(
-                        "INSERT INTO playlist_links (playlist_id, plugin_id, remote_id, synced_at) VALUES (?1, ?2, ?3, ?4)",
-                        params![id, plugin_id, remote_id, ts],
-                    )?;
-                    id
-                }
-            };
-            // Songs already there keep the date they were added; only new ones get today's.
-            let added_before: std::collections::HashMap<(String, String), i64> = tx
-                .prepare("SELECT source, id, added_at FROM playlist_tracks WHERE playlist_id = ?1")?
-                .query_map([id], |r| Ok(((r.get(0)?, r.get(1)?), r.get(2)?)))?
-                .collect::<rusqlite::Result<_>>()?;
-            tx.execute("DELETE FROM playlist_tracks WHERE playlist_id = ?1", [id])?;
-            let mut position = 0i64;
-            for track in tracks {
-                upsert_track(&tx, track)?;
-                let added_at = added_before
-                    .get(&(track.source.clone(), track.id.clone()))
-                    .copied()
-                    .unwrap_or(ts);
-                position += tx.execute(
-                    "INSERT OR IGNORE INTO playlist_tracks (playlist_id, source, id, position, added_at)
-                     VALUES (?1, ?2, ?3, ?4, ?5)",
-                    params![id, track.source, track.id, position, added_at],
-                )? as i64;
-            }
-            tx.execute("UPDATE playlist_links SET synced_at = ?2 WHERE playlist_id = ?1", params![id, ts])?;
-            touch(&tx, id)?;
-            let result = summary(&tx, id)?;
+            let imported = playlists
+                .iter()
+                .map(|(remote_id, name, tracks)| {
+                    let name = clean_name(name).unwrap_or_else(|_| "Playlist importada".into());
+                    import_into(&tx, plugin_id, remote_id, &name, tracks, ts)
+                })
+                .collect::<rusqlite::Result<Vec<_>>>()?;
             tx.commit()?;
-            Ok(result)
+            Ok(imported)
         })
     }
 
@@ -845,6 +819,61 @@ fn now() -> i64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0)
+}
+
+/// One playlist of an import, inside the caller's transaction.
+fn import_into(
+    tx: &rusqlite::Transaction,
+    plugin_id: &str,
+    remote_id: &str,
+    name: &str,
+    tracks: &[Track],
+    ts: i64,
+) -> rusqlite::Result<PlaylistSummary> {
+    let existing: Option<i64> = tx
+        .query_row(
+            "SELECT playlist_id FROM playlist_links WHERE plugin_id = ?1 AND remote_id = ?2",
+            params![plugin_id, remote_id],
+            |r| r.get(0),
+        )
+        .optional()?;
+    let id = match existing {
+        Some(id) => id,
+        None => {
+            tx.execute(
+                "INSERT INTO playlists (name, created_at, updated_at) VALUES (?1, ?2, ?2)",
+                params![name, ts],
+            )?;
+            let id = tx.last_insert_rowid();
+            tx.execute(
+                "INSERT INTO playlist_links (playlist_id, plugin_id, remote_id, synced_at) VALUES (?1, ?2, ?3, ?4)",
+                params![id, plugin_id, remote_id, ts],
+            )?;
+            id
+        }
+    };
+    // Songs already there keep the date they were added; only new ones get today's.
+    let added_before: std::collections::HashMap<(String, String), i64> = tx
+        .prepare("SELECT source, id, added_at FROM playlist_tracks WHERE playlist_id = ?1")?
+        .query_map([id], |r| Ok(((r.get(0)?, r.get(1)?), r.get(2)?)))?
+        .collect::<rusqlite::Result<_>>()?;
+    tx.execute("DELETE FROM playlist_tracks WHERE playlist_id = ?1", [id])?;
+    let mut position = 0i64;
+    for track in tracks {
+        upsert_track(tx, track)?;
+        let added_at = added_before
+            .get(&(track.source.clone(), track.id.clone()))
+            .copied()
+            .unwrap_or(ts);
+        position += tx.execute(
+            "INSERT OR IGNORE INTO playlist_tracks (playlist_id, source, id, position, added_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![id, track.source, track.id, position, added_at],
+        )? as i64;
+    }
+    tx.execute("UPDATE playlist_links SET synced_at = ?2 WHERE playlist_id = ?1", params![id, ts])?;
+    touch(tx, id)?;
+    summary(tx, id)
 }
 
 fn clean_name(name: &str) -> anyhow::Result<String> {
@@ -1084,6 +1113,28 @@ mod tests {
         // Deleting the playlist drops the link too.
         lib.delete_playlist(first.id).unwrap();
         assert!(lib.imported_from("spotify").unwrap().is_empty());
+    }
+
+    #[test]
+    fn importing_several_playlists_is_all_or_nothing() {
+        let lib = Library::in_memory();
+        let sp = |id: &str| Track { source: "spotify".into(), ..track(id) };
+        // The second playlist fails to save (as a full disk or a broken row would).
+        lib.with(|c| {
+            c.execute_batch(
+                "CREATE TRIGGER broken BEFORE INSERT ON playlists WHEN NEW.name = 'Rota'
+                 BEGIN SELECT RAISE(ABORT, 'disco lleno'); END;",
+            )
+        })
+        .unwrap();
+        let (a, b) = ([sp("1")], [sp("2")]);
+        let result = lib.import_many("spotify-export", &[("playlist:A", "A", &a[..]), ("playlist:Rota", "Rota", &b[..])]);
+        assert!(result.is_err());
+        assert!(lib.playlists().unwrap().is_empty(), "the first one is not left half imported");
+
+        let ok = lib.import_many("spotify-export", &[("playlist:A", "A", &a[..]), ("playlist:B", "  ", &b[..])]).unwrap();
+        let names: Vec<_> = ok.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, ["A", "Playlist importada"], "a playlist without a name gets one");
     }
 
     #[test]
