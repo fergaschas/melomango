@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
-import { discordStatus, type DiscordStatus } from "../lib/api";
+import { cacheUsage, clearCache, discordStatus, type DiscordStatus } from "../lib/api";
+import { useDownloads } from "../lib/downloads";
+import { CACHE_OPTIONS, formatSize, songs } from "../lib/downloadState";
 import { CloseIcon } from "./Icons";
 import type { Theme } from "../lib/theme";
 import { MAX_CROSSFADE } from "../lib/crossfade";
@@ -46,6 +48,19 @@ export function SettingsDialog({
   onClose,
 }: Props) {
   const [status, setStatus] = useState<DiscordStatus | null>(null);
+  const downloads = useDownloads();
+  const [usage, setUsage] = useState<{ songs: number; bytes: number } | null>(null);
+
+  // What the cache holds now (it shrinks right away when its size is lowered).
+  useEffect(() => {
+    const timer = window.setTimeout(() => cacheUsage().then(setUsage).catch(() => {}), 150);
+    return () => window.clearTimeout(timer);
+  }, [downloads.cacheLimit]);
+
+  async function onClearCache() {
+    await clearCache().catch(() => {});
+    setUsage(await cacheUsage().catch(() => null));
+  }
 
   // The connection changes on its own (Discord opened or closed): check while open.
   useEffect(() => {
@@ -139,6 +154,42 @@ export function SettingsDialog({
             </span>
           </span>
         </label>
+
+        <div className="settings-row theme-row cache-row">
+          <span>
+            <strong>Caché automática</strong>
+            <span className="radio-switch-note">
+              Guarda lo que escuchas a menudo (y tus Me gusta) para que empiece al momento y suene sin conexión. Si se
+              llena, se va lo que hace más que no escuchas.
+            </span>
+            {usage && (
+              <span className="radio-switch-note cache-usage">
+                Ahora: {songs(usage.songs)} · {formatSize(usage.bytes)}
+                {usage.songs > 0 && (
+                  <>
+                    {" · "}
+                    <button type="button" className="link-btn" onClick={onClearCache}>
+                      Vaciar
+                    </button>
+                  </>
+                )}
+              </span>
+            )}
+          </span>
+          <div className="segmented" role="radiogroup" aria-label="Tamaño de la caché">
+            {CACHE_OPTIONS.map((bytes) => (
+              <button
+                key={bytes}
+                role="radio"
+                aria-checked={downloads.cacheLimit === bytes}
+                className={downloads.cacheLimit === bytes ? "active" : undefined}
+                onClick={() => downloads.setCacheLimit(bytes)}
+              >
+                {bytes === 0 ? "No" : `${bytes / 1024 ** 3} GB`}
+              </button>
+            ))}
+          </div>
+        </div>
 
         <label className="radio-switch settings-row">
           <input

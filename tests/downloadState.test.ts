@@ -1,6 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { collectionState, formatSize, percent, type DownloadProgress } from "../src/lib/downloadState.ts";
+import {
+  CACHE_OPTIONS,
+  collectionState,
+  DEFAULT_CACHE,
+  formatSize,
+  parseCacheLimit,
+  percent,
+  songs,
+  type DownloadProgress,
+} from "../src/lib/downloadState.ts";
 
 test("sizes in the Spanish style", () => {
   assert.equal(formatSize(0), "0 B");
@@ -28,4 +37,20 @@ test("a collection: downloaded, on the way, and what is missing", () => {
   const items = ["a", "b", "c", "d", "e", "a"];
   const state = collectionState(items, (id) => `s/${id}`, new Set(["s/a"]), progress);
   assert.deepEqual(state, { total: 5, downloaded: 1, pending: 2, missing: ["c", "e"] });
+});
+
+test("cache size: one of the options, 2 GB by default", () => {
+  assert.equal(DEFAULT_CACHE, 2 * 1024 ** 3);
+  assert.equal(parseCacheLimit(null), DEFAULT_CACHE);
+  assert.equal(parseCacheLimit("0"), 0, "off is kept");
+  assert.equal(parseCacheLimit(String(5 * 1024 ** 3)), 5 * 1024 ** 3);
+  assert.equal(parseCacheLimit("12345"), DEFAULT_CACHE);
+  assert.equal(parseCacheLimit("abc"), DEFAULT_CACHE);
+  assert.deepEqual(CACHE_OPTIONS.map(formatSize), ["0 B", "1,0 GB", "2,0 GB", "5,0 GB", "10,0 GB"]);
+});
+
+test("songs, in singular and plural", () => {
+  assert.equal(songs(1), "1 canción");
+  assert.equal(songs(0), "0 canciones");
+  assert.equal(songs(12), "12 canciones");
 });

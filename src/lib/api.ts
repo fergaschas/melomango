@@ -283,6 +283,11 @@ export const removeDownload = (t: Track) => invoke<void>("remove_download", { so
 export const listDownloads = () => invoke<Download[]>("list_downloads");
 export const downloadedKeys = () => invoke<string[]>("downloaded_keys");
 
+/** Bytes the automatic cache may use (0 turns it off and empties it). */
+export const setCacheLimit = (bytes: number) => invoke<void>("set_cache_limit", { bytes });
+export const cacheUsage = () => invoke<{ songs: number; bytes: number }>("cache_usage");
+export const clearCache = () => invoke<void>("clear_cache");
+
 export const recentPlays = (limit?: number) => invoke<Play[]>("recent_plays", { limit: limit ?? null });
 export const clearHistory = () => invoke<void>("clear_history");
 

@@ -26,7 +26,7 @@ use tauri_plugin_opener::OpenerExt;
 
 use artists::{AlbumPage, ArtistPage, ArtistService, CatalogSearch, PlaylistPage, Suggestions};
 use catalog::{Catalog, RegistryInfo, Registries};
-use library::{Download, Library, MonthSummary, Play, Playlist, PlaylistSummary};
+use library::{Download, Library, MonthSummary, Play, Playlist, PlaylistSummary, StoredKind};
 use serde::Serialize;
 use lyrics::{Lyrics, LyricsService};
 use models::{SourceInfo, Track};
@@ -542,8 +542,15 @@ async fn radio_tracks(state: State<'_, AppState>, track: Track, exclude: Vec<Str
 
 /// Records that the user listened to `track` (called once it has played a while).
 #[tauri::command]
-fn record_play(state: State<'_, AppState>, track: Track) -> Result<(), String> {
-    state.library.record_play(&track).map_err(err)
+fn record_play(app: tauri::AppHandle, state: State<'_, AppState>, track: Track) -> Result<(), String> {
+    state.library.record_play(&track).map_err(err)?;
+    // Played often (or liked): keep a copy in the cache, in the background.
+    tauri::async_runtime::spawn(async move {
+        let state = app.state::<AppState>();
+        let registry = state.registry();
+        state.downloads.cache_if_favourite(&registry, &state.library, &state.http, &track).await;
+    });
+    Ok(())
 }
 
 #[tauri::command]
@@ -611,7 +618,7 @@ fn download_tracks(app: tauri::AppHandle, tracks: Vec<Track>) {
             let registry = state.registry();
             state
                 .downloads
-                .download(&registry, &state.library, &state.http, &track, |progress| {
+                .download(&registry, &state.library, &state.http, &track, StoredKind::Download, |progress| {
                     let _ = app.emit(DOWNLOAD_EVENT, progress);
                 })
                 .await;
@@ -633,6 +640,29 @@ fn list_downloads(state: State<'_, AppState>) -> Result<Vec<Download>, String> {
 #[tauri::command]
 fn downloaded_keys(state: State<'_, AppState>) -> Result<Vec<String>, String> {
     state.library.downloaded_keys().map_err(err)
+}
+
+/// Bytes the automatic cache may use (0 turns it off and empties it).
+#[tauri::command]
+fn set_cache_limit(state: State<'_, AppState>, bytes: u64) -> Result<(), String> {
+    state.downloads.set_cache_limit(&state.library, bytes).map_err(err)
+}
+
+#[derive(Serialize)]
+struct CacheUsage {
+    songs: u32,
+    bytes: u64,
+}
+
+#[tauri::command]
+fn cache_usage(state: State<'_, AppState>) -> Result<CacheUsage, String> {
+    let (songs, bytes) = state.library.cache_usage().map_err(err)?;
+    Ok(CacheUsage { songs, bytes })
+}
+
+#[tauri::command]
+fn clear_cache(state: State<'_, AppState>) -> Result<(), String> {
+    state.downloads.clear_cache(&state.library).map_err(err)
 }
 
 /// Resolves a track's audio in the background so it starts at once when played.
@@ -772,6 +802,9 @@ pub fn run() {
             remove_download,
             list_downloads,
             downloaded_keys,
+            set_cache_limit,
+            cache_usage,
+            clear_cache,
             set_close_to_tray,
             recent_plays,
             clear_history,

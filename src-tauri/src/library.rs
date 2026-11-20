@@ -114,6 +114,41 @@ pub struct Download {
     pub downloaded_at: i64,
 }
 
+/// Why a song's audio is on disk.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StoredKind {
+    /// The user downloaded it: kept until they remove it.
+    Download,
+    /// Saved on its own because it is played often: dropped when the cache is full.
+    Cache,
+}
+
+impl StoredKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            StoredKind::Download => "download",
+            StoredKind::Cache => "cache",
+        }
+    }
+
+    fn parse(s: &str) -> Self {
+        if s == "cache" {
+            StoredKind::Cache
+        } else {
+            StoredKind::Download
+        }
+    }
+}
+
+/// A cached song, as the cache sees it when making room.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CachedSong {
+    pub source: String,
+    pub id: String,
+    pub file: String,
+    pub size: u64,
+}
+
 /// Where a downloaded song's audio is (file name inside the downloads folder).
 #[derive(Debug, Clone, PartialEq)]
 pub struct DownloadFile {
@@ -276,16 +311,79 @@ impl Library {
 
     // ---------- Downloads ----------
 
-    pub fn add_download(&self, track: &Track, file: &DownloadFile) -> anyhow::Result<()> {
+    pub fn add_download(&self, track: &Track, file: &DownloadFile, kind: StoredKind) -> anyhow::Result<()> {
         self.with(|c| {
             let tx = c.transaction()?;
             upsert_track(&tx, track)?;
             tx.execute(
                 "INSERT OR REPLACE INTO downloads (source, id, file, mime, size, kind, downloaded_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, 'download', ?6)",
-                params![track.source, track.id, file.file, file.mime, file.size, now()],
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![track.source, track.id, file.file, file.mime, file.size, kind.as_str(), now()],
             )?;
             tx.commit()
+        })
+    }
+
+    pub fn stored_kind(&self, source: &str, id: &str) -> anyhow::Result<Option<StoredKind>> {
+        self.with(|c| {
+            c.query_row(
+                "SELECT kind FROM downloads WHERE source = ?1 AND id = ?2",
+                params![source, id],
+                |r| r.get::<_, String>(0),
+            )
+            .optional()
+        })
+        .map(|k| k.map(|k| StoredKind::parse(&k)))
+    }
+
+    /// A cached song the user now downloads: kept for good, no need to fetch it again.
+    pub fn keep_cached(&self, source: &str, id: &str) -> anyhow::Result<()> {
+        self.with(|c| {
+            c.execute(
+                "UPDATE downloads SET kind = 'download', downloaded_at = ?3 WHERE source = ?1 AND id = ?2",
+                params![source, id, now()],
+            )
+        })?;
+        Ok(())
+    }
+
+    /// Songs and bytes in the cache.
+    pub fn cache_usage(&self) -> anyhow::Result<(u32, u64)> {
+        self.with(|c| {
+            c.query_row(
+                "SELECT COUNT(*), COALESCE(SUM(size), 0) FROM downloads WHERE kind = 'cache'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+        })
+    }
+
+    /// Cached songs, the ones to drop first (least recently played) first.
+    pub fn cache_eviction_order(&self) -> anyhow::Result<Vec<CachedSong>> {
+        self.with(|c| {
+            let mut stmt = c.prepare(
+                "SELECT d.source, d.id, d.file, d.size FROM downloads d
+                 WHERE d.kind = 'cache'
+                 ORDER BY MAX(d.downloaded_at, COALESCE(
+                     (SELECT MAX(p.played_at) FROM plays p WHERE p.source = d.source AND p.id = d.id), 0)),
+                   d.rowid",
+            )?;
+            let rows = stmt.query_map([], |r| {
+                Ok(CachedSong { source: r.get(0)?, id: r.get(1)?, file: r.get(2)?, size: r.get(3)? })
+            })?;
+            rows.collect()
+        })
+    }
+
+    /// Whether a song is worth caching: played more than once, or liked.
+    pub fn is_favourite(&self, source: &str, id: &str) -> anyhow::Result<bool> {
+        self.with(|c| {
+            c.query_row(
+                "SELECT (SELECT COUNT(*) FROM plays WHERE source = ?1 AND id = ?2) >= 2
+                     OR EXISTS (SELECT 1 FROM likes WHERE source = ?1 AND id = ?2)",
+                params![source, id],
+                |r| r.get(0),
+            )
         })
     }
 
@@ -1098,8 +1196,8 @@ mod tests {
     fn downloads_are_listed_found_and_removed() {
         let lib = Library::in_memory();
         let file = |name: &str| DownloadFile { file: name.into(), mime: "audio/webm".into(), size: 1234 };
-        lib.add_download(&track("a"), &file("a.webm")).unwrap();
-        lib.add_download(&track("b"), &file("b.webm")).unwrap();
+        lib.add_download(&track("a"), &file("a.webm"), StoredKind::Download).unwrap();
+        lib.add_download(&track("b"), &file("b.webm"), StoredKind::Download).unwrap();
         let listed = lib.downloads().unwrap();
         assert_eq!(listed.len(), 2);
         assert_eq!(listed[0].size, 1234);
@@ -1112,7 +1210,40 @@ mod tests {
         assert_eq!(lib.remove_download("audius", "a").unwrap(), None);
         assert_eq!(ids(&lib.downloads().unwrap().into_iter().map(|d| d.track).collect::<Vec<_>>()), ["b"]);
         // Downloading again replaces the entry.
-        lib.add_download(&track("b"), &file("b2.webm")).unwrap();
+        lib.add_download(&track("b"), &file("b2.webm"), StoredKind::Download).unwrap();
         assert_eq!(lib.download_file("audius", "b").unwrap().unwrap().file, "b2.webm");
+    }
+
+    #[test]
+    fn the_cache_is_apart_from_downloads_and_drops_the_least_played_first() {
+        let lib = Library::in_memory();
+        let file = |name: &str, size| DownloadFile { file: name.into(), mime: "audio/webm".into(), size };
+        lib.add_download(&track("old"), &file("old", 100), StoredKind::Cache).unwrap();
+        lib.add_download(&track("new"), &file("new", 200), StoredKind::Cache).unwrap();
+        lib.add_download(&track("mine"), &file("mine", 999), StoredKind::Download).unwrap();
+        assert_eq!(lib.cache_usage().unwrap(), (2, 300));
+        assert!(lib.downloaded_keys().unwrap() == ["audius/mine"], "cached songs aren't downloads");
+        assert_eq!(lib.downloads().unwrap().len(), 1);
+        // Playing "old" now makes "new" the least recently used.
+        lib.record_play_at(&track("old"), now() + 60_000).unwrap();
+        let order: Vec<String> = lib.cache_eviction_order().unwrap().into_iter().map(|c| c.id).collect();
+        assert_eq!(order, ["new", "old"]);
+        // Downloading a cached song keeps it for good.
+        assert_eq!(lib.stored_kind("audius", "old").unwrap(), Some(StoredKind::Cache));
+        lib.keep_cached("audius", "old").unwrap();
+        assert_eq!(lib.stored_kind("audius", "old").unwrap(), Some(StoredKind::Download));
+        assert_eq!(lib.cache_usage().unwrap(), (1, 200));
+    }
+
+    #[test]
+    fn favourites_are_played_twice_or_liked() {
+        let lib = Library::in_memory();
+        lib.record_play(&track("a")).unwrap();
+        assert!(!lib.is_favourite("audius", "a").unwrap());
+        lib.record_play(&track("a")).unwrap();
+        assert!(lib.is_favourite("audius", "a").unwrap());
+        lib.set_liked(&track("b"), true).unwrap();
+        assert!(lib.is_favourite("audius", "b").unwrap());
+        assert!(!lib.is_favourite("audius", "zzz").unwrap());
     }
 }

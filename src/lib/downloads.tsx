@@ -3,7 +3,17 @@ import { listen } from "@tauri-apps/api/event";
 import * as api from "./api";
 import type { Track } from "./api";
 import { useLibrary } from "./library";
-import type { DownloadProgress } from "./downloadState";
+import { parseCacheLimit, type DownloadProgress } from "./downloadState";
+
+const CACHE_KEY = "melomango.cacheLimit";
+
+function loadCacheLimit(): number {
+  try {
+    return parseCacheLimit(localStorage.getItem(CACHE_KEY));
+  } catch {
+    return parseCacheLimit(null);
+  }
+}
 
 interface DownloadsValue {
   /** "source/id" of every downloaded song. */
@@ -20,6 +30,9 @@ interface DownloadsValue {
   /** Cancels or deletes the downloads of these songs. */
   remove: (tracks: Track[]) => Promise<void>;
   refresh: () => Promise<void>;
+  /** Bytes the automatic cache may use (0 = off). */
+  cacheLimit: number;
+  setCacheLimit: (bytes: number) => void;
 }
 
 const DownloadsContext = createContext<DownloadsValue | null>(null);
@@ -36,6 +49,21 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
   const [progress, setProgress] = useState<Map<string, DownloadProgress>>(new Map());
   const [version, setVersion] = useState(0);
   const titles = useRef(new Map<string, string>());
+  const [cacheLimit, setCacheLimitState] = useState(loadCacheLimit);
+
+  // The backend starts with the cache off until it hears the chosen size.
+  useEffect(() => {
+    api.setCacheLimit(cacheLimit).catch(() => {});
+  }, [cacheLimit]);
+
+  const setCacheLimit = useCallback((bytes: number) => {
+    setCacheLimitState(bytes);
+    try {
+      localStorage.setItem(CACHE_KEY, String(bytes));
+    } catch {
+      /* not remembered */
+    }
+  }, []);
 
   const refresh = useCallback(async () => {
     setDownloaded(new Set(await api.downloadedKeys()));
@@ -106,8 +134,10 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
         await refresh();
       },
       refresh,
+      cacheLimit,
+      setCacheLimit,
     }),
-    [downloaded, progress, version, notify, refresh],
+    [downloaded, progress, version, notify, refresh, cacheLimit, setCacheLimit],
   );
 
   return <DownloadsContext.Provider value={value}>{children}</DownloadsContext.Provider>;

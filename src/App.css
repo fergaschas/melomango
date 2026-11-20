@@ -2737,3 +2737,12 @@ kbd {
 .btn.ghost.downloaded {
   color: var(--success);
 }
+
+.cache-usage {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0 4px;
+  margin-top: 2px;
+  font-variant-numeric: tabular-nums;
+}

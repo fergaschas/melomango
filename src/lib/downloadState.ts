@@ -11,6 +11,17 @@ export interface DownloadProgress {
   message: string | null;
 }
 
+const GB = 1024 ** 3;
+/** Sizes offered for the automatic cache (0 = off). */
+export const CACHE_OPTIONS = [0, 1, 2, 5, 10].map((gb) => gb * GB);
+export const DEFAULT_CACHE = 2 * GB;
+
+/** A stored cache size, or the default if it isn't one of the options. */
+export function parseCacheLimit(raw: string | null): number {
+  const value = Number(raw);
+  return raw !== null && CACHE_OPTIONS.includes(value) ? value : DEFAULT_CACHE;
+}
+
 /** "1 canción", "3 canciones". */
 export const songs = (n: number) => `${n} ${n === 1 ? "canción" : "canciones"}`;
 

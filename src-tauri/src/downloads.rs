@@ -1,6 +1,9 @@
 //! Downloads: a song's audio saved in the app data folder (`downloads/`) to listen
 //! without a connection. The `stream://` protocol serves a downloaded song from disk
 //! (see [`Downloads::local`]) before trying the network.
+//!
+//! The same folder holds the automatic cache: songs played often (or liked) are saved
+//! on their own, up to a size limit; the least recently played go first.
 
 use std::{
     collections::HashMap,
@@ -8,7 +11,7 @@ use std::{
     io::{Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex,
     },
 };
@@ -18,7 +21,7 @@ use serde::Serialize;
 use tokio::sync::Semaphore;
 
 use crate::{
-    library::{DownloadFile, Library},
+    library::{DownloadFile, Library, StoredKind},
     models::Track,
     sources::Registry,
     stream,
@@ -28,6 +31,8 @@ use crate::{
 const PARALLEL: usize = 2;
 /// Bytes asked per request (servers like YouTube throttle bigger ones).
 const PIECE: u64 = 2 * 1024 * 1024;
+/// How often a download waits for the same song already on its way.
+const WAIT_STEP: std::time::Duration = std::time::Duration::from_millis(250);
 
 /// What the UI hears about a download.
 #[derive(Debug, Clone, Serialize)]
@@ -56,11 +61,58 @@ pub struct Downloads {
     /// Downloads queued or running, with the flag that cancels them.
     active: Mutex<HashMap<String, Arc<AtomicBool>>>,
     slots: Semaphore,
+    /// Bytes the automatic cache may use (0 = off). Set by the app on startup.
+    cache_limit: AtomicU64,
 }
 
 impl Downloads {
     pub fn new(dir: PathBuf) -> Self {
-        Self { dir, active: Mutex::default(), slots: Semaphore::new(PARALLEL) }
+        Self { dir, active: Mutex::default(), slots: Semaphore::new(PARALLEL), cache_limit: AtomicU64::new(0) }
+    }
+
+    /// Changes the cache's size (0 turns it off and empties it) and makes room if needed.
+    pub fn set_cache_limit(&self, library: &Library, bytes: u64) -> anyhow::Result<()> {
+        self.cache_limit.store(bytes, Ordering::Relaxed);
+        self.make_room(library)
+    }
+
+    /// Deletes every cached song (downloads stay).
+    pub fn clear_cache(&self, library: &Library) -> anyhow::Result<()> {
+        for song in library.cache_eviction_order()? {
+            self.delete_stored(library, &song.source, &song.id)?;
+        }
+        Ok(())
+    }
+
+    /// Drops the least recently played cached songs until the cache fits its limit.
+    fn make_room(&self, library: &Library) -> anyhow::Result<()> {
+        let limit = self.cache_limit.load(Ordering::Relaxed);
+        let (_, mut used) = library.cache_usage()?;
+        for song in library.cache_eviction_order()? {
+            if used <= limit {
+                break;
+            }
+            self.delete_stored(library, &song.source, &song.id)?;
+            used = used.saturating_sub(song.size);
+        }
+        Ok(())
+    }
+
+    /// Saves a song to the cache if it is played often and not on disk yet (after a play).
+    pub async fn cache_if_favourite(
+        &self,
+        registry: &Registry,
+        library: &Library,
+        http: &reqwest::Client,
+        track: &Track,
+    ) {
+        if self.cache_limit.load(Ordering::Relaxed) == 0
+            || self.local(library, &track.source, &track.id).is_some()
+            || !library.is_favourite(&track.source, &track.id).unwrap_or(false)
+        {
+            return;
+        }
+        self.download(registry, library, http, track, StoredKind::Cache, |_| {}).await;
     }
 
     /// The downloaded file of a song, if it is downloaded (and the file is still there).
@@ -76,14 +128,15 @@ impl Downloads {
         }
     }
 
-    /// Downloads `track`, reporting progress. Does nothing if it is already downloaded
-    /// or downloading.
+    /// Downloads `track` (for the user, or into the cache), reporting progress. A song
+    /// already on disk isn't fetched again: a cached one the user downloads is just kept.
     pub async fn download(
         &self,
         registry: &Registry,
         library: &Library,
         http: &reqwest::Client,
         track: &Track,
+        kind: StoredKind,
         report: impl Fn(Progress),
     ) {
         let key = format!("{}/{}", track.source, track.id);
@@ -94,19 +147,39 @@ impl Downloads {
             total,
             message,
         };
-        if self.local(library, &track.source, &track.id).is_some() {
-            report(progress(State::Done, 0, None, None));
-            return;
-        }
         let cancelled = Arc::new(AtomicBool::new(false));
-        {
-            let mut active = self.active.lock().unwrap();
-            if active.contains_key(&key) {
+        let mut announced = false;
+        // The same song may be on its way already (e.g. into the cache): wait for it.
+        loop {
+            if let Some((_, file)) = self.local(library, &track.source, &track.id) {
+                if kind == StoredKind::Download && library.stored_kind(&track.source, &track.id).ok().flatten() == Some(StoredKind::Cache) {
+                    if let Err(e) = library.keep_cached(&track.source, &track.id) {
+                        report(progress(State::Failed, 0, None, Some(format!("{e:#}"))));
+                        return;
+                    }
+                }
+                report(progress(State::Done, file.size, Some(file.size), None));
                 return;
             }
-            active.insert(key.clone(), cancelled.clone());
+            {
+                let mut active = self.active.lock().unwrap();
+                if !active.contains_key(&key) {
+                    active.insert(key.clone(), cancelled.clone());
+                    break;
+                }
+            }
+            if kind == StoredKind::Cache {
+                return; // someone else is on it
+            }
+            if !announced {
+                report(progress(State::Queued, 0, None, None));
+                announced = true;
+            }
+            tokio::time::sleep(WAIT_STEP).await;
         }
-        report(progress(State::Queued, 0, None, None));
+        if !announced {
+            report(progress(State::Queued, 0, None, None));
+        }
 
         let result = async {
             let _slot = self.slots.acquire().await?;
@@ -123,8 +196,13 @@ impl Downloads {
 
         self.active.lock().unwrap().remove(&key);
         match result {
-            Ok(Some(file)) => match library.add_download(track, &file) {
-                Ok(()) => report(progress(State::Done, file.size, Some(file.size), None)),
+            Ok(Some(file)) => match library.add_download(track, &file, kind) {
+                Ok(()) => {
+                    if kind == StoredKind::Cache {
+                        let _ = self.make_room(library);
+                    }
+                    report(progress(State::Done, file.size, Some(file.size), None))
+                }
                 Err(e) => {
                     let _ = fs::remove_file(self.dir.join(&file.file));
                     report(progress(State::Failed, 0, None, Some(format!("{e:#}"))));
@@ -140,6 +218,10 @@ impl Downloads {
         if let Some(flag) = self.active.lock().unwrap().get(&format!("{source}/{id}")) {
             flag.store(true, Ordering::Relaxed);
         }
+        self.delete_stored(library, source, id)
+    }
+
+    fn delete_stored(&self, library: &Library, source: &str, id: &str) -> anyhow::Result<()> {
         if let Some(file) = library.remove_download(source, id)? {
             let path = self.dir.join(file);
             if path.exists() {
@@ -340,7 +422,7 @@ mod tests {
         let downloads = Downloads::new(dir.clone());
 
         let events = Mutex::new(Vec::new());
-        downloads.download(&registry, &library, &http, &track, |p| events.lock().unwrap().push(p)).await;
+        downloads.download(&registry, &library, &http, &track, StoredKind::Download, |p| events.lock().unwrap().push(p)).await;
         let events = events.into_inner().unwrap();
         let last = events.last().unwrap();
         assert_eq!(last.state, State::Done, "{events:?}");
@@ -365,6 +447,83 @@ mod tests {
         downloads.remove(&library, "audius", &track.id).unwrap();
         assert!(!path.exists());
         assert!(downloads.local(&library, "audius", &track.id).is_none());
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn the_cache_keeps_to_its_limit() {
+        let dir = std::env::temp_dir().join(format!("melomango-cache-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let library = Library::in_memory();
+        let downloads = Downloads::new(dir.clone());
+        let song = |id: &str| Track {
+            id: id.into(),
+            source: "audius".into(),
+            title: id.into(),
+            artist: "A".into(),
+            duration_secs: 100,
+            artwork_url: None,
+            genre: None,
+        };
+        let store = |id: &str, kind| {
+            fs::write(dir.join(id), vec![0u8; 100]).unwrap();
+            let file = DownloadFile { file: id.into(), mime: "audio/mpeg".into(), size: 100 };
+            library.add_download(&song(id), &file, kind).unwrap();
+        };
+        store("a", StoredKind::Cache);
+        store("b", StoredKind::Cache);
+        store("c", StoredKind::Cache);
+        store("mine", StoredKind::Download);
+        downloads.set_cache_limit(&library, 250).unwrap();
+        assert_eq!(library.cache_usage().unwrap(), (2, 200), "the oldest one went");
+        assert!(!dir.join("a").exists() && dir.join("b").exists());
+        downloads.clear_cache(&library).unwrap();
+        assert_eq!(library.cache_usage().unwrap(), (0, 0));
+        assert!(dir.join("mine").exists(), "downloads are not the cache");
+        assert!(downloads.local(&library, "audius", "mine").is_some());
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    /// End-to-end against the real Audius API: a song played twice is cached on its own,
+    /// and a later download keeps that copy. `cargo test -- --ignored`
+    #[tokio::test]
+    #[ignore]
+    async fn caches_a_song_played_twice() {
+        use crate::sources::{audius::Audius, MusicSource};
+
+        let http = reqwest::Client::new();
+        let audius = Arc::new(Audius::new(http.clone()));
+        let mut tracks = audius.trending().await.unwrap();
+        tracks.sort_by_key(|t| t.duration_secs);
+        let track = tracks.into_iter().find(|t| t.duration_secs > 30).expect("sin tendencias");
+        let registry = Arc::new(Registry::new(vec![audius as Arc<dyn MusicSource>]));
+        let library = Library::in_memory();
+        let dir = std::env::temp_dir().join(format!("melomango-cache-e2e-{}", std::process::id()));
+        let downloads = Downloads::new(dir.clone());
+
+        library.record_play(&track).unwrap();
+        downloads.set_cache_limit(&library, 1 << 30).unwrap();
+        downloads.cache_if_favourite(&registry, &library, &http, &track).await;
+        assert!(downloads.local(&library, "audius", &track.id).is_none(), "played once: not yet");
+
+        library.record_play(&track).unwrap();
+        downloads.cache_if_favourite(&registry, &library, &http, &track).await;
+        let (_, file) = downloads.local(&library, "audius", &track.id).expect("cacheada");
+        assert_eq!(library.cache_usage().unwrap(), (1, file.size));
+        assert!(library.downloaded_keys().unwrap().is_empty(), "not shown as a download");
+
+        // Downloading it now just keeps the cached copy.
+        let events = Mutex::new(Vec::new());
+        downloads.download(&registry, &library, &http, &track, StoredKind::Download, |p| events.lock().unwrap().push(p)).await;
+        let events = events.into_inner().unwrap();
+        assert_eq!(events.len(), 1, "{events:?}");
+        assert_eq!(events[0].state, State::Done);
+        assert_eq!(library.cache_usage().unwrap(), (0, 0));
+        assert_eq!(library.downloaded_keys().unwrap(), [format!("audius/{}", track.id)]);
+
+        // Turning the cache off doesn't touch downloads.
+        downloads.set_cache_limit(&library, 0).unwrap();
+        assert!(downloads.local(&library, "audius", &track.id).is_some());
         fs::remove_dir_all(&dir).ok();
     }
 }
