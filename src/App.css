@@ -1917,11 +1917,6 @@ kbd {
   font-size: 0.8rem;
 }
 
-.catalog-error {
-  display: grid;
-  justify-items: start;
-  gap: 8px;
-}
 
 @media (max-width: 900px) {
   .artist-photo,
@@ -1998,6 +1993,10 @@ kbd {
   grid-template-columns: minmax(220px, 1fr) minmax(0, 2fr);
   gap: 22px;
   align-items: start;
+}
+
+.search-top.single {
+  grid-template-columns: 1fr;
 }
 
 /* The song list adapts to its own column, not to the whole page. */
@@ -2172,4 +2171,64 @@ kbd {
   border: 1px solid var(--border);
   background: var(--surface);
   font-weight: 700;
+}
+
+/* ---------- Errors ---------- */
+.error-notice {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  margin: 4px 0 12px;
+  border-radius: 12px;
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+}
+
+.error-notice p {
+  margin: 0;
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+.error-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.error-actions details {
+  flex-basis: 100%;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.error-actions summary {
+  cursor: pointer;
+  width: fit-content;
+}
+
+.error-actions code {
+  display: block;
+  margin-top: 4px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.player-error {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  color: var(--accent-text);
+}
+
+.player-error-text {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.player-error .link-btn {
+  flex-shrink: 0;
 }

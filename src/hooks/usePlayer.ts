@@ -5,6 +5,19 @@ import * as q from "../lib/queue";
 const SAVE_KEY = "melomango.player";
 const SAVE_EVERY_MS = 5000;
 const SEEK_STEP = 5;
+const CANT_PLAY = "No se pudo reproducir esta canción";
+
+/** Why the stream failed: the backend answers the stream URL with the reason as text. */
+async function streamFailure(src: string): Promise<string | null> {
+  try {
+    const response = await fetch(src, { headers: { Range: "bytes=0-1" } });
+    if (response.ok) return null;
+    const text = (await response.text()).trim();
+    return text && text.length < 600 && !text.startsWith("<") ? text : null;
+  } catch {
+    return null;
+  }
+}
 /** Queued songs sent to the radio so it doesn't suggest them again (the latest ones). */
 const RADIO_EXCLUDE = 400;
 /** A track counts as listened after this many seconds of actual playback (or half of it, if shorter). */
@@ -80,7 +93,7 @@ export function usePlayer() {
   const onPlayRejected = useCallback((e: unknown) => {
     // play() rejects with AbortError when a new track interrupts the previous load: not a failure.
     if (e instanceof DOMException && e.name === "AbortError") return;
-    setError("No se pudo reproducir esta canción");
+    setError(CANT_PLAY);
     setIsPlaying(false);
     setIsLoading(false);
   }, []);
@@ -329,7 +342,12 @@ export function usePlayer() {
           setIsPlaying(false);
           setIsLoading(false);
           // A restored track failing in the background (e.g. offline) is retried on play.
-          if (userStarted.current) setError("No se pudo reproducir esta canción");
+          if (!userStarted.current) return;
+          setError(CANT_PLAY);
+          const src = audio.src;
+          streamFailure(src).then((reason) => {
+            if (reason && audio.src === src) setError(reason);
+          });
         },
       ],
     ];

@@ -15,6 +15,7 @@ import { useNav } from "../lib/nav";
 import type { Player } from "../hooks/usePlayer";
 import { PlayIcon, PlusIcon, RadioIcon } from "./Icons";
 import { TrackList } from "./TrackList";
+import { ErrorNotice } from "./ErrorNotice";
 
 export const KIND_LABEL: Record<string, string> = { album: "Álbum", single: "Sencillo", ep: "EP", compile: "Recopilatorio" };
 
@@ -67,14 +68,7 @@ function useLoad<T>(key: string, fetch: () => Promise<T>): [Load<T>, () => void]
 }
 
 function LoadError({ message, onRetry }: { message: string; onRetry: () => void }) {
-  return (
-    <div className="catalog-error">
-      <p className="status error">No se pudo cargar: {message}</p>
-      <button className="btn ghost" onClick={onRetry}>
-        Reintentar
-      </button>
-    </div>
-  );
+  return <ErrorNotice error={message} onRetry={onRetry} />;
 }
 
 const year = (date: string | null) => (date ? date.slice(0, 4) : "");

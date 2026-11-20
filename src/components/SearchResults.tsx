@@ -5,6 +5,7 @@ import { useNav } from "../lib/nav";
 import type { Player } from "../hooks/usePlayer";
 import { CardGrid, KIND_LABEL, type Card } from "./CatalogViews";
 import { TrackList } from "./TrackList";
+import { ErrorNotice } from "./ErrorNotice";
 
 export type SearchFilter = "all" | "tracks" | "artists" | "albums" | "playlists";
 
@@ -45,6 +46,8 @@ interface Props {
   /** The full song list with its loading and error states. */
   tracksBlock: ReactNode;
   tracksLoading: boolean;
+  /** The song search failed (its notice, with "Reintentar", is in `tracksBlock`). */
+  tracksFailed: boolean;
   sourceName: string;
 }
 
@@ -55,21 +58,34 @@ const fold = (s: string) =>
     .replace(/[̀-ͯ]/g, "");
 
 /** Search results by kind: songs from the selected source; artists, albums and public playlists from Deezer. */
-export function SearchResults({ query, filter, onFilter, player, tracks, tracksBlock, tracksLoading, sourceName }: Props) {
+export function SearchResults({
+  query,
+  filter,
+  onFilter,
+  player,
+  tracks,
+  tracksBlock,
+  tracksLoading,
+  tracksFailed,
+  sourceName,
+}: Props) {
   const nav = useNav();
   const library = useLibrary();
   const [catalog, setCatalog] = useState<Catalog>({ kind: "loading" });
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     setCatalog({ kind: "loading" });
+    if (attempt > 0) cache.delete(query.trim().toLowerCase());
     searchCatalog(query)
       .then((data) => !cancelled && setCatalog({ kind: "ready", data }))
       .catch((e) => !cancelled && setCatalog({ kind: "error", message: String(e) }));
     return () => {
       cancelled = true;
     };
-  }, [query]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, attempt]);
 
   const data = catalog.kind === "ready" ? catalog.data : null;
 
@@ -114,7 +130,7 @@ export function SearchResults({ query, filter, onFilter, player, tracks, tracksB
     catalog.kind === "loading" ? (
       <p className="status">Buscando en el catálogo…</p>
     ) : catalog.kind === "error" ? (
-      <p className="status error">No se pudo buscar artistas, álbumes ni playlists: {catalog.message}</p>
+      <ErrorNotice error={catalog.message} onRetry={() => setAttempt((a) => a + 1)} />
     ) : null;
   const empty = (what: string) => <p className="status">No hay {what} para «{query}».</p>;
   const best = data?.artists[0];
@@ -158,7 +174,7 @@ export function SearchResults({ query, filter, onFilter, player, tracks, tracksB
 
       {filter === "all" && (
         <>
-          <div className="search-top">
+          <div className={`search-top${best ? "" : " single"}`}>
             {best && (
               <section className="search-best">
                 <h2>Mejor resultado</h2>
@@ -184,6 +200,8 @@ export function SearchResults({ query, filter, onFilter, player, tracks, tracksB
               </div>
               {tracksLoading ? (
                 <p className="status">Buscando en {sourceName}…</p>
+              ) : tracksFailed ? (
+                tracksBlock
               ) : tracks.length ? (
                 <TrackList
                   tracks={tracks.slice(0, PREVIEW_TRACKS)}

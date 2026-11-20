@@ -22,6 +22,7 @@ import { LikesView, PlaylistView } from "./components/LibraryViews";
 import { HistoryView } from "./components/HistoryView";
 import { AlbumView, ArtistView, PublicPlaylistView } from "./components/CatalogViews";
 import { SearchResults, type SearchFilter } from "./components/SearchResults";
+import { ErrorNotice } from "./components/ErrorNotice";
 import { NavContext, type Nav } from "./lib/nav";
 import { LyricsPanel } from "./components/LyricsPanel";
 import { BackIcon, PuzzleIcon, SearchIcon } from "./components/Icons";
@@ -405,11 +406,14 @@ function BrowseView({
   const tracksBlock = (
     <>
       {loading && <p className="status">Pelando mangos…</p>}
-      {error && <p className="status error">Algo ha fallado: {error}</p>}
-      {error && source?.kind === "plugin" && /yt-dlp|requisito/i.test(error) && (
-        <button className="btn primary" onClick={fixRequirements} disabled={fixing !== null}>
-          {fixing ?? "Instalar lo que falta"}
-        </button>
+      {error && (
+        <ErrorNotice error={error} onRetry={() => setRetry((r) => r + 1)}>
+          {source?.kind === "plugin" && /yt-dlp|requisito/i.test(error) && (
+            <button className="btn primary small" onClick={fixRequirements} disabled={fixing !== null}>
+              {fixing ?? "Instalar lo que falta"}
+            </button>
+          )}
+        </ErrorNotice>
       )}
       {!loading && !error && tracks.length === 0 && <p className="status">{emptyMessage}</p>}
       {!loading && !error && tracks.length > 0 && (
@@ -437,6 +441,7 @@ function BrowseView({
           tracks={error ? [] : tracks}
           tracksBlock={tracksBlock}
           tracksLoading={loading}
+          tracksFailed={error !== null}
           sourceName={sourceName}
         />
       </>

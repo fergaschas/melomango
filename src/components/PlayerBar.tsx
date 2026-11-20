@@ -1,9 +1,11 @@
+import { useEffect } from "react";
 import { formatTime } from "../lib/api";
 import type { Player } from "../hooks/usePlayer";
 import { Artwork } from "./Artwork";
 import { ArtistLinks } from "./ArtistLinks";
 import { useLibrary } from "../lib/library";
 import { useMatchFix } from "../lib/matchFix";
+import { friendlyError } from "../lib/errors";
 import {
   HeartFilledIcon,
   HeartIcon,
@@ -40,6 +42,13 @@ export function PlayerBar({ player, panel, onTogglePanel }: Props) {
   const library = useLibrary();
   const matchFix = useMatchFix();
   const liked = current ? library.isLiked(current) : false;
+  const problem = error ? friendlyError(error) : null;
+
+  // The bar only has room for a few words: the whole explanation goes in a toast.
+  useEffect(() => {
+    if (problem) library.notify(problem.message);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [error]);
 
   return (
     <footer className="player">
@@ -47,9 +56,21 @@ export function PlayerBar({ player, panel, onTogglePanel }: Props) {
         <Artwork src={current?.artworkUrl} />
         <div className="track-text">
           <span className="track-title">{current?.title ?? "Nada sonando"}</span>
-          <span className="track-artist">
-            {error ?? (isLoading ? "Cargando…" : current ? <ArtistLinks artist={current.artist} /> : "Elige algo, melómano")}
-          </span>
+          {problem ? (
+            <span
+              className="track-artist player-error"
+              title={[problem.message, problem.details].filter(Boolean).join("\n\n")}
+            >
+              <span className="player-error-text">⚠ Error</span>
+              <button className="link-btn" onClick={player.reloadCurrent}>
+                Reintentar
+              </button>
+            </span>
+          ) : (
+            <span className="track-artist">
+              {isLoading ? "Cargando…" : current ? <ArtistLinks artist={current.artist} /> : "Elige algo, melómano"}
+            </span>
+          )}
         </div>
         {current && (
           <button
