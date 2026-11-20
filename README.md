@@ -35,7 +35,7 @@ Melomango otra vez muestra la ventana que ya está en marcha.
 
 **Discord**: mientras suena algo, tu perfil muestra «Escuchando Melomango» con la canción, el artista, la portada y
 el tiempo. Melomango habla con la app de Discord de tu equipo (no envía nada por internet) y se puede desactivar en
-**Ajustes**, abajo en la barra lateral.
+**Ajustes**, abajo en la barra lateral. (Preparado, pero aún no activo: se encenderá en una próxima versión.)
 
 **Ordenar y filtrar**: en tus playlists y en Me gusta puedes filtrar por título o artista y ordenar por tu orden, fecha
 en que se añadió, título, artista o duración (el orden se recuerda en cada lista).
@@ -46,6 +46,20 @@ artista, en aleatorio), canciones para volver a escuchar, tus playlists y las te
 **Historial** (en la barra lateral): lo que has escuchado, por días. Una canción cuenta tras sonar 30 segundos (o la
 mitad, si es más corta). Se guarda solo en tu equipo y se puede borrar. **Tu resumen** muestra cada mes tus escuchas, minutos,
 canciones y artistas, tu canción del mes y tus artistas y canciones más escuchados.
+
+**Descargas**: el botón **Descargar** de una playlist o de Me gusta, o **Descargar** en el menú + de una canción,
+guarda el audio en tu equipo para escucharlo sin conexión. La vista **Descargas** (en la barra lateral) muestra lo
+descargado y lo que ocupa, y desde ahí se borra.
+
+**Caché automática**: lo que escuchas más de una vez (y tus Me gusta) se guarda solo, para que empiece al momento y
+suene sin conexión. Ocupa como mucho 2 GB (se cambia o se vacía en **Ajustes**); si se llena, se va lo que hace más
+que no escuchas.
+
+**Mini reproductor**: el botón junto a la cola encoge la ventana a una tira pequeña, siempre encima de las demás,
+con la carátula, los controles y el progreso; otro botón la devuelve a su tamaño y sitio.
+
+**Sonido**: en **Ajustes** puedes activar el **fundido entre canciones** (de 1 a 12 segundos) y **normalizar el
+volumen** (activado de entrada), para que todas las canciones suenen a un volumen parecido.
 
 Fuentes:
 
@@ -206,8 +220,8 @@ Los plugins instalados viven en `%APPDATA%\com.melomango.app\plugins\<id>\`.
 ## Siguientes pasos
 
 - [x] Playlists y Me gusta (SQLite)
-- [ ] Caché de audio en disco / modo offline
-- [ ] Vistas de artista y álbum
+- [x] Caché de audio en disco / modo offline
+- [x] Vistas de artista y álbum
 - [x] Letras sincronizadas con LRCLIB
 - [ ] Más plugins: SoundCloud, Jamendo, Subsonic/Navidrome, archivos locales
 - [x] Icono propio e instalador
