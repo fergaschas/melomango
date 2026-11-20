@@ -106,7 +106,33 @@ CREATE TABLE IF NOT EXISTS downloads (
 );
 -- A song's plays: is it a favourite, when was it last played (cache eviction).
 CREATE INDEX IF NOT EXISTS plays_track ON plays (source, id, played_at);
+-- Small settings of the library itself (for now, how many ADDITIVE_STEPS were applied).
+CREATE TABLE IF NOT EXISTS meta (
+    key   TEXT PRIMARY KEY,
+    value INTEGER NOT NULL
+);
 ";
+
+/// Additive changes that can't be written as `IF NOT EXISTS` (such as `ALTER TABLE ... ADD
+/// COLUMN`), applied once each, in order. They have their own count (in `meta`), apart from
+/// `user_version`, so an older Melomango still opens the library: a new column is one it
+/// doesn't read. Append new steps at the end; never change or remove one.
+const ADDITIVE_STEPS: &[&str] = &[];
+
+/// Runs the `steps` not applied yet to this library.
+fn apply_additive_steps(c: &Connection, steps: &[&str]) -> rusqlite::Result<()> {
+    let done: i64 =
+        c.query_row("SELECT value FROM meta WHERE key = 'additive_steps'", [], |r| r.get(0)).optional()?.unwrap_or(0);
+    for step in steps.iter().skip(done.max(0) as usize) {
+        c.execute_batch(step)?;
+    }
+    c.execute(
+        "INSERT INTO meta (key, value) VALUES ('additive_steps', ?1)
+         ON CONFLICT (key) DO UPDATE SET value = MAX(value, excluded.value)",
+        [steps.len() as i64],
+    )?;
+    Ok(())
+}
 
 /// The library was written by a newer Melomango than this one (it can't be read safely).
 #[derive(Debug)]
@@ -279,6 +305,7 @@ impl Library {
             tx.execute_batch(SCHEMA_V3)?;
         }
         tx.execute_batch(ADDITIVE)?;
+        apply_additive_steps(&tx, ADDITIVE_STEPS)?;
         tx.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         tx.commit()?;
         Ok(Self { conn: Mutex::new(conn) })

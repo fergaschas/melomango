@@ -372,6 +372,25 @@ fn keeps_a_bounded_history() {
 }
 
 #[test]
+fn additive_steps_run_once_each_in_order() {
+    let lib = Library::in_memory();
+    let steps = ["ALTER TABLE tracks ADD COLUMN extra_a TEXT", "ALTER TABLE tracks ADD COLUMN extra_b TEXT"];
+    lib.with(|c| apply_additive_steps(c, &steps[..1])).unwrap();
+    // Opening again (or a version with one more step) applies only what is new.
+    lib.with(|c| apply_additive_steps(c, &steps)).unwrap();
+    lib.with(|c| apply_additive_steps(c, &steps)).unwrap();
+    let columns: Vec<String> = lib
+        .with(|c| c.prepare("SELECT name FROM pragma_table_info('tracks')")?.query_map([], |r| r.get(0))?.collect())
+        .unwrap();
+    assert!(columns.contains(&"extra_a".to_string()) && columns.contains(&"extra_b".to_string()));
+    // An older Melomango (fewer steps) doesn't lower the count.
+    lib.with(|c| apply_additive_steps(c, &[])).unwrap();
+    let done: i64 =
+        lib.with(|c| c.query_row("SELECT value FROM meta WHERE key = 'additive_steps'", [], |r| r.get(0))).unwrap();
+    assert_eq!(done, 2);
+}
+
+#[test]
 fn migrates_a_v1_database() {
     let conn = Connection::open_in_memory().unwrap();
     conn.execute_batch(SCHEMA_V1).unwrap();
