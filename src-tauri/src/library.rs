@@ -4,6 +4,7 @@
 //! Track metadata is copied into the database when a track is liked or added to a
 //! playlist, so the library still shows it even if the source is unavailable.
 
+use crate::text::split_artists;
 use std::{
     path::Path,
     sync::Mutex,
@@ -982,29 +983,6 @@ fn link(c: &Connection, playlist_id: i64) -> rusqlite::Result<Option<PlaylistLin
     .optional()
 }
 
-/// "Shakira, Burna Boy" / "A & B" / "A feat. B" -> each artist (empty names left out).
-fn split_artists(artist: &str) -> Vec<&str> {
-    // ASCII-only lowercasing keeps every byte where it was, so positions in `lower` are valid
-    // in `artist` too. `to_lowercase` can make a letter longer («İ» -> «i̇») and then slicing
-    // cuts a character in half. The separators are ASCII, so nothing else is needed.
-    let lower = artist.to_ascii_lowercase();
-    let mut parts = Vec::new();
-    let mut start = 0;
-    let separators = [", ", ",", " & ", " feat. ", " ft. ", " featuring "];
-    let mut i = 0;
-    while i < artist.len() {
-        if let Some(sep) = separators.iter().find(|s| lower[i..].starts_with(*s)) {
-            parts.push(artist[start..i].trim());
-            i += sep.len();
-            start = i;
-        } else {
-            i += artist[i..].chars().next().map_or(1, char::len_utf8);
-        }
-    }
-    parts.push(artist[start..].trim());
-    parts.into_iter().filter(|p| !p.is_empty()).collect()
-}
-
 fn track_from_row(r: &Row) -> rusqlite::Result<Track> {
     Ok(Track {
         source: r.get("source")?,
@@ -1329,20 +1307,6 @@ mod tests {
 
         let empty = lib.month_summary("1999-01").unwrap();
         assert_eq!((empty.plays, empty.top_tracks.len()), (0, 0));
-    }
-
-    #[test]
-    fn splits_artist_lines() {
-        assert_eq!(split_artists("Shakira, Burna Boy"), ["Shakira", "Burna Boy"]);
-        assert_eq!(split_artists("Daft Punk feat. Pharrell Williams"), ["Daft Punk", "Pharrell Williams"]);
-        assert_eq!(split_artists("Bad Bunny & Drake"), ["Bad Bunny", "Drake"]);
-        assert_eq!(split_artists("ROSALÍA"), ["ROSALÍA"]);
-        assert!(split_artists("").is_empty());
-        // Letters that grow when lowercased used to panic (and close the app).
-        assert_eq!(split_artists("İbrahim Tatlıses & X"), ["İbrahim Tatlıses", "X"]);
-        assert_eq!(split_artists("Ⱥ, B"), ["Ⱥ", "B"]);
-        assert_eq!(split_artists("ẞ, Bob"), ["ẞ", "Bob"]);
-        assert_eq!(split_artists("İİİ FEAT. Bob"), ["İİİ", "Bob"]);
     }
 
     #[test]

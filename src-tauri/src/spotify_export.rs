@@ -13,6 +13,7 @@
 //!
 //! The same import also takes Exportify's CSVs (see [`crate::exportify`]).
 
+use crate::text::fingerprint;
 use std::{
     collections::HashMap,
     fs,
@@ -314,11 +315,6 @@ fn local_track(uri: &str) -> Option<Track> {
     track("", title, artist, seconds.parse().unwrap_or(0))
 }
 
-/// Short stable hash (FNV-1a), enough to tell local tracks apart.
-fn fingerprint(text: &str) -> String {
-    let hash = text.bytes().fold(0xcbf2_9ce4_8422_2325u64, |h, b| (h ^ b as u64).wrapping_mul(0x0100_0000_01b3));
-    format!("{hash:016x}")
-}
 
 #[cfg(test)]
 mod tests {

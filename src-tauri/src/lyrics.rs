@@ -9,8 +9,8 @@ use std::{collections::HashMap, sync::Mutex};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    models::{trim_featuring, Track},
-    text::main_artist,
+    models::Track,
+    text::{main_artist, trim_featuring},
 };
 
 const API: &str = "https://lrclib.net/api";

@@ -393,11 +393,8 @@ fn file_stem(source: &str, id: &str) -> String {
         .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
         .take(60)
         .collect();
-    // FNV-1a of the exact key, so different ids never share a file.
-    let hash = format!("{source}/{id}")
-        .bytes()
-        .fold(0xcbf29ce484222325u64, |h, b| (h ^ b as u64).wrapping_mul(0x100000001b3));
-    format!("{readable}-{hash:016x}")
+    // A hash of the exact key, so different ids never share a file.
+    format!("{readable}-{}", crate::text::fingerprint(&format!("{source}/{id}")))
 }
 
 fn extension(mime: &str) -> &'static str {

@@ -8,8 +8,9 @@ use std::collections::HashSet;
 
 use crate::{
     library::Library,
-    matcher::{self, main_artist},
-    models::{trim_featuring, Track},
+    matcher,
+    models::Track,
+    text::{main_artist, trim_featuring},
     sources::Registry,
 };
 

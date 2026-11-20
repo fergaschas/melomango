@@ -403,11 +403,7 @@ fn pick_artist<'a>(name: &str, found: &'a [RawArtist]) -> Option<&'a RawArtist> 
 
 /// Lowercase without accents or punctuation, to compare names ("ROSALÍA" = "Rosalía").
 fn normalize(s: &str) -> String {
-    s.chars()
-        .flat_map(char::to_lowercase)
-        .map(crate::text::fold)
-        .filter(|c| c.is_alphanumeric())
-        .collect()
+    crate::text::fold(s).chars().filter(|c| c.is_alphanumeric()).collect()
 }
 
 // ---------- Deezer's JSON ----------

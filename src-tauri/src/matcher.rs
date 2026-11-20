@@ -13,7 +13,8 @@ use serde::Serialize;
 use crate::{
     library::Library,
     lyrics,
-    models::{trim_featuring, Track},
+    models::Track,
+    text::trim_featuring,
     sources::{MusicSource, Registry},
 };
 
@@ -215,16 +216,14 @@ fn score(wanted: &Track, durations: &[u32], candidate: &Track) -> f64 {
 
 /// Lowercase alphanumeric words, accents removed.
 fn words(text: &str) -> Vec<String> {
-    let folded: String = text
-        .to_lowercase()
+    let folded: String = crate::text::fold(text)
         .chars()
-        .map(crate::text::fold)
         .map(|c| if c.is_alphanumeric() { c } else { ' ' })
         .collect();
     folded.split_whitespace().map(str::to_string).collect()
 }
 
-pub(crate) use crate::text::main_artist;
+use crate::text::main_artist;
 
 #[cfg(test)]
 mod tests {

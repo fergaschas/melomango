@@ -3,6 +3,7 @@
 //! The songs are metadata only (source "lista"): when played, the matcher finds each one
 //! in the playable sources, like songs imported from Spotify.
 
+use crate::text::fingerprint;
 use crate::models::Track;
 
 /// Source id of songs from a pasted list.
@@ -91,11 +92,6 @@ fn clean(s: &str) -> String {
     s.trim().trim_matches(['"', '«', '»', '“', '”']).trim().to_string()
 }
 
-/// Short stable hash (FNV-1a): the same line imported twice is the same song.
-fn fingerprint(text: &str) -> String {
-    let hash = text.bytes().fold(0xcbf2_9ce4_8422_2325u64, |h, b| (h ^ b as u64).wrapping_mul(0x0100_0000_01b3));
-    format!("{hash:016x}")
-}
 
 #[cfg(test)]
 mod tests {
