@@ -40,8 +40,8 @@ export function useDiscordPresence(player: Player, enabled: boolean) {
   const playing = enabled && current !== null && isPlaying;
   const timer = useRef<number | undefined>(undefined);
   // The latest position, read when the update goes out (a new track has reset it by then).
-  const latest = useRef({ current, duration, time: player.time });
-  latest.current = { current, duration, time: player.time };
+  const latest = useRef({ current, duration, clock: player.clock });
+  latest.current = { current, duration, clock: player.clock };
 
   useEffect(() => {
     window.clearTimeout(timer.current);
@@ -51,7 +51,8 @@ export function useDiscordPresence(player: Player, enabled: boolean) {
       return;
     }
     timer.current = window.setTimeout(() => {
-      const { current: track, duration: length, time } = latest.current;
+      const { current: track, duration: length, clock } = latest.current;
+      const time = clock.get();
       if (!track) return;
       discordSet({
         title: track.title,

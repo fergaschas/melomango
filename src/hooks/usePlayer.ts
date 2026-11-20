@@ -11,6 +11,7 @@ import {
   shouldStartFade,
 } from "../lib/crossfade";
 import { loadNormalize, Loudness, saveNormalize } from "../lib/loudness";
+import { Clock } from "../lib/clock";
 
 const SAVE_KEY = "melomango.player";
 /** The position, saved on its own (often) so the queue is not rewritten every few seconds. */
@@ -98,7 +99,7 @@ export function usePlayer() {
   const [loadKey, setLoadKey] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [time, setTime] = useState(saved?.time ?? 0);
+  const [clock] = useState(() => new Clock(saved?.time ?? 0));
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(saved?.volume ?? 0.8);
   const [muted, setMuted] = useState(saved?.muted ?? false);
@@ -189,7 +190,7 @@ export function usePlayer() {
       queueRef.current = f.previous;
       setQueue(f.previous);
       setDuration(f.old.duration);
-      setTime(f.old.currentTime);
+      clock.set(f.old.currentTime);
       setIsPlaying(true);
       setIsLoading(false);
       setError(null);
@@ -360,7 +361,7 @@ export function usePlayer() {
   const seek = useCallback(
     (secs: number) => {
       audio.currentTime = secs;
-      setTime(secs);
+      clock.set(secs);
     },
     [audio],
   );
@@ -429,7 +430,7 @@ export function usePlayer() {
       pendingSeek.current = saved?.time ?? null;
       return;
     }
-    setTime(pendingSeek.current ?? 0);
+    clock.set(pendingSeek.current ?? 0);
     setIsLoading(true);
     audio.play().catch(onPlayRejected(audio));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -466,7 +467,7 @@ export function usePlayer() {
       [
         "timeupdate",
         () => {
-          setTime(audio.currentTime);
+          clock.set(audio.currentTime);
           if (!audio.paused && shouldStartFade(crossfadeRef.current, audio.currentTime, audio.duration)) {
             beginFade();
           }
@@ -611,7 +612,7 @@ export function usePlayer() {
     repeat: queue.repeat,
     isPlaying,
     isLoading,
-    time,
+    clock,
     duration,
     volume,
     muted,
