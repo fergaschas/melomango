@@ -11,6 +11,7 @@ mod mini;
 mod radio;
 mod models;
 mod sources;
+mod text;
 mod text_import;
 mod spotify_export;
 mod startup;

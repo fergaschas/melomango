@@ -361,14 +361,7 @@ fn pick_artist<'a>(name: &str, found: &'a [RawArtist]) -> Option<&'a RawArtist> 
 fn normalize(s: &str) -> String {
     s.chars()
         .flat_map(char::to_lowercase)
-        .map(|c| match c {
-            'á' | 'à' | 'ä' | 'â' => 'a',
-            'é' | 'è' | 'ë' | 'ê' => 'e',
-            'í' | 'ì' | 'ï' | 'î' => 'i',
-            'ó' | 'ò' | 'ö' | 'ô' => 'o',
-            'ú' | 'ù' | 'ü' | 'û' => 'u',
-            other => other,
-        })
+        .map(crate::text::fold)
         .filter(|c| c.is_alphanumeric())
         .collect()
 }

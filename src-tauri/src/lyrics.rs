@@ -8,7 +8,10 @@ use std::{collections::HashMap, sync::Mutex};
 
 use serde::{Deserialize, Serialize};
 
-use crate::models::{trim_featuring, Track};
+use crate::{
+    models::{trim_featuring, Track},
+    text::main_artist,
+};
 
 const API: &str = "https://lrclib.net/api";
 const CACHE_LIMIT: usize = 300;
@@ -145,17 +148,6 @@ fn common_durations(durations: impl Iterator<Item = f64>) -> Vec<u32> {
 
 fn dedup<'a>(items: [&'a str; 2]) -> Vec<&'a str> {
     if items[0] == items[1] { vec![items[0]] } else { items.to_vec() }
-}
-
-/// "Shakira, Burna Boy" / "Bad Bunny & Drake" / "A feat. B" -> first artist.
-fn main_artist(artist: &str) -> &str {
-    let lower = artist.to_ascii_lowercase();
-    let cut = [",", " & ", " x ", " feat", " ft.", " with "]
-        .iter()
-        .filter_map(|sep| lower.find(sep))
-        .min()
-        .unwrap_or(artist.len());
-    artist[..cut].trim()
 }
 
 /// Closest duration wins; synced lyrics beat plain ones within the allowed difference.
@@ -297,14 +289,6 @@ mod tests {
             let lyrics = service.get(&track).await.unwrap_or_else(|e| panic!("{status}: {e:#}"));
             assert_eq!(lyrics.synced.len(), 1, "with /get answering {status}");
         }
-    }
-
-    #[test]
-    fn main_artist_takes_the_first() {
-        assert_eq!(main_artist("Shakira, Burna Boy"), "Shakira");
-        assert_eq!(main_artist("Bad Bunny & Drake"), "Bad Bunny");
-        assert_eq!(main_artist("Eminem feat. Rihanna"), "Eminem");
-        assert_eq!(main_artist("Rosalía"), "Rosalía");
     }
 
     #[test]
