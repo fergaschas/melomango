@@ -145,6 +145,40 @@ export interface Lyrics {
 
 export const getLyrics = (track: Track) => invoke<Lyrics>("get_lyrics", { track });
 
+// ---------- Artists and albums (data from Deezer) ----------
+
+export interface ArtistRef {
+  id: string;
+  name: string;
+  pictureUrl: string | null;
+}
+
+export interface AlbumSummary {
+  id: string;
+  title: string;
+  coverUrl: string | null;
+  releaseDate: string | null;
+  /** "album", "single", "ep" or "compile". */
+  kind: string;
+}
+
+export interface ArtistPage {
+  artist: ArtistRef;
+  fans: number;
+  top: Track[];
+  albums: AlbumSummary[];
+  related: ArtistRef[];
+}
+
+export interface AlbumPage extends AlbumSummary {
+  artist: ArtistRef;
+  tracks: Track[];
+  durationSecs: number;
+}
+
+export const artistPage = (name: string, id?: string) => invoke<ArtistPage>("artist_page", { name, id: id ?? null });
+export const albumPage = (id: string) => invoke<AlbumPage>("album_page", { id });
+
 /** Songs like `track` for the automatic radio, leaving out `exclude` ("source/id"). */
 export const radioTracks = (track: Track, exclude: string[]) => invoke<Track[]>("radio_tracks", { track, exclude });
 

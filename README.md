@@ -18,6 +18,11 @@ Si una canción importada (de Spotify) suena con el vídeo equivocado, pulsa el 
 la lista «Mix» de cada vídeo; si no, del mismo artista). Se activa o desactiva en el panel de la cola, y **Iniciar
 radio** en el menú + de cualquier canción la empieza desde ahí.
 
+**Artistas y álbumes**: pulsa el nombre de un artista en cualquier canción para ver sus canciones populares, sus
+álbumes, sencillos y EP, y artistas parecidos; cada álbum tiene su página. Los datos vienen de la API pública de
+[Deezer](https://developers.deezer.com/api) (sin cuenta) y la música suena desde YouTube, como las canciones
+importadas de Spotify. **Atrás** (o Alt+←) vuelve a la página anterior.
+
 **Historial** (en la barra lateral): lo que has escuchado, por días. Una canción cuenta tras sonar 30 segundos (o la
 mitad, si es más corta). Se guarda solo en tu equipo y se puede borrar.
 

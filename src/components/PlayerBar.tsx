@@ -1,6 +1,7 @@
 import { formatTime } from "../lib/api";
 import type { Player } from "../hooks/usePlayer";
 import { Artwork } from "./Artwork";
+import { ArtistLinks } from "./ArtistLinks";
 import { useLibrary } from "../lib/library";
 import { useMatchFix } from "../lib/matchFix";
 import {
@@ -46,7 +47,9 @@ export function PlayerBar({ player, panel, onTogglePanel }: Props) {
         <Artwork src={current?.artworkUrl} />
         <div className="track-text">
           <span className="track-title">{current?.title ?? "Nada sonando"}</span>
-          <span className="track-artist">{error ?? (isLoading ? "Cargando…" : current?.artist) ?? "Elige algo, melómano"}</span>
+          <span className="track-artist">
+            {error ?? (isLoading ? "Cargando…" : current ? <ArtistLinks artist={current.artist} /> : "Elige algo, melómano")}
+          </span>
         </div>
         {current && (
           <button

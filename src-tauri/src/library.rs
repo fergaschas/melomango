@@ -418,6 +418,18 @@ impl Library {
 
     // ---------- Track metadata and matches ----------
 
+    /// Stores tracks' metadata (e.g. from artist and album pages) so they can be played
+    /// through a match even if they are not in any playlist.
+    pub fn remember_tracks(&self, tracks: &[Track]) -> anyhow::Result<()> {
+        self.with(|c| {
+            let tx = c.transaction()?;
+            for track in tracks {
+                upsert_track(&tx, track)?;
+            }
+            tx.commit()
+        })
+    }
+
     /// Fills in the duration of a track imported without one.
     pub fn set_track_duration(&self, source: &str, id: &str, duration_secs: u32) -> anyhow::Result<()> {
         self.with(|c| {

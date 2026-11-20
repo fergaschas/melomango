@@ -3,6 +3,7 @@ import { formatTime, prefetchStream, trackKey, type Track } from "../lib/api";
 import { useLibrary } from "../lib/library";
 import { AddToPlaylistMenu, type QueueActions } from "./AddToPlaylistMenu";
 import { Artwork } from "./Artwork";
+import { ArtistLinks } from "./ArtistLinks";
 import { CloseIcon, HeartFilledIcon, HeartIcon, PauseIcon, PlayIcon } from "./Icons";
 
 interface Props {
@@ -93,7 +94,9 @@ export function TrackList({ tracks, current, isPlaying, onPlay, onRemove, onMove
               <Artwork src={track.artworkUrl} />
               <span className="track-text">
                 <span className="track-title">{track.title}</span>
-                <span className="track-artist">{track.artist}</span>
+                <span className="track-artist">
+                  <ArtistLinks artist={track.artist} />
+                </span>
               </span>
             </span>
             <span className="track-genre">{track.genre}</span>

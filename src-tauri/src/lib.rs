@@ -1,3 +1,4 @@
+mod artists;
 mod catalog;
 mod exportify;
 mod library;
@@ -17,6 +18,7 @@ use std::{
 use tauri::{Manager, State};
 use tauri_plugin_opener::OpenerExt;
 
+use artists::{AlbumPage, ArtistPage, ArtistService};
 use catalog::{Catalog, RegistryInfo, Registries};
 use library::{Library, Play, Playlist, PlaylistSummary};
 use serde::Serialize;
@@ -40,6 +42,7 @@ struct AppState {
     registries: Registries,
     library: Library,
     lyrics: LyricsService,
+    artists: ArtistService,
     http: reqwest::Client,
     streams: StreamCache,
 }
@@ -360,6 +363,21 @@ fn import_spotify_export(state: State<'_, AppState>, paths: Vec<String>) -> Resu
         .collect()
 }
 
+/// An artist's page (popular songs, releases, similar artists), by Deezer id or by name.
+#[tauri::command]
+async fn artist_page(state: State<'_, AppState>, name: String, id: Option<String>) -> Result<ArtistPage, String> {
+    let page = state.artists.artist(&name, id.as_deref()).await.map_err(|e| format!("{e:#}"))?;
+    state.library.remember_tracks(&page.top).map_err(err)?;
+    Ok(page)
+}
+
+#[tauri::command]
+async fn album_page(state: State<'_, AppState>, id: String) -> Result<AlbumPage, String> {
+    let page = state.artists.album(&id).await.map_err(|e| format!("{e:#}"))?;
+    state.library.remember_tracks(&page.tracks).map_err(err)?;
+    Ok(page)
+}
+
 /// Songs like `track` for the automatic radio, leaving out `exclude` ("source/id" already queued).
 #[tauri::command]
 async fn radio_tracks(state: State<'_, AppState>, track: Track, exclude: Vec<String>) -> Result<Vec<Track>, String> {
@@ -449,6 +467,7 @@ pub fn run() {
                 registries: Registries::new(data_dir.join("registries.json")),
                 library: Library::open(&data_dir.join("library.db"))?,
                 lyrics: LyricsService::new(http.clone()),
+                artists: ArtistService::new(http.clone()),
                 http,
                 streams: StreamCache::default(),
             };
@@ -503,6 +522,8 @@ pub fn run() {
             choose_match,
             record_play,
             radio_tracks,
+            artist_page,
+            album_page,
             recent_plays,
             clear_history,
             prefetch_stream

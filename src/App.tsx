@@ -17,8 +17,10 @@ import { ServicesDialog } from "./components/ServicesDialog";
 import { Sidebar } from "./components/Sidebar";
 import { LikesView, PlaylistView } from "./components/LibraryViews";
 import { HistoryView } from "./components/HistoryView";
+import { AlbumView, ArtistView } from "./components/CatalogViews";
+import { NavContext, type Nav } from "./lib/nav";
 import { LyricsPanel } from "./components/LyricsPanel";
-import { PuzzleIcon, SearchIcon } from "./components/Icons";
+import { BackIcon, PuzzleIcon, SearchIcon } from "./components/Icons";
 import logo from "../app-icon.svg";
 import "./App.css";
 
@@ -27,6 +29,8 @@ export type View =
   | { kind: "search"; query: string }
   | { kind: "likes" }
   | { kind: "history" }
+  | { kind: "artist"; name: string; id?: string }
+  | { kind: "album"; id: string }
   | { kind: "playlist"; id: number };
 
 const SOURCE_KEY = "melomango.source";
@@ -63,7 +67,66 @@ export default function App() {
   const [sourceId, setSourceId] = useState(savedSource);
   const [showPlugins, setShowPlugins] = useState(false);
   const [query, setQuery] = useState("");
-  const [view, setView] = useState<View>({ kind: "trending" });
+  const [view, setCurrentView] = useState<View>({ kind: "trending" });
+  // Views visited before this one, for "Atrás" (kept in refs too so handlers see the latest).
+  const [backStack, setBackStack] = useState<View[]>([]);
+  const viewRef = useRef(view);
+  const backRef = useRef(backStack);
+  const contentRef = useRef<HTMLElement>(null);
+
+  const setView = useCallback((next: View) => {
+    const prev = viewRef.current;
+    if (JSON.stringify(prev) === JSON.stringify(next)) return;
+    backRef.current = [...backRef.current.slice(-49), prev];
+    setBackStack(backRef.current);
+    viewRef.current = next;
+    setCurrentView(next);
+  }, []);
+
+  const goBack = useCallback(() => {
+    const stack = backRef.current;
+    if (!stack.length) return;
+    const prev = stack[stack.length - 1];
+    backRef.current = stack.slice(0, -1);
+    setBackStack(backRef.current);
+    viewRef.current = prev;
+    setCurrentView(prev);
+  }, []);
+
+  const nav = useMemo<Nav>(
+    () => ({
+      openArtist: (name, id) => setView({ kind: "artist", name, ...(id ? { id } : {}) }),
+      openAlbum: (id) => setView({ kind: "album", id }),
+    }),
+    [setView],
+  );
+
+  // A new view starts at the top.
+  useEffect(() => {
+    contentRef.current?.scrollTo({ top: 0 });
+  }, [view]);
+
+  // Alt+← and the mouse's "back" button go back, like in a browser.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.altKey && e.key === "ArrowLeft") {
+        e.preventDefault();
+        goBack();
+      }
+    };
+    const onMouse = (e: MouseEvent) => {
+      if (e.button === 3) {
+        e.preventDefault();
+        goBack();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("mouseup", onMouse);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("mouseup", onMouse);
+    };
+  }, [goBack]);
   const [panel, setPanel] = useState<SidePanel>(savedPanel);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [fixing, setFixing] = useState<Track | null>(null);
@@ -137,103 +200,118 @@ export default function App() {
   function selectSource(id: string) {
     setSourceId(id);
     // Switching source from a library view goes back to browsing.
-    if (view.kind === "likes" || view.kind === "playlist" || view.kind === "history") setView({ kind: "trending" });
+    if (view.kind !== "trending" && view.kind !== "search") setView({ kind: "trending" });
   }
 
   return (
-    <MatchFixContext.Provider value={matchFix}>
-      <div className={`app${panel ? " with-panel" : ""}`}>
-        <header className="topbar">
-          <button className="logo" onClick={() => setView({ kind: "trending" })}>
-            <img className="logo-mark" src={logo} alt="" width={34} height={34} /> Melomango
-          </button>
-          <form className="search" onSubmit={onSearch}>
-            <SearchIcon size={18} />
-            <input
-              ref={searchRef}
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder={`Busca en ${source?.name ?? "…"}…`}
-              aria-label="Buscar"
-              title="Buscar (Ctrl+F)"
-              onKeyDown={(e) => e.key === "Escape" && e.currentTarget.blur()}
-            />
-          </form>
-          <div className="source-tabs" role="tablist" aria-label="Fuente de música">
-            {sources.map((s) => (
-              <button
-                key={s.id}
-                role="tab"
-                aria-selected={s.id === sourceId}
-                className={`source-tab${s.id === sourceId ? " active" : ""}`}
-                onClick={() => selectSource(s.id)}
-              >
-                {s.name}
-              </button>
-            ))}
-          </div>
-          <button className="btn ghost plugins-btn" onClick={() => setShowPlugins(true)}>
-            <PuzzleIcon size={16} /> Plugins
-          </button>
-        </header>
+    <NavContext.Provider value={nav}>
+      <MatchFixContext.Provider value={matchFix}>
+        <div className={`app${panel ? " with-panel" : ""}`}>
+          <header className="topbar">
+            <button className="logo" onClick={() => setView({ kind: "trending" })}>
+              <img className="logo-mark" src={logo} alt="" width={34} height={34} /> Melomango
+            </button>
+            <button
+              className="icon-btn back-btn"
+              onClick={goBack}
+              disabled={backStack.length === 0}
+              aria-label="Atrás"
+              title="Atrás (Alt+←)"
+            >
+              <BackIcon size={20} />
+            </button>
+            <form className="search" onSubmit={onSearch}>
+              <SearchIcon size={18} />
+              <input
+                ref={searchRef}
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={`Busca en ${source?.name ?? "…"}…`}
+                aria-label="Buscar"
+                title="Buscar (Ctrl+F)"
+                onKeyDown={(e) => e.key === "Escape" && e.currentTarget.blur()}
+              />
+            </form>
+            <div className="source-tabs" role="tablist" aria-label="Fuente de música">
+              {sources.map((s) => (
+                <button
+                  key={s.id}
+                  role="tab"
+                  aria-selected={s.id === sourceId}
+                  className={`source-tab${s.id === sourceId ? " active" : ""}`}
+                  onClick={() => selectSource(s.id)}
+                >
+                  {s.name}
+                </button>
+              ))}
+            </div>
+            <button className="btn ghost plugins-btn" onClick={() => setShowPlugins(true)}>
+              <PuzzleIcon size={16} /> Plugins
+            </button>
+          </header>
 
-        <Sidebar
-          view={view}
-          onNavigate={setView}
-          updater={updater}
-          onImport={() => setShowServices(true)}
-          onShowShortcuts={() => setShowShortcuts(true)}
-        />
-
-        <main className="content">
-          {view.kind === "likes" && <LikesView player={player} />}
-          {view.kind === "history" && <HistoryView player={player} />}
-          {view.kind === "playlist" && (
-            <PlaylistView id={view.id} player={player} onDeleted={() => setView({ kind: "likes" })} />
-          )}
-          {(view.kind === "trending" || view.kind === "search") && (
-            <BrowseView view={view} source={source} player={player} />
-          )}
-        </main>
-
-        {panel === "lyrics" && <LyricsPanel player={player} onClose={() => setPanel(null)} />}
-        {panel === "queue" && <QueuePanel player={player} onClose={() => setPanel(null)} />}
-
-        <PlayerBar player={player} panel={panel} onTogglePanel={togglePanel} />
-
-        <UpdateCard updater={updater} />
-
-        {toast && (
-          <div className="toast" role="status">
-            {toast}
-          </div>
-        )}
-
-        {showShortcuts && <ShortcutsDialog onClose={() => setShowShortcuts(false)} />}
-
-        {fixing && (
-          <MatchDialog track={fixing} onClose={() => setFixing(null)} onChosen={() => onMatchChosen(fixing)} />
-        )}
-
-        {showPlugins && (
-          <PluginsDialog sources={plugins} onChanged={refreshSources} onClose={() => setShowPlugins(false)} />
-        )}
-
-        {showServices && (
-          <ServicesDialog
-            onClose={() => setShowServices(false)}
-            onOpenPlugins={() => {
-              setShowServices(false);
-              setShowPlugins(true);
-            }}
-            onOpenPlaylist={(id) => {
-              setShowServices(false);
-              setView({ kind: "playlist", id });
-            }}
+          <Sidebar
+            view={view}
+            onNavigate={setView}
+            updater={updater}
+            onImport={() => setShowServices(true)}
+            onShowShortcuts={() => setShowShortcuts(true)}
           />
-        )}
-      </div>
-    </MatchFixContext.Provider>
+
+          <main className="content" ref={contentRef}>
+            {view.kind === "likes" && <LikesView player={player} />}
+            {view.kind === "history" && <HistoryView player={player} />}
+            {view.kind === "artist" && (
+              <ArtistView key={view.id ?? view.name} name={view.name} id={view.id} player={player} />
+            )}
+            {view.kind === "album" && <AlbumView key={view.id} id={view.id} player={player} />}
+            {view.kind === "playlist" && (
+              <PlaylistView id={view.id} player={player} onDeleted={() => setView({ kind: "likes" })} />
+            )}
+            {(view.kind === "trending" || view.kind === "search") && (
+              <BrowseView view={view} source={source} player={player} />
+            )}
+          </main>
+
+          {panel === "lyrics" && <LyricsPanel player={player} onClose={() => setPanel(null)} />}
+          {panel === "queue" && <QueuePanel player={player} onClose={() => setPanel(null)} />}
+
+          <PlayerBar player={player} panel={panel} onTogglePanel={togglePanel} />
+
+          <UpdateCard updater={updater} />
+
+          {toast && (
+            <div className="toast" role="status">
+              {toast}
+            </div>
+          )}
+
+          {showShortcuts && <ShortcutsDialog onClose={() => setShowShortcuts(false)} />}
+
+          {fixing && (
+            <MatchDialog track={fixing} onClose={() => setFixing(null)} onChosen={() => onMatchChosen(fixing)} />
+          )}
+
+          {showPlugins && (
+            <PluginsDialog sources={plugins} onChanged={refreshSources} onClose={() => setShowPlugins(false)} />
+          )}
+
+          {showServices && (
+            <ServicesDialog
+              onClose={() => setShowServices(false)}
+              onOpenPlugins={() => {
+                setShowServices(false);
+                setShowPlugins(true);
+              }}
+              onOpenPlaylist={(id) => {
+                setShowServices(false);
+                setView({ kind: "playlist", id });
+              }}
+            />
+          )}
+        </div>
+      </MatchFixContext.Provider>
+    </NavContext.Provider>
   );
 }
 
