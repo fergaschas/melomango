@@ -201,5 +201,6 @@ export function PlaylistView({ id, player, onDeleted }: { id: number; player: Pl
 
 function linkLabel(pluginId: string) {
   if (pluginId === SPOTIFY_EXPORT) return "tu exportación de Spotify";
+  if (pluginId === "deezer") return "Deezer";
   return pluginId === "spotify" ? "Spotify" : pluginId;
 }

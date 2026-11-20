@@ -1,4 +1,4 @@
-//! Artist and album pages, with data from Deezer's public API (https://api.deezer.com,
+//! Artist, album and public playlist pages, and searching them, with data from Deezer's public API (https://api.deezer.com,
 //! no account or key needed).
 //!
 //! Like tracks imported from Spotify, Deezer's are metadata only: they are stored in the
@@ -16,6 +16,9 @@ use crate::models::Track;
 const API: &str = "https://api.deezer.com";
 /// Source id of Deezer's tracks (not playable by themselves).
 pub const SOURCE: &str = "deezer";
+/// Plugin id that saved Deezer playlists are linked to (so they can be synced).
+pub const PLAYLIST_ORIGIN: &str = "deezer";
+const SEARCH_RESULTS: &str = "20";
 const TOP_TRACKS: u32 = 10;
 const RELATED: u32 = 10;
 const CACHE_LIMIT: usize = 100;
@@ -60,15 +63,62 @@ pub struct AlbumPage {
     pub duration_secs: u32,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtistHit {
+    #[serde(flatten)]
+    pub artist: ArtistRef,
+    pub fans: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AlbumHit {
+    #[serde(flatten)]
+    pub album: AlbumSummary,
+    pub artist_name: String,
+}
+
+/// A public Deezer playlist (made by a user or an editor).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PublicPlaylist {
+    pub id: String,
+    pub title: String,
+    pub picture_url: Option<String>,
+    pub owner: String,
+    pub track_count: u32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaylistPage {
+    #[serde(flatten)]
+    pub playlist: PublicPlaylist,
+    pub description: Option<String>,
+    pub tracks: Vec<Track>,
+    pub duration_secs: u32,
+}
+
+/// Artists, albums and playlists matching a search.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogSearch {
+    pub artists: Vec<ArtistHit>,
+    pub albums: Vec<AlbumHit>,
+    pub playlists: Vec<PublicPlaylist>,
+}
+
 pub struct ArtistService {
     http: reqwest::Client,
     artists: Mutex<HashMap<String, ArtistPage>>,
     albums: Mutex<HashMap<String, AlbumPage>>,
+    playlists: Mutex<HashMap<String, PlaylistPage>>,
 }
 
 impl ArtistService {
     pub fn new(http: reqwest::Client) -> Self {
-        Self { http, artists: Mutex::default(), albums: Mutex::default() }
+        Self { http, artists: Mutex::default(), albums: Mutex::default(), playlists: Mutex::default() }
     }
 
     /// The page of the artist with Deezer id `id`, or else the best match for `name`.
@@ -141,6 +191,71 @@ impl ArtistService {
             cache.clear();
         }
         cache.insert(id.to_string(), page.clone());
+        Ok(page)
+    }
+
+    /// Artists, albums and public playlists matching `query`. Each kind is optional: the
+    /// search fails only if none of them answered.
+    pub async fn search(&self, query: &str) -> anyhow::Result<CatalogSearch> {
+        let query = query.trim();
+        if query.is_empty() {
+            return Ok(CatalogSearch { artists: Vec::new(), albums: Vec::new(), playlists: Vec::new() });
+        }
+        let params = [("q", query), ("limit", SEARCH_RESULTS)];
+        let (artists, albums, playlists) = tokio::join!(
+            self.get_query::<Page<RawArtist>>("/search/artist", &params),
+            self.get_query::<Page<RawAlbumHit>>("/search/album", &params),
+            self.get_query::<Page<RawPlaylist>>("/search/playlist", &params),
+        );
+        if let (Err(e), Err(_), Err(_)) = (&artists, &albums, &playlists) {
+            bail!("{e:#}");
+        }
+        let mut artists: Vec<ArtistHit> = artists
+            .map(|p| p.data)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|a| ArtistHit { fans: a.nb_fan.unwrap_or(0), artist: a.into_ref() })
+            .collect();
+        // The artist whose name is exactly the query goes first (Deezer sometimes ranks a
+        // namesake higher); otherwise Deezer's order.
+        let wanted = normalize(query);
+        if let Some(pos) = artists
+            .iter()
+            .enumerate()
+            .filter(|(_, a)| normalize(&a.artist.name) == wanted)
+            .max_by_key(|(_, a)| a.fans)
+            .map(|(i, _)| i)
+        {
+            let exact = artists.remove(pos);
+            artists.insert(0, exact);
+        }
+        Ok(CatalogSearch {
+            artists,
+            albums: albums.map(|p| p.data).unwrap_or_default().into_iter().map(RawAlbumHit::into_hit).collect(),
+            playlists: playlists.map(|p| p.data).unwrap_or_default().into_iter().map(RawPlaylist::into_public).collect(),
+        })
+    }
+
+    /// A public playlist and its songs. `fresh` skips the cache (when syncing a saved copy).
+    pub async fn playlist(&self, id: &str, fresh: bool) -> anyhow::Result<PlaylistPage> {
+        let key = format!("playlist:{id}");
+        if !fresh {
+            if let Some(page) = self.playlists.lock().unwrap().get(&key) {
+                return Ok(page.clone());
+            }
+        }
+        let raw: RawPlaylistFull = self.get(&format!("/playlist/{id}")).await?;
+        let page = PlaylistPage {
+            description: raw.description.filter(|d| !d.trim().is_empty()),
+            duration_secs: raw.duration.unwrap_or(0),
+            tracks: raw.tracks.data.into_iter().map(|t| t.into_track(None)).collect(),
+            playlist: raw.summary.into_public(),
+        };
+        let mut cache = self.playlists.lock().unwrap();
+        if cache.len() >= CACHE_LIMIT {
+            cache.clear();
+        }
+        cache.insert(key, page.clone());
         Ok(page)
     }
 
@@ -295,6 +410,63 @@ impl RawAlbum {
 }
 
 #[derive(Deserialize)]
+struct RawAlbumHit {
+    id: u64,
+    title: String,
+    cover_medium: Option<String>,
+    record_type: Option<String>,
+    artist: Option<NameOnly>,
+}
+
+impl RawAlbumHit {
+    fn into_hit(self) -> AlbumHit {
+        AlbumHit {
+            artist_name: self.artist.map(|a| a.name).unwrap_or_default(),
+            album: AlbumSummary {
+                id: self.id.to_string(),
+                title: self.title,
+                cover_url: self.cover_medium,
+                release_date: None,
+                kind: self.record_type.unwrap_or_else(|| "album".into()),
+            },
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct RawPlaylist {
+    id: u64,
+    title: String,
+    picture_medium: Option<String>,
+    picture_big: Option<String>,
+    nb_tracks: Option<u32>,
+    /// `user` in search results, `creator` on the playlist itself.
+    #[serde(alias = "creator")]
+    user: Option<NameOnly>,
+}
+
+impl RawPlaylist {
+    fn into_public(self) -> PublicPlaylist {
+        PublicPlaylist {
+            id: self.id.to_string(),
+            title: self.title,
+            picture_url: self.picture_big.or(self.picture_medium),
+            owner: self.user.map(|u| u.name).unwrap_or_default(),
+            track_count: self.nb_tracks.unwrap_or(0),
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct RawPlaylistFull {
+    #[serde(flatten)]
+    summary: RawPlaylist,
+    description: Option<String>,
+    duration: Option<u32>,
+    tracks: Page<RawTrack>,
+}
+
+#[derive(Deserialize)]
 struct RawAlbumFull {
     id: u64,
     title: String,
@@ -356,6 +528,26 @@ mod tests {
         assert_eq!(normalize("Love Of Lesbian"), "loveoflesbian");
     }
 
+    #[test]
+    fn reads_playlists_from_search_and_page() {
+        let hit: RawPlaylist = serde_json::from_value(serde_json::json!({
+            "id": 5, "title": "Indie Español", "picture_medium": "https://cdn/p.jpg", "nb_tracks": 309,
+            "user": {"name": "dmarinster"}
+        }))
+        .unwrap();
+        let p = hit.into_public();
+        assert_eq!((p.id.as_str(), p.owner.as_str(), p.track_count), ("5", "dmarinster", 309));
+
+        let full: RawPlaylistFull = serde_json::from_value(serde_json::json!({
+            "id": 5, "title": "Indie Español", "nb_tracks": 1, "creator": {"name": "dmarinster"},
+            "description": " ", "duration": 200,
+            "tracks": {"data": [{"id": 9, "title": "Copenhague", "duration": 304, "artist": {"name": "Vetusta Morla"}}]}
+        }))
+        .unwrap();
+        assert_eq!(full.summary.user.as_ref().unwrap().name, "dmarinster");
+        assert_eq!(full.tracks.data.len(), 1);
+    }
+
     /// Against the real Deezer API: `cargo test -- --ignored artists`
     #[tokio::test]
     #[ignore = "necesita red"]
@@ -372,5 +564,12 @@ mod tests {
         assert_eq!(album.artist.name, "Vetusta Morla");
         // Cached: the same page again without asking Deezer.
         assert_eq!(service.artist("Vetusta Morla", None).await.unwrap().artist.id, page.artist.id);
+
+        let found = service.search("rosalía").await.unwrap();
+        assert_eq!(found.artists[0].artist.name, "ROSALÍA", "the exact name first");
+        assert!(found.albums.iter().any(|a| a.artist_name == "ROSALÍA"));
+        assert!(!found.playlists.is_empty());
+        let playlist = service.playlist(&found.playlists[0].id, false).await.unwrap();
+        assert!(!playlist.tracks.is_empty());
     }
 }

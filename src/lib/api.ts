@@ -193,6 +193,41 @@ export interface AlbumPage extends AlbumSummary {
   durationSecs: number;
 }
 
+export interface ArtistHit extends ArtistRef {
+  fans: number;
+}
+
+export interface AlbumHit extends AlbumSummary {
+  artistName: string;
+}
+
+export interface PublicPlaylist {
+  id: string;
+  title: string;
+  pictureUrl: string | null;
+  owner: string;
+  trackCount: number;
+}
+
+export interface PublicPlaylistPage extends PublicPlaylist {
+  description: string | null;
+  tracks: Track[];
+  durationSecs: number;
+}
+
+export interface CatalogSearch {
+  artists: ArtistHit[];
+  albums: AlbumHit[];
+  playlists: PublicPlaylist[];
+}
+
+/** Plugin id of saved Deezer playlists (synced from Deezer). */
+export const DEEZER_ORIGIN = "deezer";
+
+export const catalogSearch = (query: string) => invoke<CatalogSearch>("catalog_search", { query });
+export const deezerPlaylist = (id: string) => invoke<PublicPlaylistPage>("deezer_playlist", { id });
+export const saveDeezerPlaylist = (id: string) => invoke<PlaylistSummary>("save_deezer_playlist", { id });
+
 export const artistPage = (name: string, id?: string) => invoke<ArtistPage>("artist_page", { name, id: id ?? null });
 export const albumPage = (id: string) => invoke<AlbumPage>("album_page", { id });
 

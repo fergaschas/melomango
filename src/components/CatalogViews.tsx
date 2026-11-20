@@ -1,11 +1,49 @@
 import { useEffect, useState } from "react";
-import { albumPage, artistPage, formatTotal, type AlbumPage, type AlbumSummary, type ArtistPage } from "../lib/api";
+import {
+  albumPage,
+  artistPage,
+  deezerPlaylist,
+  formatTotal,
+  saveDeezerPlaylist,
+  type AlbumPage,
+  type AlbumSummary,
+  type ArtistPage,
+  type PublicPlaylistPage,
+} from "../lib/api";
+import { useLibrary } from "../lib/library";
 import { useNav } from "../lib/nav";
 import type { Player } from "../hooks/usePlayer";
-import { PlayIcon, RadioIcon } from "./Icons";
+import { PlayIcon, PlusIcon, RadioIcon } from "./Icons";
 import { TrackList } from "./TrackList";
 
-const KIND_LABEL: Record<string, string> = { album: "Álbum", single: "Sencillo", ep: "EP", compile: "Recopilatorio" };
+export const KIND_LABEL: Record<string, string> = { album: "Álbum", single: "Sencillo", ep: "EP", compile: "Recopilatorio" };
+
+/** One tile in a grid of artists, albums or playlists. */
+export interface Card {
+  key: string;
+  title: string;
+  subtitle: string;
+  imageUrl: string | null;
+  /** Artists get round pictures. */
+  round?: boolean;
+  onOpen: () => void;
+}
+
+export function CardGrid({ cards }: { cards: Card[] }) {
+  return (
+    <ul className="album-grid">
+      {cards.map((c) => (
+        <li key={c.key}>
+          <button className={`album-card${c.round ? " round" : ""}`} onClick={c.onOpen}>
+            {c.imageUrl ? <img src={c.imageUrl} alt="" loading="lazy" /> : <span className="album-cover placeholder" />}
+            <span className="album-title">{c.title}</span>
+            <span className="album-meta">{c.subtitle}</span>
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+}
 const ALBUMS_SHOWN = 12;
 
 type Load<T> = { kind: "loading" } | { kind: "error"; message: string } | { kind: "ready"; data: T };
@@ -144,19 +182,15 @@ function AlbumGrid({ title, albums, onOpen }: { title: string; albums: AlbumSumm
           </button>
         )}
       </div>
-      <ul className="album-grid">
-        {shown.map((a) => (
-          <li key={a.id}>
-            <button className="album-card" onClick={() => onOpen(a.id)}>
-              {a.coverUrl ? <img src={a.coverUrl} alt="" loading="lazy" /> : <span className="album-cover placeholder" />}
-              <span className="album-title">{a.title}</span>
-              <span className="album-meta">
-                {[year(a.releaseDate), KIND_LABEL[a.kind] ?? a.kind].filter(Boolean).join(" · ")}
-              </span>
-            </button>
-          </li>
-        ))}
-      </ul>
+      <CardGrid
+        cards={shown.map((a) => ({
+          key: a.id,
+          title: a.title,
+          subtitle: [year(a.releaseDate), KIND_LABEL[a.kind] ?? a.kind].filter(Boolean).join(" · "),
+          imageUrl: a.coverUrl,
+          onOpen: () => onOpen(a.id),
+        }))}
+      />
     </section>
   );
 }
@@ -208,6 +242,82 @@ export function AlbumView({ id, player }: { id: string; player: Player }) {
         onPlay={(i) => player.playQueue(album.tracks, i)}
       />
       <p className="credit-line">Datos del álbum de Deezer. La música suena desde YouTube.</p>
+    </>
+  );
+}
+
+/** A public Deezer playlist: play it, or save it among the user's playlists. */
+export function PublicPlaylistView({ id, player }: { id: string; player: Player }) {
+  const nav = useNav();
+  const library = useLibrary();
+  const [state, retry] = useLoad<PublicPlaylistPage>(id, () => deezerPlaylist(id));
+  const [saving, setSaving] = useState(false);
+  const [savedId, setSavedId] = useState<number | null>(null);
+
+  if (state.kind === "loading") return <p className="status">Cargando la playlist…</p>;
+  if (state.kind === "error") return <LoadError message={state.message} onRetry={retry} />;
+
+  const playlist = state.data;
+
+  async function save() {
+    setSaving(true);
+    try {
+      const saved = await saveDeezerPlaylist(id);
+      await library.refresh();
+      library.notify(`«${saved.name}» guardada en tus playlists`);
+      setSavedId(saved.id);
+    } catch (e) {
+      library.notify(`No se pudo guardar: ${e}`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <>
+      <header className="collection-header">
+        {playlist.pictureUrl ? (
+          <img className="album-hero" src={playlist.pictureUrl} alt="" />
+        ) : (
+          <div className="album-hero placeholder" aria-hidden="true" />
+        )}
+        <div className="collection-info">
+          <span className="eyebrow">Playlist de Deezer</span>
+          <h1>{playlist.title}</h1>
+          <p className="subtitle">
+            {[playlist.owner && `de ${playlist.owner}`, `${playlist.tracks.length} canciones`, formatTotal(playlist.durationSecs)]
+              .filter(Boolean)
+              .join(" · ")}
+          </p>
+          {playlist.description && <p className="playlist-description">{playlist.description}</p>}
+          <div className="collection-actions">
+            <button
+              className="btn primary play-all"
+              onClick={() => player.playQueue(playlist.tracks, 0)}
+              disabled={!playlist.tracks.length}
+            >
+              <PlayIcon size={16} /> Reproducir
+            </button>
+            {savedId === null ? (
+              <button className="btn ghost" onClick={save} disabled={saving || !playlist.tracks.length}>
+                <PlusIcon size={16} /> {saving ? "Guardando…" : "Guardar en mis playlists"}
+              </button>
+            ) : (
+              <button className="btn ghost" onClick={() => nav.openLibraryPlaylist(savedId)}>
+                Abrir en mis playlists
+              </button>
+            )}
+          </div>
+        </div>
+      </header>
+      <TrackList
+        tracks={playlist.tracks}
+        current={player.current}
+        isPlaying={player.isPlaying}
+        queue={player}
+        onPlay={(i) => player.playQueue(playlist.tracks, i)}
+      />
+      <p className="credit-line">Playlist pública de Deezer. La música suena desde YouTube.</p>
     </>
   );
 }

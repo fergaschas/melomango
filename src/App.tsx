@@ -19,7 +19,8 @@ import { ServicesDialog } from "./components/ServicesDialog";
 import { Sidebar } from "./components/Sidebar";
 import { LikesView, PlaylistView } from "./components/LibraryViews";
 import { HistoryView } from "./components/HistoryView";
-import { AlbumView, ArtistView } from "./components/CatalogViews";
+import { AlbumView, ArtistView, PublicPlaylistView } from "./components/CatalogViews";
+import { SearchResults, type SearchFilter } from "./components/SearchResults";
 import { NavContext, type Nav } from "./lib/nav";
 import { LyricsPanel } from "./components/LyricsPanel";
 import { BackIcon, PuzzleIcon, SearchIcon } from "./components/Icons";
@@ -28,11 +29,12 @@ import "./App.css";
 
 export type View =
   | { kind: "trending" }
-  | { kind: "search"; query: string }
+  | { kind: "search"; query: string; filter?: SearchFilter }
   | { kind: "likes" }
   | { kind: "history" }
   | { kind: "artist"; name: string; id?: string }
   | { kind: "album"; id: string }
+  | { kind: "publicPlaylist"; id: string }
   | { kind: "playlist"; id: number };
 
 const SOURCE_KEY = "melomango.source";
@@ -99,6 +101,8 @@ export default function App() {
     () => ({
       openArtist: (name, id) => setView({ kind: "artist", name, ...(id ? { id } : {}) }),
       openAlbum: (id) => setView({ kind: "album", id }),
+      openPublicPlaylist: (id) => setView({ kind: "publicPlaylist", id }),
+      openLibraryPlaylist: (id) => setView({ kind: "playlist", id }),
     }),
     [setView],
   );
@@ -271,11 +275,17 @@ export default function App() {
               <ArtistView key={view.id ?? view.name} name={view.name} id={view.id} player={player} />
             )}
             {view.kind === "album" && <AlbumView key={view.id} id={view.id} player={player} />}
+            {view.kind === "publicPlaylist" && <PublicPlaylistView key={view.id} id={view.id} player={player} />}
             {view.kind === "playlist" && (
               <PlaylistView id={view.id} player={player} onDeleted={() => setView({ kind: "likes" })} />
             )}
             {(view.kind === "trending" || view.kind === "search") && (
-              <BrowseView view={view} source={source} player={player} />
+              <BrowseView
+                view={view}
+                source={source}
+                player={player}
+                onFilter={(filter) => view.kind === "search" && setView({ ...view, filter })}
+              />
             )}
           </main>
 
@@ -333,11 +343,14 @@ function BrowseView({
   view,
   source,
   player,
+  onFilter,
 }: {
   view: Extract<View, { kind: "trending" | "search" }>;
   source: SourceInfo | null;
   player: Player;
+  onFilter: (filter: SearchFilter) => void;
 }) {
+  const query = view.kind === "search" ? view.query : null;
   const [tracks, setTracks] = useState<Track[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -366,7 +379,7 @@ function BrowseView({
     }
     let cancelled = false;
     setLoading(true);
-    const request = view.kind === "trending" ? trendingTracks(source.id) : searchTracks(source.id, view.query);
+    const request = query === null ? trendingTracks(source.id) : searchTracks(source.id, query);
     request
       .then((result) => !cancelled && setTracks(result))
       .catch((e) => !cancelled && setError(String(e)))
@@ -374,7 +387,9 @@ function BrowseView({
     return () => {
       cancelled = true;
     };
-  }, [view, source, retry]);
+    // Changing the search tab keeps the same songs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view.kind, query, source, retry]);
 
   const sourceName = source?.name ?? "…";
   const emptyMessage =
@@ -382,11 +397,8 @@ function BrowseView({
       ? `Busca algo en ${sourceName} para empezar.`
       : "Ni un mango. Prueba otra búsqueda.";
 
-  return (
+  const tracksBlock = (
     <>
-      <h1>{view.kind === "trending" ? "Tendencias" : `Resultados para “${view.query}”`}</h1>
-      <p className="subtitle">Música gratis vía {sourceName}. Sin pagar ni un mango.</p>
-
       {loading && <p className="status">Pelando mangos…</p>}
       {error && <p className="status error">Algo ha fallado: {error}</p>}
       {error && source?.kind === "plugin" && /yt-dlp|requisito/i.test(error) && (
@@ -404,6 +416,33 @@ function BrowseView({
           queue={player}
         />
       )}
+    </>
+  );
+
+  if (view.kind === "search") {
+    return (
+      <>
+        <h1>Resultados para “{view.query}”</h1>
+        <p className="subtitle">Canciones de {sourceName}; artistas, álbumes y playlists de Deezer.</p>
+        <SearchResults
+          query={view.query}
+          filter={view.filter ?? "all"}
+          onFilter={onFilter}
+          player={player}
+          tracks={error ? [] : tracks}
+          tracksBlock={tracksBlock}
+          tracksLoading={loading}
+          sourceName={sourceName}
+        />
+      </>
+    );
+  }
+
+  return (
+    <>
+      <h1>Tendencias</h1>
+      <p className="subtitle">Música gratis vía {sourceName}. Sin pagar ni un mango.</p>
+      {tracksBlock}
     </>
   );
 }

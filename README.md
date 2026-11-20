@@ -23,6 +23,10 @@ radio** en el menú + de cualquier canción la empieza desde ahí.
 [Deezer](https://developers.deezer.com/api) (sin cuenta) y la música suena desde YouTube, como las canciones
 importadas de Spotify. **Atrás** (o Alt+←) vuelve a la página anterior.
 
+**Buscar**: los resultados se separan en pestañas: **Todo** (el artista que mejor encaja, canciones y filas de cada
+tipo), **Canciones** (de la fuente elegida), **Artistas**, **Álbumes** y **Playlists** (tus playlists que coinciden y
+playlists públicas de Deezer, que puedes reproducir o guardar en las tuyas y sincronizar después).
+
 **Discord**: mientras suena algo, tu perfil muestra «Escuchando Melomango» con la canción, el artista, la portada y
 el tiempo. Melomango habla con la app de Discord de tu equipo (no envía nada por internet) y se puede desactivar en
 **Ajustes**, abajo en la barra lateral.

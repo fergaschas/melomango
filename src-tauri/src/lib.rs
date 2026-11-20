@@ -19,7 +19,7 @@ use std::{
 use tauri::{Manager, State};
 use tauri_plugin_opener::OpenerExt;
 
-use artists::{AlbumPage, ArtistPage, ArtistService};
+use artists::{AlbumPage, ArtistPage, ArtistService, CatalogSearch, PlaylistPage};
 use catalog::{Catalog, RegistryInfo, Registries};
 use library::{Library, Play, Playlist, PlaylistSummary};
 use serde::Serialize;
@@ -346,7 +346,12 @@ async fn sync_playlist(state: State<'_, AppState>, id: i64) -> Result<PlaylistSu
         .playlist_link(id)
         .map_err(err)?
         .ok_or("esta playlist no está vinculada a ningún servicio")?;
-    let tracks = state.library_plugin(&link.plugin_id)?.collection_tracks(&link.remote_id).await.map_err(err)?;
+    let tracks = if link.plugin_id == artists::PLAYLIST_ORIGIN {
+        let id = link.remote_id.trim_start_matches("playlist:");
+        state.artists.playlist(id, true).await.map_err(|e| format!("{e:#}"))?.tracks
+    } else {
+        state.library_plugin(&link.plugin_id)?.collection_tracks(&link.remote_id).await.map_err(err)?
+    };
     state.library.import_playlist(&link.plugin_id, &link.remote_id, "importada", &tracks).map_err(err)
 }
 
@@ -382,6 +387,30 @@ async fn artist_page(state: State<'_, AppState>, name: String, id: Option<String
     let page = state.artists.artist(&name, id.as_deref()).await.map_err(|e| format!("{e:#}"))?;
     state.library.remember_tracks(&page.top).map_err(err)?;
     Ok(page)
+}
+
+/// Artists, albums and public playlists matching `query` (from Deezer).
+#[tauri::command]
+async fn catalog_search(state: State<'_, AppState>, query: String) -> Result<CatalogSearch, String> {
+    state.artists.search(&query).await.map_err(|e| format!("{e:#}"))
+}
+
+/// A public Deezer playlist with its songs.
+#[tauri::command]
+async fn deezer_playlist(state: State<'_, AppState>, id: String) -> Result<PlaylistPage, String> {
+    let page = state.artists.playlist(&id, false).await.map_err(|e| format!("{e:#}"))?;
+    state.library.remember_tracks(&page.tracks).map_err(err)?;
+    Ok(page)
+}
+
+/// Saves a public Deezer playlist as one of the user's (synced with "Sincronizar").
+#[tauri::command]
+async fn save_deezer_playlist(state: State<'_, AppState>, id: String) -> Result<PlaylistSummary, String> {
+    let page = state.artists.playlist(&id, true).await.map_err(|e| format!("{e:#}"))?;
+    state
+        .library
+        .import_playlist(artists::PLAYLIST_ORIGIN, &format!("playlist:{id}"), &page.playlist.title, &page.tracks)
+        .map_err(err)
 }
 
 #[tauri::command]
@@ -540,6 +569,9 @@ pub fn run() {
             radio_tracks,
             artist_page,
             album_page,
+            catalog_search,
+            deezer_playlist,
+            save_deezer_playlist,
             discord_set,
             discord_status,
             recent_plays,

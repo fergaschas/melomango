@@ -4,9 +4,19 @@ import { createContext, useContext } from "react";
 export interface Nav {
   openArtist: (name: string, id?: string) => void;
   openAlbum: (id: string) => void;
+  /** A public Deezer playlist. */
+  openPublicPlaylist: (id: string) => void;
+  /** One of the user's playlists. */
+  openLibraryPlaylist: (id: number) => void;
 }
 
-export const NavContext = createContext<Nav>({ openArtist: () => {}, openAlbum: () => {} });
+const nothing = () => {};
+export const NavContext = createContext<Nav>({
+  openArtist: nothing,
+  openAlbum: nothing,
+  openPublicPlaylist: nothing,
+  openLibraryPlaylist: nothing,
+});
 
 export const useNav = () => useContext(NavContext);
 
