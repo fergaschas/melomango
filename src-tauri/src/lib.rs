@@ -126,6 +126,31 @@ fn err(e: anyhow::Error) -> String {
     format!("{e:#}")
 }
 
+/// Runs `f` with the app state on the pool meant for blocking work (SQLite, files).
+///
+/// A Tauri command without `async` runs on the window's thread: a slow one (importing a
+/// Spotify export, emptying the cache) froze the window until Windows said «No responde»,
+/// and even a quick one waited there whenever another command held the database. Async
+/// commands must not do this work inline either, or they stall the runtime's threads.
+async fn blocking<T, F>(app: tauri::AppHandle, f: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce(&AppState) -> Result<T, String> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(move || f(&app.state::<AppState>()))
+        .await
+        .map_err(|e| format!("la tarea se interrumpió: {e}"))?
+}
+
+/// `blocking` for library work on owned data, from async commands.
+async fn with_library<T, F>(app: &tauri::AppHandle, f: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce(&Library) -> anyhow::Result<T> + Send + 'static,
+{
+    blocking(app.clone(), move |s| f(&s.library).map_err(err)).await
+}
+
 #[tauri::command]
 fn list_sources(state: State<'_, AppState>) -> Vec<SourceInfo> {
     state.registry().list()
@@ -150,17 +175,23 @@ async fn trending(state: State<'_, AppState>, source: String) -> Result<Vec<Trac
 }
 
 #[tauri::command]
-fn install_plugin(state: State<'_, AppState>, path: String) -> Result<SourceInfo, String> {
-    let id = plugin::install(path.as_ref(), &state.plugins_dir, None).map_err(|e| format!("{e:#}"))?;
-    state.reload();
-    state.plugin(&id).map(|p| p.info())
+async fn install_plugin(app: tauri::AppHandle, path: String) -> Result<SourceInfo, String> {
+    blocking(app, move |state| {
+        let id = plugin::install(path.as_ref(), &state.plugins_dir, None).map_err(err)?;
+        state.reload();
+        state.plugin(&id).map(|p| p.info())
+    })
+    .await
 }
 
 #[tauri::command]
-fn uninstall_plugin(state: State<'_, AppState>, id: String) -> Result<(), String> {
-    plugin::uninstall(&id, &state.plugins_dir, &state.plugin_data_dir).map_err(|e| format!("{e:#}"))?;
-    state.reload();
-    Ok(())
+async fn uninstall_plugin(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    blocking(app, move |state| {
+        plugin::uninstall(&id, &state.plugins_dir, &state.plugin_data_dir).map_err(err)?;
+        state.reload();
+        Ok(())
+    })
+    .await
 }
 
 #[tauri::command]
@@ -171,17 +202,18 @@ async fn browse_plugins(state: State<'_, AppState>) -> Result<Catalog, String> {
 /// The repository the installed plugin `id` came from, if installing it from `registry`
 /// would replace it with another repository's plugin (the app asks first).
 #[tauri::command]
-fn plugin_origin_change(state: State<'_, AppState>, registry: String, id: String) -> Option<String> {
-    catalog::origin_change(&state.plugins_dir, &registry, &id)
+async fn plugin_origin_change(app: tauri::AppHandle, registry: String, id: String) -> Result<Option<String>, String> {
+    blocking(app, move |state| Ok(catalog::origin_change(&state.plugins_dir, &registry, &id))).await
 }
 
 #[tauri::command]
 async fn install_catalog_plugin(
-    state: State<'_, AppState>,
+    app: tauri::AppHandle,
     registry: String,
     id: String,
     replace_other_origin: Option<bool>,
 ) -> Result<SourceInfo, String> {
+    let state = app.state::<AppState>();
     let id = catalog::install(
         &state.http,
         &registry,
@@ -192,25 +224,34 @@ async fn install_catalog_plugin(
     )
     .await
     .map_err(|e| format!("{e:#}"))?;
-    state.reload();
-    state.plugin(&id).map(|p| p.info())
+    blocking(app.clone(), move |state| {
+        state.reload();
+        state.plugin(&id).map(|p| p.info())
+    })
+    .await
 }
 
 #[tauri::command]
-fn list_registries(state: State<'_, AppState>) -> Vec<RegistryInfo> {
-    state.registries.list()
+async fn list_registries(app: tauri::AppHandle) -> Result<Vec<RegistryInfo>, String> {
+    blocking(app, |state| Ok(state.registries.list())).await
 }
 
 #[tauri::command]
-fn add_registry(state: State<'_, AppState>, url: String) -> Result<Vec<RegistryInfo>, String> {
-    state.registries.add(&url).map_err(|e| format!("{e:#}"))?;
-    Ok(state.registries.list())
+async fn add_registry(app: tauri::AppHandle, url: String) -> Result<Vec<RegistryInfo>, String> {
+    blocking(app, move |state| {
+        state.registries.add(&url).map_err(err)?;
+        Ok(state.registries.list())
+    })
+    .await
 }
 
 #[tauri::command]
-fn remove_registry(state: State<'_, AppState>, url: String) -> Result<Vec<RegistryInfo>, String> {
-    state.registries.remove(&url).map_err(|e| format!("{e:#}"))?;
-    Ok(state.registries.list())
+async fn remove_registry(app: tauri::AppHandle, url: String) -> Result<Vec<RegistryInfo>, String> {
+    blocking(app, move |state| {
+        state.registries.remove(&url).map_err(err)?;
+        Ok(state.registries.list())
+    })
+    .await
 }
 
 #[tauri::command]
@@ -227,68 +268,59 @@ async fn get_lyrics(state: State<'_, AppState>, track: Track) -> Result<Lyrics, 
 
 // ---------- Library ----------
 
-fn lib_err(e: anyhow::Error) -> String {
-    format!("{e:#}")
+#[tauri::command]
+async fn liked_tracks(app: tauri::AppHandle) -> Result<Vec<Track>, String> {
+    with_library(&app, |l| l.liked_tracks()).await
 }
 
 #[tauri::command]
-fn liked_tracks(state: State<'_, AppState>) -> Result<Vec<Track>, String> {
-    state.library.liked_tracks().map_err(lib_err)
+async fn liked_keys(app: tauri::AppHandle) -> Result<Vec<String>, String> {
+    with_library(&app, |l| l.liked_keys()).await
 }
 
 #[tauri::command]
-fn liked_keys(state: State<'_, AppState>) -> Result<Vec<String>, String> {
-    state.library.liked_keys().map_err(lib_err)
+async fn set_liked(app: tauri::AppHandle, track: Track, liked: bool) -> Result<(), String> {
+    with_library(&app, move |l| l.set_liked(&track, liked)).await
 }
 
 #[tauri::command]
-fn set_liked(state: State<'_, AppState>, track: Track, liked: bool) -> Result<(), String> {
-    state.library.set_liked(&track, liked).map_err(lib_err)
+async fn list_playlists(app: tauri::AppHandle) -> Result<Vec<PlaylistSummary>, String> {
+    with_library(&app, |l| l.playlists()).await
 }
 
 #[tauri::command]
-fn list_playlists(state: State<'_, AppState>) -> Result<Vec<PlaylistSummary>, String> {
-    state.library.playlists().map_err(lib_err)
+async fn create_playlist(app: tauri::AppHandle, name: String) -> Result<PlaylistSummary, String> {
+    with_library(&app, move |l| l.create_playlist(&name)).await
 }
 
 #[tauri::command]
-fn create_playlist(state: State<'_, AppState>, name: String) -> Result<PlaylistSummary, String> {
-    state.library.create_playlist(&name).map_err(lib_err)
+async fn rename_playlist(app: tauri::AppHandle, id: i64, name: String) -> Result<(), String> {
+    with_library(&app, move |l| l.rename_playlist(id, &name)).await
 }
 
 #[tauri::command]
-fn rename_playlist(state: State<'_, AppState>, id: i64, name: String) -> Result<(), String> {
-    state.library.rename_playlist(id, &name).map_err(lib_err)
+async fn delete_playlist(app: tauri::AppHandle, id: i64) -> Result<(), String> {
+    with_library(&app, move |l| l.delete_playlist(id)).await
 }
 
 #[tauri::command]
-fn delete_playlist(state: State<'_, AppState>, id: i64) -> Result<(), String> {
-    state.library.delete_playlist(id).map_err(lib_err)
+async fn get_playlist(app: tauri::AppHandle, id: i64) -> Result<Playlist, String> {
+    with_library(&app, move |l| l.playlist(id)).await
 }
 
 #[tauri::command]
-fn get_playlist(state: State<'_, AppState>, id: i64) -> Result<Playlist, String> {
-    state.library.playlist(id).map_err(lib_err)
+async fn add_to_playlist(app: tauri::AppHandle, id: i64, track: Track) -> Result<bool, String> {
+    with_library(&app, move |l| l.add_to_playlist(id, &track)).await
 }
 
 #[tauri::command]
-fn add_to_playlist(state: State<'_, AppState>, id: i64, track: Track) -> Result<bool, String> {
-    state.library.add_to_playlist(id, &track).map_err(lib_err)
+async fn remove_from_playlist(app: tauri::AppHandle, id: i64, source: String, track_id: String) -> Result<(), String> {
+    with_library(&app, move |l| l.remove_from_playlist(id, &source, &track_id)).await
 }
 
 #[tauri::command]
-fn remove_from_playlist(
-    state: State<'_, AppState>,
-    id: i64,
-    source: String,
-    track_id: String,
-) -> Result<(), String> {
-    state.library.remove_from_playlist(id, &source, &track_id).map_err(lib_err)
-}
-
-#[tauri::command]
-fn move_in_playlist(state: State<'_, AppState>, id: i64, from: usize, to: usize) -> Result<(), String> {
-    state.library.move_in_playlist(id, from, to).map_err(lib_err)
+async fn move_in_playlist(app: tauri::AppHandle, id: i64, from: usize, to: usize) -> Result<(), String> {
+    with_library(&app, move |l| l.move_in_playlist(id, from, to)).await
 }
 
 /// What the plugin needs installed on the computer, and whether it is there.
@@ -360,9 +392,10 @@ async fn disconnect_library(state: State<'_, AppState>, plugin_id: String) -> Re
 }
 
 #[tauri::command]
-async fn library_collections(state: State<'_, AppState>, plugin_id: String) -> Result<Vec<CollectionView>, String> {
-    let collections = state.library_plugin(&plugin_id)?.collections().await.map_err(err)?;
-    let imported = state.library.imported_from(&plugin_id).map_err(err)?;
+async fn library_collections(app: tauri::AppHandle, plugin_id: String) -> Result<Vec<CollectionView>, String> {
+    let plugin = app.state::<AppState>().library_plugin(&plugin_id)?;
+    let collections = plugin.collections().await.map_err(err)?;
+    let imported = with_library(&app, move |l| l.imported_from(&plugin_id)).await?;
     Ok(collections
         .into_iter()
         .map(|c| CollectionView { imported_playlist_id: imported.get(&c.id).copied(), collection: c })
@@ -372,28 +405,28 @@ async fn library_collections(state: State<'_, AppState>, plugin_id: String) -> R
 /// Copies a collection into a Melomango playlist (or refreshes the one it was imported into).
 #[tauri::command]
 async fn import_collection(
-    state: State<'_, AppState>,
+    app: tauri::AppHandle,
     plugin_id: String,
     collection_id: String,
     name: String,
 ) -> Result<PlaylistSummary, String> {
-    let tracks = state.library_plugin(&plugin_id)?.collection_tracks(&collection_id).await.map_err(err)?;
-    state.library.import_playlist(&plugin_id, &collection_id, &name, &tracks).map_err(err)
+    let plugin = app.state::<AppState>().library_plugin(&plugin_id)?;
+    let tracks = plugin.collection_tracks(&collection_id).await.map_err(err)?;
+    with_library(&app, move |l| l.import_playlist(&plugin_id, &collection_id, &name, &tracks)).await
 }
 
 #[tauri::command]
-async fn sync_playlist(state: State<'_, AppState>, id: i64) -> Result<PlaylistSummary, String> {
-    let link = state
-        .library
-        .playlist_link(id)
-        .map_err(err)?
+async fn sync_playlist(app: tauri::AppHandle, id: i64) -> Result<PlaylistSummary, String> {
+    let link = with_library(&app, move |l| l.playlist_link(id))
+        .await?
         .ok_or("esta playlist no está vinculada a ningún servicio")?;
+    let state = app.state::<AppState>();
     let tracks = if let Some(source) = links::Link::from_origin(&link.plugin_id, &link.remote_id) {
         state.fetch_link(&source, true).await.map_err(|e| format!("{e:#}"))?.1
     } else {
         state.library_plugin(&link.plugin_id)?.collection_tracks(&link.remote_id).await.map_err(err)?
     };
-    state.library.import_playlist(&link.plugin_id, &link.remote_id, "importada", &tracks).map_err(err)
+    with_library(&app, move |l| l.import_playlist(&link.plugin_id, &link.remote_id, "importada", &tracks)).await
 }
 
 #[derive(Serialize)]
@@ -406,17 +439,18 @@ struct ImportedLink {
 
 /// Imports the playlist or album behind a pasted Spotify, YouTube or Deezer link.
 #[tauri::command]
-async fn import_link(state: State<'_, AppState>, url: String) -> Result<ImportedLink, String> {
+async fn import_link(app: tauri::AppHandle, url: String) -> Result<ImportedLink, String> {
     let link = links::parse(&url).ok_or(
         "no reconozco ese enlace: pega el de una playlist o un álbum de Spotify, YouTube (o YouTube Music) o Deezer",
     )?;
-    let (name, tracks) = state.fetch_link(&link, true).await.map_err(|e| format!("{e:#}"))?;
+    let (name, tracks) = app.state::<AppState>().fetch_link(&link, true).await.map_err(|e| format!("{e:#}"))?;
     if tracks.is_empty() {
         return Err("esa playlist está vacía".into());
     }
     let limited = matches!(link, links::Link::SpotifyPlaylist(_)) && tracks.len() >= links::SPOTIFY_EMBED_LIMIT;
     let (origin, remote_id) = link.origin();
-    let playlist = state.library.import_playlist(origin, &remote_id, &name, &tracks).map_err(err)?;
+    let origin = origin.to_string();
+    let playlist = with_library(&app, move |l| l.import_playlist(&origin, &remote_id, &name, &tracks)).await?;
     Ok(ImportedLink { playlist, limited })
 }
 
@@ -430,29 +464,35 @@ struct ImportedText {
 
 /// A new playlist from pasted text, one song per line ("Artista - Título").
 #[tauri::command]
-fn import_text(state: State<'_, AppState>, name: String, text: String) -> Result<ImportedText, String> {
-    let parsed = text_import::parse(&text);
-    if parsed.tracks.is_empty() {
-        return Err("no encontré canciones: pon una por línea, por ejemplo «Vetusta Morla - Copenhague»".into());
-    }
-    let name = if name.trim().is_empty() { "Lista pegada".to_string() } else { name };
-    let playlist = state.library.create_playlist_with(&name, &parsed.tracks).map_err(err)?;
-    Ok(ImportedText { playlist, skipped: parsed.skipped })
+async fn import_text(app: tauri::AppHandle, name: String, text: String) -> Result<ImportedText, String> {
+    blocking(app, move |state| {
+        let parsed = text_import::parse(&text);
+        if parsed.tracks.is_empty() {
+            return Err("no encontré canciones: pon una por línea, por ejemplo «Vetusta Morla - Copenhague»".into());
+        }
+        let name = if name.trim().is_empty() { "Lista pegada".to_string() } else { name };
+        let playlist = state.library.create_playlist_with(&name, &parsed.tracks).map_err(err)?;
+        Ok(ImportedText { playlist, skipped: parsed.skipped })
+    })
+    .await
 }
 
 /// Imports the playlists and liked songs of a Spotify data export (zip or its JSON files).
 #[tauri::command]
-fn import_spotify_export(state: State<'_, AppState>, paths: Vec<String>) -> Result<Vec<PlaylistSummary>, String> {
-    let collections = spotify_export::read(&paths).map_err(err)?;
-    collections
-        .iter()
-        .map(|c| {
-            state
-                .library
-                .import_playlist(spotify_export::ORIGIN, &c.remote_id, &c.name, &c.tracks)
-                .map_err(err)
-        })
-        .collect()
+async fn import_spotify_export(app: tauri::AppHandle, paths: Vec<String>) -> Result<Vec<PlaylistSummary>, String> {
+    blocking(app, move |state| {
+        let collections = spotify_export::read(&paths).map_err(err)?;
+        collections
+            .iter()
+            .map(|c| {
+                state
+                    .library
+                    .import_playlist(spotify_export::ORIGIN, &c.remote_id, &c.name, &c.tracks)
+                    .map_err(err)
+            })
+            .collect()
+    })
+    .await
 }
 
 /// Shrinks the main window to the mini player (always on top), or puts it back.
@@ -491,10 +531,16 @@ fn discord_status(state: State<'_, AppState>) -> discord::Status {
 
 /// An artist's page (popular songs, releases, similar artists), by Deezer id or by name.
 #[tauri::command]
-async fn artist_page(state: State<'_, AppState>, name: String, id: Option<String>) -> Result<ArtistPage, String> {
-    let page = state.artists.artist(&name, id.as_deref()).await.map_err(|e| format!("{e:#}"))?;
-    state.library.remember_tracks(&page.top).map_err(err)?;
+async fn artist_page(app: tauri::AppHandle, name: String, id: Option<String>) -> Result<ArtistPage, String> {
+    let page = app.state::<AppState>().artists.artist(&name, id.as_deref()).await.map_err(|e| format!("{e:#}"))?;
+    remember(&app, &page.top).await?;
     Ok(page)
+}
+
+/// Stores tracks shown on catalog pages so they can be played (matched to YouTube) later.
+async fn remember(app: &tauri::AppHandle, tracks: &[Track]) -> Result<(), String> {
+    let tracks = tracks.to_vec();
+    with_library(app, move |l| l.remember_tracks(&tracks)).await
 }
 
 /// Artists, albums and public playlists matching `query` (from Deezer).
@@ -505,38 +551,38 @@ async fn catalog_search(state: State<'_, AppState>, query: String) -> Result<Cat
 
 /// Artists and songs to suggest while typing a search (from Deezer).
 #[tauri::command]
-async fn search_suggestions(state: State<'_, AppState>, query: String) -> Result<Suggestions, String> {
+async fn search_suggestions(app: tauri::AppHandle, query: String) -> Result<Suggestions, String> {
     if query.trim().chars().count() < 2 {
         return Ok(Suggestions { artists: Vec::new(), tracks: Vec::new() });
     }
-    let found = state.artists.suggest(&query).await.map_err(|e| format!("{e:#}"))?;
+    let found = app.state::<AppState>().artists.suggest(&query).await.map_err(|e| format!("{e:#}"))?;
     // Suggested songs can be played straight away (matched to YouTube).
-    state.library.remember_tracks(&found.tracks).map_err(err)?;
+    remember(&app, &found.tracks).await?;
     Ok(found)
 }
 
 /// A public Deezer playlist with its songs.
 #[tauri::command]
-async fn deezer_playlist(state: State<'_, AppState>, id: String) -> Result<PlaylistPage, String> {
-    let page = state.artists.playlist(&id, false).await.map_err(|e| format!("{e:#}"))?;
-    state.library.remember_tracks(&page.tracks).map_err(err)?;
+async fn deezer_playlist(app: tauri::AppHandle, id: String) -> Result<PlaylistPage, String> {
+    let page = app.state::<AppState>().artists.playlist(&id, false).await.map_err(|e| format!("{e:#}"))?;
+    remember(&app, &page.tracks).await?;
     Ok(page)
 }
 
 /// Saves a public Deezer playlist as one of the user's (synced with "Sincronizar").
 #[tauri::command]
-async fn save_deezer_playlist(state: State<'_, AppState>, id: String) -> Result<PlaylistSummary, String> {
-    let page = state.artists.playlist(&id, true).await.map_err(|e| format!("{e:#}"))?;
-    state
-        .library
-        .import_playlist(artists::PLAYLIST_ORIGIN, &format!("playlist:{id}"), &page.playlist.title, &page.tracks)
-        .map_err(err)
+async fn save_deezer_playlist(app: tauri::AppHandle, id: String) -> Result<PlaylistSummary, String> {
+    let page = app.state::<AppState>().artists.playlist(&id, true).await.map_err(|e| format!("{e:#}"))?;
+    with_library(&app, move |l| {
+        l.import_playlist(artists::PLAYLIST_ORIGIN, &format!("playlist:{id}"), &page.playlist.title, &page.tracks)
+    })
+    .await
 }
 
 #[tauri::command]
-async fn album_page(state: State<'_, AppState>, id: String) -> Result<AlbumPage, String> {
-    let page = state.artists.album(&id).await.map_err(|e| format!("{e:#}"))?;
-    state.library.remember_tracks(&page.tracks).map_err(err)?;
+async fn album_page(app: tauri::AppHandle, id: String) -> Result<AlbumPage, String> {
+    let page = app.state::<AppState>().artists.album(&id).await.map_err(|e| format!("{e:#}"))?;
+    remember(&app, &page.tracks).await?;
     Ok(page)
 }
 
@@ -552,8 +598,9 @@ async fn radio_tracks(state: State<'_, AppState>, track: Track, exclude: Vec<Str
 
 /// Records that the user listened to `track` (called once it has played a while).
 #[tauri::command]
-fn record_play(app: tauri::AppHandle, state: State<'_, AppState>, track: Track) -> Result<(), String> {
-    state.library.record_play(&track).map_err(err)?;
+async fn record_play(app: tauri::AppHandle, track: Track) -> Result<(), String> {
+    let played = track.clone();
+    with_library(&app, move |l| l.record_play(&played)).await?;
     // Played often (or liked): keep a copy in the cache, in the background.
     tauri::async_runtime::spawn(async move {
         let state = app.state::<AppState>();
@@ -564,25 +611,25 @@ fn record_play(app: tauri::AppHandle, state: State<'_, AppState>, track: Track) 
 }
 
 #[tauri::command]
-fn recent_plays(state: State<'_, AppState>, limit: Option<u32>) -> Result<Vec<Play>, String> {
-    state.library.recent_plays(limit.unwrap_or(500).min(5_000)).map_err(err)
+async fn recent_plays(app: tauri::AppHandle, limit: Option<u32>) -> Result<Vec<Play>, String> {
+    with_library(&app, move |l| l.recent_plays(limit.unwrap_or(500).min(5_000))).await
 }
 
 /// Months with plays ("YYYY-MM"), newest first.
 #[tauri::command]
-fn summary_months(state: State<'_, AppState>) -> Result<Vec<String>, String> {
-    state.library.summary_months().map_err(err)
+async fn summary_months(app: tauri::AppHandle) -> Result<Vec<String>, String> {
+    with_library(&app, |l| l.summary_months()).await
 }
 
 /// "Tu resumen del mes": totals and favourites of `month` ("YYYY-MM").
 #[tauri::command]
-fn month_summary(state: State<'_, AppState>, month: String) -> Result<MonthSummary, String> {
-    state.library.month_summary(&month).map_err(err)
+async fn month_summary(app: tauri::AppHandle, month: String) -> Result<MonthSummary, String> {
+    with_library(&app, move |l| l.month_summary(&month)).await
 }
 
 #[tauri::command]
-fn clear_history(state: State<'_, AppState>) -> Result<(), String> {
-    state.library.clear_history().map_err(err)
+async fn clear_history(app: tauri::AppHandle) -> Result<(), String> {
+    with_library(&app, |l| l.clear_history()).await
 }
 
 /// Recordings to choose from when an imported track plays the wrong one.
@@ -599,19 +646,21 @@ async fn match_options(
 
 /// Plays `source/id` from the recording the user chose from now on.
 #[tauri::command]
-fn choose_match(
-    state: State<'_, AppState>,
+async fn choose_match(
+    app: tauri::AppHandle,
     source: String,
     id: String,
     play_source: String,
     play_id: String,
 ) -> Result<(), String> {
-    state.source(&play_source)?;
-    state.library.set_track_match(&source, &id, &play_source, &play_id).map_err(err)?;
-    state.streams.forget(&format!("{source}/{id}"));
-    // A download of the old recording would keep playing it.
-    state.downloads.remove(&state.library, &source, &id).map_err(err)?;
-    Ok(())
+    blocking(app, move |state| {
+        state.source(&play_source)?;
+        state.library.set_track_match(&source, &id, &play_source, &play_id).map_err(err)?;
+        state.streams.forget(&format!("{source}/{id}"));
+        // A download of the old recording would keep playing it.
+        state.downloads.remove(&state.library, &source, &id).map_err(err)
+    })
+    .await
 }
 
 // ---------- Downloads ----------
@@ -638,24 +687,24 @@ fn download_tracks(app: tauri::AppHandle, tracks: Vec<Track>) {
 
 /// Cancels a download in progress or deletes a downloaded song.
 #[tauri::command]
-fn remove_download(state: State<'_, AppState>, source: String, id: String) -> Result<(), String> {
-    state.downloads.remove(&state.library, &source, &id).map_err(err)
+async fn remove_download(app: tauri::AppHandle, source: String, id: String) -> Result<(), String> {
+    blocking(app, move |state| state.downloads.remove(&state.library, &source, &id).map_err(err)).await
 }
 
 #[tauri::command]
-fn list_downloads(state: State<'_, AppState>) -> Result<Vec<Download>, String> {
-    state.library.downloads().map_err(err)
+async fn list_downloads(app: tauri::AppHandle) -> Result<Vec<Download>, String> {
+    with_library(&app, |l| l.downloads()).await
 }
 
 #[tauri::command]
-fn downloaded_keys(state: State<'_, AppState>) -> Result<Vec<String>, String> {
-    state.library.downloaded_keys().map_err(err)
+async fn downloaded_keys(app: tauri::AppHandle) -> Result<Vec<String>, String> {
+    with_library(&app, |l| l.downloaded_keys()).await
 }
 
 /// Bytes the automatic cache may use (0 turns it off and empties it).
 #[tauri::command]
-fn set_cache_limit(state: State<'_, AppState>, bytes: u64) -> Result<(), String> {
-    state.downloads.set_cache_limit(&state.library, bytes).map_err(err)
+async fn set_cache_limit(app: tauri::AppHandle, bytes: u64) -> Result<(), String> {
+    blocking(app, move |state| state.downloads.set_cache_limit(&state.library, bytes).map_err(err)).await
 }
 
 #[derive(Serialize)]
@@ -665,14 +714,14 @@ struct CacheUsage {
 }
 
 #[tauri::command]
-fn cache_usage(state: State<'_, AppState>) -> Result<CacheUsage, String> {
-    let (songs, bytes) = state.library.cache_usage().map_err(err)?;
+async fn cache_usage(app: tauri::AppHandle) -> Result<CacheUsage, String> {
+    let (songs, bytes) = with_library(&app, |l| l.cache_usage()).await?;
     Ok(CacheUsage { songs, bytes })
 }
 
 #[tauri::command]
-fn clear_cache(state: State<'_, AppState>) -> Result<(), String> {
-    state.downloads.clear_cache(&state.library).map_err(err)
+async fn clear_cache(app: tauri::AppHandle) -> Result<(), String> {
+    blocking(app, |state| state.downloads.clear_cache(&state.library).map_err(err)).await
 }
 
 /// Resolves a track's audio in the background so it starts at once when played.

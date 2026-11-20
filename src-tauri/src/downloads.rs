@@ -8,7 +8,7 @@
 use std::{
     collections::HashMap,
     fs,
-    io::{Read, Seek, SeekFrom, Write},
+    io::{Read, Seek, SeekFrom},
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -286,10 +286,12 @@ impl Downloads {
         cancelled: &AtomicBool,
         on_progress: impl Fn(u64, Option<u64>),
     ) -> anyhow::Result<Option<DownloadFile>> {
-        fs::create_dir_all(&self.dir).context("no se pudo crear la carpeta de descargas")?;
+        use tokio::io::{AsyncSeekExt, AsyncWriteExt};
+        // tokio::fs: writing to disk must not block the runtime's threads.
+        tokio::fs::create_dir_all(&self.dir).await.context("no se pudo crear la carpeta de descargas")?;
         let stem = file_stem(&track.source, &track.id);
         let part = self.dir.join(format!("{stem}.part"));
-        let mut out = fs::File::create(&part).context("no se pudo crear el archivo")?;
+        let mut out = tokio::fs::File::create(&part).await.context("no se pudo crear el archivo")?;
 
         let outcome = async {
             let mut info = stream::open(registry, library, http, &track.source, &track.id).await?;
@@ -324,8 +326,8 @@ impl Downloads {
                 if whole && received > 0 {
                     // It sends the whole song again, from the start: keep that instead of
                     // appending it after what we already had.
-                    out.set_len(0).context("no se pudo escribir el archivo")?;
-                    out.seek(SeekFrom::Start(0)).context("no se pudo escribir el archivo")?;
+                    out.set_len(0).await.context("no se pudo escribir el archivo")?;
+                    out.seek(SeekFrom::Start(0)).await.context("no se pudo escribir el archivo")?;
                     received = 0;
                     total = None;
                 }
@@ -340,7 +342,7 @@ impl Downloads {
                 if bytes.is_empty() {
                     break;
                 }
-                out.write_all(&bytes).context("no se pudo escribir el archivo")?;
+                out.write_all(&bytes).await.context("no se pudo escribir el archivo")?;
                 received += bytes.len() as u64;
                 on_progress(received, total);
                 if whole || total.is_some_and(|t| received >= t) {
@@ -354,15 +356,21 @@ impl Downloads {
         }
         .await;
 
+        // tokio finishes writes in the background: wait for them before renaming or deleting.
+        let flushed = out.flush().await;
         drop(out);
+        let outcome = match (outcome, flushed) {
+            (Ok(Some(_)), Err(e)) => Err(anyhow::Error::from(e).context("no se pudo escribir el archivo")),
+            (outcome, _) => outcome,
+        };
         match outcome {
             Ok(Some((size, mime))) => {
                 let file = format!("{stem}.{}", extension(&mime));
-                fs::rename(&part, self.dir.join(&file)).context("no se pudo guardar el archivo")?;
+                tokio::fs::rename(&part, self.dir.join(&file)).await.context("no se pudo guardar el archivo")?;
                 Ok(Some(DownloadFile { file, mime, size }))
             }
             other => {
-                let _ = fs::remove_file(&part);
+                let _ = tokio::fs::remove_file(&part).await;
                 other.map(|_| None)
             }
         }

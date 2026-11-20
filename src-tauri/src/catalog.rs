@@ -243,26 +243,32 @@ pub async fn install(
         "melomango-plugin-{id}-{}",
         SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0)
     ));
-    let result = (|| {
-        zip::ZipArchive::new(Cursor::new(bytes))
-            .context("la descarga no es un zip válido")?
-            .extract(&staging)
-            .context("no se pudo descomprimir el plugin")?;
-        let root = plugin_root(&staging)?;
-        // Checked before touching anything installed: a package claiming another id
-        // ("youtube" inside "cool-eq") must not replace that plugin.
-        let packaged = plugin::PluginSource::load(&root)?.id().to_string();
-        if packaged != entry.id {
-            bail!("el paquete contiene el plugin \"{packaged}\", no \"{}\"", entry.id);
+    // Unzipping and copying block: on the pool for blocking work, not the runtime's threads.
+    let (expected, plugins_dir, data_root, origin) =
+        (entry.id, plugins_dir.to_path_buf(), data_root.to_path_buf(), registry_url.to_string());
+    tokio::task::spawn_blocking(move || {
+        let result = (|| {
+            zip::ZipArchive::new(Cursor::new(bytes))
+                .context("la descarga no es un zip válido")?
+                .extract(&staging)
+                .context("no se pudo descomprimir el plugin")?;
+            let root = plugin_root(&staging)?;
+            // Checked before touching anything installed: a package claiming another id
+            // ("youtube" inside "cool-eq") must not replace that plugin.
+            let packaged = plugin::PluginSource::load(&root)?.id().to_string();
+            if packaged != expected {
+                bail!("el paquete contiene el plugin \"{packaged}\", no \"{expected}\"");
+            }
+            plugin::install(&root, &plugins_dir, Some(&origin))
+        })();
+        let _ = fs::remove_dir_all(&staging);
+        if let (Ok(installed), Some(_)) = (&result, &other_origin) {
+            // A different plugin now: it starts without the previous one's sessions and tokens.
+            plugin::forget_data(installed, &data_root);
         }
-        plugin::install(&root, plugins_dir, Some(registry_url))
-    })();
-    let _ = fs::remove_dir_all(&staging);
-    if let (Ok(installed), Some(_)) = (&result, &other_origin) {
-        // A different plugin now: it starts without the previous one's sessions and tokens.
-        plugin::forget_data(installed, data_root);
-    }
-    result
+        result
+    })
+    .await?
 }
 
 async fn download_limited(http: &reqwest::Client, url: &str) -> anyhow::Result<Vec<u8>> {

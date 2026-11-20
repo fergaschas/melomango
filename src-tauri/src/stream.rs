@@ -142,7 +142,8 @@ async fn serve(
         return unsatisfiable(local.as_ref().map(|(_, file)| file.size));
     };
     if let Some((path, file)) = local {
-        return serve_file(&path, &file, start, end);
+        // Reading up to a CHUNK from disk blocks: not on the runtime's threads.
+        return tokio::task::spawn_blocking(move || serve_file(&path, &file, start, end)).await?;
     }
     let range = format!("bytes={start}-{end}");
 
