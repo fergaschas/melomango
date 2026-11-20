@@ -85,15 +85,21 @@ la app descarga el zip, comprueba su SHA-256 y lo instala. Sin reiniciar, aparec
 Hay dos formas. En las dos solo se copian los datos de las canciones: al reproducir, Melomango busca cada una en
 YouTube (por artista, título y duración) y recuerda el resultado, así que conviene tener el plugin de YouTube.
 
-#### Con tu exportación de datos (sin cuenta de desarrollador ni Premium)
+#### Con un archivo (sin cuenta de desarrollador ni Premium)
 
-1. En [spotify.com → Cuenta → Privacidad](https://www.spotify.com/account/privacy/), marca *Datos de la cuenta* y
-   pide «Descargar tus datos». Spotify envía un correo con el zip (puede tardar unos días).
-2. En Melomango, **⬇ Importar playlists → Exportación de datos de Spotify → Elegir archivo…** y elige el zip.
+En **⬇ Importar playlists → Spotify sin Premium → Elegir archivo…** puedes elegir:
 
-Se importan tus playlists y tus Me gusta (no los álbumes: la exportación no trae sus canciones). Como la exportación no
-trae duraciones, Melomango las consulta en LRCLIB al reproducir para elegir la versión correcta. Para actualizar,
-pide otra exportación e impórtala: las playlists se reemplazan, no se duplican.
+- **El zip de [Exportify](https://exportify.app/)** (al momento): inicias sesión con tu cuenta de Spotify, pulsas
+  *Export All* y eliges `spotify_playlists.zip`. Trae duraciones y portadas. Exportify es un servicio de terceros
+  de código abierto: le das permiso para leer tus playlists. También valen sus CSV sueltos y CSV de otras
+  herramientas con columnas de título y artista (y, opcionalmente, nombre de playlist).
+- **Tu exportación de datos de Spotify** (tarda unos días): en
+  [spotify.com → Cuenta → Privacidad](https://www.spotify.com/account/privacy/), marca *Datos de la cuenta* y pide
+  «Descargar tus datos»; cuando llegue el correo, elige `my_spotify_data.zip`. No trae duraciones: Melomango las
+  consulta en LRCLIB al reproducir para elegir la versión correcta.
+
+Se importan tus playlists y tus Me gusta (no los álbumes guardados: ninguno de los dos archivos trae sus canciones).
+Para actualizar, vuelve a exportar e importar: las playlists se reemplazan, no se duplican.
 
 #### Con el plugin (al momento y con sincronización; necesita Premium)
 

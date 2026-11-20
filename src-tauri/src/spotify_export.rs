@@ -10,6 +10,8 @@
 //! ```
 //!
 //! It has no durations nor covers: tracks are matched to YouTube by title and artist.
+//!
+//! The same import also takes Exportify's CSVs (see [`crate::exportify`]).
 
 use std::{
     collections::HashMap,
@@ -22,7 +24,7 @@ use anyhow::{bail, Context};
 use percent_encoding::percent_decode_str;
 use serde::Deserialize;
 
-use crate::models::Track;
+use crate::{exportify, models::Track};
 
 /// Plugin id the imported playlists are linked to (they can't be synced).
 pub const ORIGIN: &str = "spotify-export";
@@ -37,14 +39,15 @@ pub struct Collection {
     pub tracks: Vec<Track>,
 }
 
-/// Reads every collection in the given files: the export's zip or its JSON files.
+/// Reads every collection in the given files: Spotify's export (zip or its JSON files)
+/// or Exportify's (zip or its CSV files).
 pub fn read(paths: &[impl AsRef<Path>]) -> anyhow::Result<Vec<Collection>> {
     let mut files = Vec::new();
     for path in paths {
         let path = path.as_ref();
         let is_zip = path.extension().is_some_and(|e| e.eq_ignore_ascii_case("zip"));
         if is_zip {
-            files.extend(json_in_zip(path)?);
+            files.extend(files_in_zip(path)?);
         } else {
             let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
             files.push((name, read_capped(fs::File::open(path)?)?));
@@ -54,6 +57,15 @@ pub fn read(paths: &[impl AsRef<Path>]) -> anyhow::Result<Vec<Collection>> {
     let mut collections = Vec::new();
     let mut liked = Vec::new();
     let mut seen_names: HashMap<String, u32> = HashMap::new();
+    let mut add = |collections: &mut Vec<Collection>, name: String, tracks: Vec<Track>| {
+        if tracks.is_empty() {
+            return;
+        }
+        let n = seen_names.entry(name.clone()).or_default();
+        *n += 1;
+        let remote_id = if *n == 1 { format!("playlist:{name}") } else { format!("playlist:{name}#{n}") };
+        collections.push(Collection { remote_id, name, tracks });
+    };
     let mut recognised = false;
     // Playlist1.json, Playlist2.json… in order.
     files.sort_by(|a, b| natural_key(&a.0).cmp(&natural_key(&b.0)));
@@ -64,25 +76,32 @@ pub fn read(paths: &[impl AsRef<Path>]) -> anyhow::Result<Vec<Collection>> {
             let file: PlaylistFile = serde_json::from_slice(data).with_context(|| format!("{base} no es válido"))?;
             for playlist in file.playlists {
                 let tracks: Vec<Track> = playlist.items.iter().filter_map(PlaylistItem::to_track).collect();
-                if tracks.is_empty() {
-                    continue;
-                }
-                let name = playlist.name.trim().to_string();
-                let n = seen_names.entry(name.clone()).or_default();
-                *n += 1;
-                let remote_id = if *n == 1 { format!("playlist:{name}") } else { format!("playlist:{name}#{n}") };
-                collections.push(Collection { remote_id, name, tracks });
+                add(&mut collections, playlist.name.trim().to_string(), tracks);
             }
         } else if base.eq_ignore_ascii_case("YourLibrary.json") {
             recognised = true;
             let file: LibraryFile = serde_json::from_slice(data).with_context(|| format!("{base} no es válido"))?;
             liked.extend(file.tracks.iter().filter_map(LibraryTrack::to_track));
+        } else if is_csv(base) {
+            match exportify::read(base, data)? {
+                exportify::Content::Liked(tracks) => {
+                    recognised = true;
+                    liked.extend(tracks);
+                }
+                exportify::Content::Playlists(lists) => {
+                    recognised = true;
+                    for (name, tracks) in lists {
+                        add(&mut collections, name, tracks);
+                    }
+                }
+                exportify::Content::Ignored => {}
+            }
         }
     }
     if !recognised {
         bail!(
-            "no encontré playlists ni Me gusta: elige el zip que te envió Spotify \
-             (my_spotify_data.zip) o sus archivos Playlist1.json y YourLibrary.json"
+            "no encontré playlists ni Me gusta: elige el zip que te envió Spotify (my_spotify_data.zip), \
+             el de Exportify (spotify_playlists.zip) o sus archivos JSON o CSV"
         );
     }
     if !liked.is_empty() {
@@ -91,7 +110,7 @@ pub fn read(paths: &[impl AsRef<Path>]) -> anyhow::Result<Vec<Collection>> {
     Ok(collections)
 }
 
-fn json_in_zip(path: &Path) -> anyhow::Result<Vec<(String, Vec<u8>)>> {
+fn files_in_zip(path: &Path) -> anyhow::Result<Vec<(String, Vec<u8>)>> {
     let file = fs::File::open(path).with_context(|| format!("no se pudo abrir {}", path.display()))?;
     let mut zip = zip::ZipArchive::new(file).context("el archivo no es un zip válido")?;
     let mut out = Vec::new();
@@ -99,7 +118,7 @@ fn json_in_zip(path: &Path) -> anyhow::Result<Vec<(String, Vec<u8>)>> {
         let entry = zip.by_index(i)?;
         let name = entry.name().to_string();
         let base = name.rsplit('/').next().unwrap_or(&name);
-        if is_playlist_file(base) || base.eq_ignore_ascii_case("YourLibrary.json") {
+        if is_playlist_file(base) || base.eq_ignore_ascii_case("YourLibrary.json") || is_csv(base) {
             out.push((name.clone(), read_capped(entry)?));
         }
     }
@@ -113,6 +132,10 @@ fn read_capped(reader: impl Read) -> anyhow::Result<Vec<u8>> {
         bail!("archivo demasiado grande");
     }
     Ok(data)
+}
+
+fn is_csv(base: &str) -> bool {
+    base.to_ascii_lowercase().ends_with(".csv")
 }
 
 /// `Playlist1.json`, `Playlist12.json`… (also `Playlists.json` in some exports).
@@ -200,7 +223,7 @@ impl LibraryTrack {
     }
 }
 
-fn track(uri: &str, title: &str, artist: &str, duration_secs: u32) -> Option<Track> {
+pub(crate) fn track(uri: &str, title: &str, artist: &str, duration_secs: u32) -> Option<Track> {
     let (title, artist) = (title.trim(), artist.trim());
     if title.is_empty() {
         return None;
@@ -321,6 +344,31 @@ mod tests {
         let path = dir.join("Userdata.json");
         fs::write(&path, "{}").unwrap();
         assert!(read(&[path]).is_err());
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn reads_exportify_zip_and_merges_liked_songs() {
+        let dir = temp_dir("exportify");
+        let path = dir.join("spotify_playlists.zip");
+        let mut zip = zip::ZipWriter::new(fs::File::create(&path).unwrap());
+        let options = zip::write::SimpleFileOptions::default();
+        for (name, data) in [
+            ("liked.csv", "\"Track URI\",\"Track Name\",\"Artist Name(s)\",\"Track Duration (ms)\"\n\"spotify:track:2saoko\",\"Saoko\",\"ROSALÍA\",\"137875\"\n"),
+            ("para_correr.csv", "\"Track URI\",\"Track Name\",\"Artist Name(s)\"\n\"spotify:track:x\",\"Dai Dai\",\"Shakira\"\n"),
+            ("saved_albums.csv", "\"Album URI\",\"Album Name\"\n\"spotify:album:1\",\"RAM\"\n"),
+        ] {
+            zip.start_file(name, options).unwrap();
+            zip.write_all(data.as_bytes()).unwrap();
+        }
+        zip.finish().unwrap();
+
+        let collections = read(&[path, export_zip(&dir)]).unwrap();
+        let names: Vec<&str> = collections.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["Me gusta de Spotify", "Para correr", "Para correr", "Para correr"]);
+        // Both exports' liked songs end up together (the same track twice is deduplicated on import).
+        assert_eq!(collections[0].tracks.len(), 2);
+        assert!(collections[0].tracks.iter().any(|t| t.id == "2saoko" && t.duration_secs == 138));
         fs::remove_dir_all(&dir).unwrap();
     }
 

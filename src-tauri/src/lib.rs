@@ -1,4 +1,5 @@
 mod catalog;
+mod exportify;
 mod library;
 mod lyrics;
 mod matcher;

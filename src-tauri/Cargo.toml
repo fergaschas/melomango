@@ -1,6 +1,6 @@
 [package]
 name = "melomango"
-version = "0.4.0"
+version = "0.5.0"
 description = "Reproductor de música en streaming gratuito"
 authors = ["you"]
 edition = "2024"
@@ -30,6 +30,7 @@ tokio = { version = "1", features = ["sync", "process", "time"] }
 async-trait = "0.1"
 anyhow = "1"
 percent-encoding = "2"
+csv = "1"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 sha2 = "0.10"
 rusqlite = { version = "0.32", features = ["bundled"] }

@@ -219,8 +219,23 @@ function ServicePanel({
 }
 
 const SPOTIFY_PRIVACY_URL = "https://www.spotify.com/account/privacy/";
+const EXPORTIFY_URL = "https://exportify.app/";
 
-/** Imports Spotify's data export: no developer app nor Premium needed. */
+function ExternalLink({ url, children }: { url: string; children: React.ReactNode }) {
+  return (
+    <a
+      href={url}
+      onClick={(e) => {
+        e.preventDefault();
+        openUrl(url);
+      }}
+    >
+      {children}
+    </a>
+  );
+}
+
+/** Imports Spotify's data export or Exportify's CSVs: no developer app nor Premium needed. */
 function SpotifyExportPanel({ onOpenPlaylist }: { onOpenPlaylist: (id: number) => void }) {
   const library = useLibrary();
   const [importing, setImporting] = useState(false);
@@ -231,7 +246,7 @@ function SpotifyExportPanel({ onOpenPlaylist }: { onOpenPlaylist: (id: number) =
     const picked = await open({
       multiple: true,
       title: "Elige la exportación de Spotify",
-      filters: [{ name: "Exportación de Spotify", extensions: ["zip", "json"] }],
+      filters: [{ name: "Exportación de Spotify o Exportify", extensions: ["zip", "json", "csv"] }],
     });
     const paths = picked === null ? [] : Array.isArray(picked) ? picked : [picked];
     if (paths.length === 0) return;
@@ -254,32 +269,26 @@ function SpotifyExportPanel({ onOpenPlaylist }: { onOpenPlaylist: (id: number) =
     <div className="service">
       <div className="service-head">
         <div>
-          <strong>Exportación de datos de Spotify</strong>
-          <span className="service-status">Sin cuenta de desarrollador ni Premium</span>
+          <strong>Spotify sin Premium</strong>
+          <span className="service-status">Importa un archivo con tus playlists y tus Me gusta</span>
         </div>
         <button className="btn primary small" onClick={choose} disabled={importing}>
           {importing ? "Importando…" : "Elegir archivo…"}
         </button>
       </div>
-      <ol className="export-steps">
-        <li>
-          Entra en{" "}
-          <a
-            href={SPOTIFY_PRIVACY_URL}
-            onClick={(e) => {
-              e.preventDefault();
-              openUrl(SPOTIFY_PRIVACY_URL);
-            }}
-          >
-            spotify.com → Cuenta → Privacidad
-          </a>
-          , marca <em>Datos de la cuenta</em> y pide «Descargar tus datos».
-        </li>
-        <li>Spotify te enviará un correo con el enlace (puede tardar unos días). Descarga el zip.</li>
-        <li>Pulsa «Elegir archivo…» y elige ese zip: se importan tus playlists y tus Me gusta.</li>
-      </ol>
+      <p className="export-option">
+        <strong>Al momento, con Exportify:</strong> abre <ExternalLink url={EXPORTIFY_URL}>exportify.app</ExternalLink>,
+        inicia sesión con tu cuenta de Spotify y pulsa <em>Export All</em>. Elige aquí el zip que descarga
+        (spotify_playlists.zip). Exportify es un servicio de otra persona: le das permiso para leer tus playlists.
+      </p>
+      <p className="export-option">
+        <strong>Desde Spotify (tarda unos días):</strong> en{" "}
+        <ExternalLink url={SPOTIFY_PRIVACY_URL}>spotify.com → Cuenta → Privacidad</ExternalLink>, marca{" "}
+        <em>Datos de la cuenta</em> y pide «Descargar tus datos». Cuando llegue el correo, elige aquí el zip
+        (my_spotify_data.zip).
+      </p>
       <p className="muted-note">
-        Para actualizarlas, pide otra exportación e impórtala: las playlists se reemplazan, no se duplican.
+        Para actualizarlas, vuelve a exportar e importar: las playlists se reemplazan, no se duplican.
       </p>
       {error && <p className="notice error">{error}</p>}
       {imported && (
