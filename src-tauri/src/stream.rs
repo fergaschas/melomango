@@ -363,7 +363,7 @@ mod tests {
         .await;
         assert!(listing.errors.is_empty(), "{:?}", listing.errors);
         assert!(listing.plugins.iter().any(|p| p.id == "youtube" && p.available));
-        catalog::install(&http, catalog::OFFICIAL_INDEX, "youtube", &plugins_dir)
+        catalog::install(&http, catalog::OFFICIAL_INDEX, "youtube", &plugins_dir, &plugins_dir.join("data"), false)
             .await
             .unwrap();
 

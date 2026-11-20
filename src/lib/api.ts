@@ -63,8 +63,13 @@ export interface RegistryInfo {
 
 export const browsePlugins = () => invoke<Catalog>("browse_plugins");
 
-export const installCatalogPlugin = (registry: string, id: string) =>
-  invoke<SourceInfo>("install_catalog_plugin", { registry, id });
+/** `replaceOtherOrigin`: the user agreed to replace a same-id plugin from another repository. */
+export const installCatalogPlugin = (registry: string, id: string, replaceOtherOrigin = false) =>
+  invoke<SourceInfo>("install_catalog_plugin", { registry, id, replaceOtherOrigin });
+
+/** The repository the installed plugin `id` came from, if installing it from `registry` would replace it. */
+export const pluginOriginChange = (registry: string, id: string) =>
+  invoke<string | null>("plugin_origin_change", { registry, id });
 
 export const listRegistries = () => invoke<RegistryInfo[]>("list_registries");
 

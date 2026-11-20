@@ -151,7 +151,7 @@ async fn trending(state: State<'_, AppState>, source: String) -> Result<Vec<Trac
 
 #[tauri::command]
 fn install_plugin(state: State<'_, AppState>, path: String) -> Result<SourceInfo, String> {
-    let id = plugin::install(path.as_ref(), &state.plugins_dir).map_err(|e| format!("{e:#}"))?;
+    let id = plugin::install(path.as_ref(), &state.plugins_dir, None).map_err(|e| format!("{e:#}"))?;
     state.reload();
     state.plugin(&id).map(|p| p.info())
 }
@@ -168,15 +168,30 @@ async fn browse_plugins(state: State<'_, AppState>) -> Result<Catalog, String> {
     Ok(catalog::browse(&state.http, &state.registries.list()).await)
 }
 
+/// The repository the installed plugin `id` came from, if installing it from `registry`
+/// would replace it with another repository's plugin (the app asks first).
+#[tauri::command]
+fn plugin_origin_change(state: State<'_, AppState>, registry: String, id: String) -> Option<String> {
+    catalog::origin_change(&state.plugins_dir, &registry, &id)
+}
+
 #[tauri::command]
 async fn install_catalog_plugin(
     state: State<'_, AppState>,
     registry: String,
     id: String,
+    replace_other_origin: Option<bool>,
 ) -> Result<SourceInfo, String> {
-    let id = catalog::install(&state.http, &registry, &id, &state.plugins_dir)
-        .await
-        .map_err(|e| format!("{e:#}"))?;
+    let id = catalog::install(
+        &state.http,
+        &registry,
+        &id,
+        &state.plugins_dir,
+        &state.plugin_data_dir,
+        replace_other_origin.unwrap_or(false),
+    )
+    .await
+    .map_err(|e| format!("{e:#}"))?;
     state.reload();
     state.plugin(&id).map(|p| p.info())
 }
@@ -684,6 +699,7 @@ pub fn run() {
             let data_dir = app.path().app_data_dir()?;
             let plugins_dir = data_dir.join("plugins");
             std::fs::create_dir_all(&plugins_dir)?;
+            plugin::clean_leftovers(&plugins_dir);
             let plugin_data_dir = data_dir.join("plugin-data");
 
             // Without timeouts a server that hangs leaves a stream, a download or the lyrics
@@ -776,6 +792,7 @@ pub fn run() {
             uninstall_plugin,
             browse_plugins,
             install_catalog_plugin,
+            plugin_origin_change,
             list_registries,
             add_registry,
             remove_registry,
