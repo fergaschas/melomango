@@ -20,6 +20,11 @@ interface Rule {
 
 const RULES: Rule[] = [
   {
+    // Radio Browser failed (the cause comes after it, for the details).
+    test: /no se pudo cargar la lista de emisoras/i,
+    message: "No se pudo cargar la lista de emisoras. Comprueba tu conexión y vuelve a intentarlo.",
+  },
+  {
     test: /no se encontró yt-dlp|yt-dlp.*(not found|no encontrado)/i,
     message: "Falta yt-dlp, el programa que usa el plugin de YouTube. Instálalo con el botón de abajo o desde Plugins.",
     retryable: false,

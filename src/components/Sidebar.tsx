@@ -5,7 +5,17 @@ import { songs } from "../lib/downloadState";
 import type { View } from "../App";
 import type { Updater } from "../hooks/useUpdater";
 import { updateStatusText } from "./UpdateCard";
-import { ChartIcon, ClockIcon, DownloadDoneIcon, HomeIcon, ImportIcon, KeyboardIcon, PlusIcon, SettingsIcon } from "./Icons";
+import {
+  ChartIcon,
+  ClockIcon,
+  DownloadDoneIcon,
+  HomeIcon,
+  ImportIcon,
+  KeyboardIcon,
+  PlusIcon,
+  RadioIcon,
+  SettingsIcon,
+} from "./Icons";
 import { PlaylistCover } from "./PlaylistCover";
 
 export function Sidebar({
@@ -47,6 +57,16 @@ export function Sidebar({
           <HomeIcon size={18} />
         </span>
         Inicio
+      </button>
+      <button
+        className={`nav-item${view.kind === "stations" ? " active" : ""}`}
+        aria-current={view.kind === "stations" ? "page" : undefined}
+        onClick={() => onNavigate({ kind: "stations" })}
+      >
+        <span className="nav-icon">
+          <RadioIcon size={18} />
+        </span>
+        Emisoras
       </button>
       <button
         className={`nav-item${view.kind === "likes" ? " active" : ""}`}

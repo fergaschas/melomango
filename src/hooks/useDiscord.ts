@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { discordSet, trackKey } from "../lib/api";
+import { discordSet, stationKey, trackKey } from "../lib/api";
 import type { Player } from "./usePlayer";
 
 const ENABLED_KEY = "melomango.discord";
@@ -33,15 +33,16 @@ export function useDiscordSetting(): [boolean, (on: boolean) => void] {
  * plays (with its progress), cleared when paused, stopped or turned off.
  */
 export function useDiscordPresence(player: Player, enabled: boolean) {
-  const { current, isPlaying, duration, seekCount } = player;
-  const key = current ? trackKey(current) : null;
+  const { current, live, isPlaying, duration, seekCount } = player;
+  // A station counts as changed when what it says is playing changes.
+  const key = live ? `${stationKey(live.station)}/${live.title ?? ""}` : current ? trackKey(current) : null;
   // Buffering after a seek or between tracks still counts as playing: Discord allows only a
   // few updates in a row, and clearing and showing it again would make it flicker.
-  const playing = enabled && current !== null && isPlaying;
+  const playing = enabled && (current !== null || live !== null) && isPlaying;
   const timer = useRef<number | undefined>(undefined);
   // The latest position, read when the update goes out (a new track has reset it by then).
-  const latest = useRef({ current, duration, clock: player.clock });
-  latest.current = { current, duration, clock: player.clock };
+  const latest = useRef({ current, live, duration, clock: player.clock });
+  latest.current = { current, live, duration, clock: player.clock };
 
   useEffect(() => {
     window.clearTimeout(timer.current);
@@ -51,8 +52,19 @@ export function useDiscordPresence(player: Player, enabled: boolean) {
       return;
     }
     timer.current = window.setTimeout(() => {
-      const { current: track, duration: length, clock } = latest.current;
+      const { current: track, live: station, duration: length, clock } = latest.current;
       const time = clock.get();
+      if (station) {
+        // No progress bar: a station has no length.
+        discordSet({
+          title: station.title ?? station.station.name,
+          artist: station.title ? station.station.name : "En directo",
+          artworkUrl: station.station.favicon,
+          durationSecs: 0,
+          positionSecs: 0,
+        });
+        return;
+      }
       if (!track) return;
       discordSet({
         title: track.title,

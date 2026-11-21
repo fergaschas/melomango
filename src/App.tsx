@@ -25,6 +25,8 @@ import { DownloadsView } from "./components/DownloadsView";
 import { useDownloads } from "./lib/downloads";
 import { SummaryView } from "./components/SummaryView";
 import { HomeView } from "./components/HomeView";
+import { StationsView } from "./components/StationsView";
+import { useStations } from "./lib/stationsContext";
 import { MiniPlayer } from "./components/MiniPlayer";
 import { YouTubeSetup } from "./components/YouTubeSetup";
 import { setMiniMode } from "./lib/api";
@@ -48,6 +50,7 @@ export type View =
   | { kind: "history" }
   | { kind: "downloads" }
   | { kind: "summary" }
+  | { kind: "stations" }
   | { kind: "artist"; name: string; id?: string }
   | { kind: "album"; id: string }
   | { kind: "publicPlaylist"; id: string }
@@ -142,6 +145,15 @@ export default function App() {
   const [theme, setTheme] = useTheme();
   const [mini, setMini] = useState(false);
   const downloads = useDownloads();
+  const stations = useStations();
+
+  // A station that connects goes to «Escuchadas hace poco».
+  const live = player.live;
+  const tunedStation = live?.session != null ? live.station : null;
+  const { addRecent: addRecentStation } = stations;
+  useEffect(() => {
+    if (tunedStation) addRecentStation(tunedStation);
+  }, [tunedStation, addRecentStation]);
 
   const toggleMini = useCallback(
     (on: boolean) => {
@@ -236,7 +248,7 @@ export default function App() {
   return (
     <NavContext.Provider value={nav}>
       <MatchFixContext.Provider value={matchFix}>
-        <div className={`app${panel ? " with-panel" : ""}`}>
+        <div className={`app${panel && !live ? " with-panel" : ""}`}>
           <header className="topbar">
             <button className="logo" onClick={() => setView({ kind: "home" })}>
               <img className="logo-mark" src={logo} alt="" width={34} height={34} /> Melomango
@@ -287,7 +299,10 @@ export default function App() {
           />
 
           <main className="content" ref={contentRef}>
-            {sourcesLoaded && sources.length === 0 ? (
+            {view.kind === "stations" ? (
+              // Stations don't need a source of songs.
+              <StationsView player={player} />
+            ) : sourcesLoaded && sources.length === 0 ? (
               // Nothing to play from yet (a fresh install): get YouTube ready first.
               <YouTubeSetup onReady={refreshSources} />
             ) : (
@@ -319,8 +334,9 @@ export default function App() {
             )}
           </main>
 
-          {panel === "lyrics" && <LyricsPanel player={player} onClose={() => setPanel(null)} />}
-          {panel === "queue" && <QueuePanel player={player} onClose={() => setPanel(null)} />}
+          {/* Lyrics and the queue are for songs: hidden while a station plays. */}
+          {panel === "lyrics" && !live && <LyricsPanel player={player} onClose={() => setPanel(null)} />}
+          {panel === "queue" && !live && <QueuePanel player={player} onClose={() => setPanel(null)} />}
 
           <PlayerBar player={player} panel={panel} onTogglePanel={togglePanel} onMini={() => toggleMini(true)} />
 
@@ -351,6 +367,8 @@ export default function App() {
             onCrossfadeChange={player.setCrossfade}
             normalize={player.normalize}
             onNormalizeChange={player.setNormalize}
+            useLocation={stations.useLocation}
+            onUseLocationChange={stations.setUseLocation}
             onClose={() => setShowSettings(false)}
           />
         )}

@@ -10,6 +10,7 @@ pub(crate) mod library;
 pub(crate) mod pages;
 pub(crate) mod plugins;
 pub(crate) mod services;
+pub(crate) mod stations;
 
 /// What a failed command answers: its message, as a plain string for the frontend (as
 /// before). Any `anyhow` error, `String` or `&str` converts with `?`, with its causes.

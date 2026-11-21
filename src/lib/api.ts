@@ -44,6 +44,9 @@ export type LibraryConnection = B.Connection_Serialize;
 export type LibraryStatus = B.LibraryStatus_Serialize;
 export type CollectionView = B.CollectionView_Serialize;
 export type Requirement = B.Requirement_Serialize;
+export type Station = B.Station_Serialize;
+export type StationCountry = B.Country;
+export type LiveTitle = B.LiveTitle;
 
 /** Commands that return nothing come back as `null`: to the rest of the app they are `void`. */
 const done = (p: Promise<unknown>): Promise<void> => p.then(() => undefined);
@@ -205,3 +208,27 @@ export const syncPlaylist = (id: number) => commands.syncPlaylist(id);
 export const pluginRequirements = (pluginId: string) => commands.pluginRequirements(pluginId);
 export const installPluginRequirement = (pluginId: string, requirementId: string) =>
   commands.installPluginRequirement(pluginId, requirementId);
+
+// ---------- Live radio stations («Emisoras», docs/emisoras.md) ----------
+
+/** The event a playing station's «now playing» (ICY) comes in. */
+export const LIVE_TITLE_EVENT = "live-title";
+
+export const stationKey = (s: Pick<Station, "uuid">) => `station/${s.uuid}`;
+
+/** URL of a live session in the `stream://` protocol (Rust proxies the station). */
+export const liveUrl = (session: number) => convertFileSrc(`_live/${session}`, "stream");
+
+export const stationsNear = (lat: number, long: number) => commands.stationsNear(lat, long);
+export const stationsTop = (country: string) => commands.stationsTop(country);
+export const stationsSearch = (query: string, country: string | null) => commands.stationsSearch(query, country);
+export const stationCountries = () => commands.stationCountries();
+export const likedStations = () => commands.stationsLiked();
+export const setStationLiked = (station: Station, liked: boolean) => done(commands.stationsLike(station, liked));
+/** Connects to the station (stopping any other); its audio is at `liveUrl(session)`. */
+export const stationPlay = (station: Station) => commands.stationPlay(station);
+export const stationStop = () => commands.stationStop().catch(() => {});
+/** Where Windows says this computer is (rounded to ~1 km), if the user allows it. */
+export const systemLocation = () => commands.systemLocation();
+/** The country of Windows' region setting ("ES"), if it has one. */
+export const systemCountry = () => commands.systemCountry();

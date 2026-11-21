@@ -14,6 +14,7 @@ mod radio;
 mod sources;
 mod spotify_export;
 mod startup;
+mod stations;
 mod stream;
 mod text;
 mod text_import;
@@ -61,6 +62,10 @@ struct AppState {
     catalog_http: reqwest::Client,
     streams: StreamCache,
     downloads: downloads::Downloads,
+    /// The Radio Browser directory, for «Emisoras».
+    stations: stations::RadioBrowser,
+    /// The station playing now (through `stream://localhost/_live/<session>`).
+    live: stations::live::LiveStreams,
 }
 
 impl AppState {
@@ -199,9 +204,20 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::library::summary_months,
             commands::library::month_summary,
             commands::downloads::prefetch_stream,
+            commands::stations::stations_near,
+            commands::stations::stations_top,
+            commands::stations::stations_search,
+            commands::stations::station_countries,
+            commands::stations::stations_liked,
+            commands::stations::stations_like,
+            commands::stations::station_play,
+            commands::stations::station_stop,
+            commands::stations::system_location,
+            commands::stations::system_country,
         ])
         // Pushed as an event, not returned by a command: exported so the frontend shares it.
         .typ::<downloads::Progress>()
+        .typ::<stations::live::LiveTitle>()
         // Sizes, millisecond timestamps and SQLite ids, all far below 2^53: plain numbers.
         .dangerously_cast_bigints_to_number()
     // Types whose reading and writing differ (fields with #[serde(default)]) come out twice:
@@ -259,6 +275,8 @@ pub fn run() {
                 library,
                 lyrics: LyricsService::new(http.clone()),
                 artists: ArtistService::new(http.clone()),
+                stations: stations::RadioBrowser::new(http.clone()),
+                live: Default::default(),
                 discord,
                 http,
                 catalog_http: catalog::client(concat!("Melomango/", env!("CARGO_PKG_VERSION")))?,
@@ -296,6 +314,11 @@ pub fn run() {
                     responder.respond(tauri::http::Response::builder().status(503).body(Vec::new()).unwrap());
                     return;
                 };
+                // A live radio station, or a song.
+                if let Some(session) = stations::live::session_path(&request) {
+                    responder.respond(state.live.handle(&session, &request).await);
+                    return;
+                }
                 let response = stream::handle(
                     state.registry(),
                     &state.library,

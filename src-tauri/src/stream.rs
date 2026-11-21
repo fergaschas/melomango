@@ -216,7 +216,7 @@ async fn serve(
 
 /// The CORS check the WebView makes before a `fetch` with a Range header (the player does
 /// one to read why a song failed). Answered here: it must not resolve or download anything.
-fn preflight(request: &Request<Vec<u8>>) -> Option<Response<Vec<u8>>> {
+pub(crate) fn preflight(request: &Request<Vec<u8>>) -> Option<Response<Vec<u8>>> {
     (request.method() == tauri::http::Method::OPTIONS).then(|| {
         Response::builder()
             .status(204)

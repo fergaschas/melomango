@@ -537,3 +537,49 @@ fn a_failed_upgrade_changes_nothing() {
         let _ = std::fs::remove_file(format!("{}{suffix}", path.display()));
     }
 }
+
+fn station(uuid: &str, url: &str) -> crate::stations::Station {
+    crate::stations::Station {
+        uuid: uuid.into(),
+        name: format!("Radio {uuid}"),
+        url: url.into(),
+        homepage: None,
+        favicon: Some("https://example.com/logo.png".into()),
+        country: "ES".into(),
+        state: Some("Catalunya".into()),
+        tags: vec!["pop".into(), "rock".into()],
+        codec: "MP3".into(),
+        bitrate: 128,
+        lat: Some(41.98),
+        long: Some(2.82),
+        distance_m: Some(1234.0),
+    }
+}
+
+#[test]
+fn favourite_stations_newest_first_and_kept_whole() {
+    let lib = Library::in_memory();
+    lib.set_station_liked(&station("a", "http://a"), true).unwrap();
+    lib.set_station_liked(&station("b", "http://b"), true).unwrap();
+    lib.set_station_liked(&station("a", "http://again"), true).unwrap(); // already saved: unchanged
+    let liked = lib.liked_stations().unwrap();
+    let uuids: Vec<&str> = liked.iter().map(|s| s.uuid.as_str()).collect();
+    assert_eq!(uuids, ["b", "a"]);
+    let a = &liked[1];
+    assert_eq!(a.url, "http://a");
+    assert_eq!(a.tags, ["pop", "rock"]);
+    assert_eq!((a.state.as_deref(), a.bitrate, a.lat), (Some("Catalunya"), 128, Some(41.98)));
+    assert_eq!(a.distance_m, None, "the distance is from where the user was then");
+    assert!(lib.is_station_liked("a").unwrap());
+
+    // Its stream moved: the favourite follows, and keeps its place.
+    lib.refresh_station(&station("a", "https://moved")).unwrap();
+    lib.refresh_station(&station("not-liked", "http://x")).unwrap();
+    let liked = lib.liked_stations().unwrap();
+    assert_eq!(liked.len(), 2);
+    assert_eq!(liked[1].url, "https://moved");
+
+    lib.set_station_liked(&station("a", ""), false).unwrap();
+    assert!(!lib.is_station_liked("a").unwrap());
+    assert_eq!(lib.liked_stations().unwrap().len(), 1);
+}

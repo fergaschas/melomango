@@ -1,0 +1,42 @@
+[
+ {
+  "name": "Andorra",
+  "iso_3166_1": "AD",
+  "stationcount": 5
+ },
+ {
+  "name": "The United Arab Emirates",
+  "iso_3166_1": "AE",
+  "stationcount": 634
+ },
+ {
+  "name": "Afghanistan",
+  "iso_3166_1": "AF",
+  "stationcount": 95
+ },
+ {
+  "name": "Antigua And Barbuda",
+  "iso_3166_1": "AG",
+  "stationcount": 6
+ },
+ {
+  "name": "Anguilla",
+  "iso_3166_1": "AI",
+  "stationcount": 5
+ },
+ {
+  "name": "Spain",
+  "iso_3166_1": "ES",
+  "stationcount": 1218
+ },
+ {
+  "name": "France",
+  "iso_3166_1": "FR",
+  "stationcount": 2807
+ },
+ {
+  "name": "Portugal",
+  "iso_3166_1": "PT",
+  "stationcount": 330
+ }
+]
