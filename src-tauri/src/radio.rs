@@ -8,9 +8,10 @@ use std::collections::HashSet;
 
 use crate::{
     library::Library,
-    matcher::{self, main_artist},
-    models::{trim_featuring, Track},
+    matcher,
+    models::Track,
     sources::Registry,
+    text::{main_artist, trim_featuring},
 };
 
 /// Songs added to the queue each time the radio fills it.

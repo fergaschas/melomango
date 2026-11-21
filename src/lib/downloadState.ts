@@ -1,15 +1,12 @@
 /** Pure helpers for downloads (sizes, a collection's download state). */
 
-export type DownloadPhase = "queued" | "downloading" | "done" | "failed" | "cancelled";
+import type { Progress_Serialize, State } from "./bindings";
 
-export interface DownloadProgress {
-  /** "source/id" */
-  key: string;
-  state: DownloadPhase;
-  received: number;
-  total: number | null;
-  message: string | null;
-}
+/** The stage of a download (generated from Rust). */
+export type DownloadPhase = State;
+
+/** What a `download-progress` event carries (generated from Rust). */
+export type DownloadProgress = Progress_Serialize;
 
 const GB = 1024 ** 3;
 /** Sizes offered for the automatic cache (0 = off). */

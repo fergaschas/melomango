@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    # Melomango ships for Windows: build and test there.
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Dependencias (npm)
+        run: npm ci
+
+      - name: Tipos (TypeScript, tests incluidos)
+        run: npm run typecheck
+
+      - name: Lint (ESLint)
+        run: npm run lint
+
+      - name: Tests (frontend)
+        run: npm test
+
+      # Also needed by the Rust build: tauri::generate_context! embeds dist/.
+      - name: Build del frontend
+        run: npx vite build
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Formato (rustfmt)
+        working-directory: src-tauri
+        run: cargo fmt --check
+
+      - name: Lints (clippy)
+        working-directory: src-tauri
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Tests (Rust)
+        working-directory: src-tauri
+        run: cargo test

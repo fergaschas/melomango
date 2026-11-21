@@ -9,8 +9,8 @@ use std::{collections::HashMap, sync::Mutex};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    models::{trim_featuring, Track},
-    text::main_artist,
+    models::Track,
+    text::{main_artist, trim_featuring},
 };
 
 const API: &str = "https://lrclib.net/api";
@@ -18,14 +18,14 @@ const CACHE_LIMIT: usize = 300;
 /// Search results further than this from the track's duration are probably another version.
 const MAX_DURATION_DIFF: f64 = 20.0;
 
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct LyricLine {
     pub time_ms: u32,
     pub text: String,
 }
 
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct Lyrics {
     pub found: bool,
@@ -142,11 +142,11 @@ fn common_durations(durations: impl Iterator<Item = f64>) -> Vec<u32> {
             None => groups.push((d, 1)),
         }
     }
-    groups.sort_by(|a, b| b.1.cmp(&a.1));
+    groups.sort_by_key(|g| std::cmp::Reverse(g.1));
     groups.into_iter().take(3).map(|(d, _)| d).collect()
 }
 
-fn dedup<'a>(items: [&'a str; 2]) -> Vec<&'a str> {
+fn dedup(items: [&str; 2]) -> Vec<&str> {
     if items[0] == items[1] { vec![items[0]] } else { items.to_vec() }
 }
 
@@ -158,11 +158,7 @@ fn pick_best(results: Vec<Record>, duration: f64) -> Option<Record> {
         .filter(|r| r.has_synced() || r.plain_lyrics.is_some() || r.instrumental)
         // Unknown duration (e.g. imported from Spotify's data export): any version will do.
         .filter(|r| duration <= 0.0 || diff(r) <= MAX_DURATION_DIFF)
-        .min_by(|a, b| {
-            b.has_synced()
-                .cmp(&a.has_synced())
-                .then(diff(a).total_cmp(&diff(b)))
-        })
+        .min_by(|a, b| b.has_synced().cmp(&a.has_synced()).then(diff(a).total_cmp(&diff(b))))
 }
 
 fn into_lyrics(record: Record) -> Lyrics {
@@ -273,7 +269,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_failing_exact_lookup_falls_back_to_the_search() {
-        let search = r#"[{"duration": 200.0, "instrumental": false, "plainLyrics": "hola", "syncedLyrics": "[00:01.00] hola"}]"#;
+        let search =
+            r#"[{"duration": 200.0, "instrumental": false, "plainLyrics": "hola", "syncedLyrics": "[00:01.00] hola"}]"#;
         for status in [429, 500, 503] {
             let mut service = LyricsService::new(reqwest::Client::new());
             service.api = fake_lrclib(status, search).await;

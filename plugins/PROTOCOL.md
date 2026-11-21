@@ -39,6 +39,14 @@ Al instalarlo, Melomango copia la carpeta a `%APPDATA%\com.melomango.app\plugins
 
 Cada llamada ejecuta el programa una vez (directorio de trabajo: la carpeta del plugin), con un límite de 60 s.
 
+- Ningún argumento que venga del usuario empieza por `-`: a las búsquedas se les quitan los guiones del principio y
+  un id que empiece por `-` no llega al plugin. Así se puede pasar tal cual a otro programa (por ejemplo, `yt-dlp`)
+  sin que lo tome por una opción.
+- La respuesta (stdout) puede ocupar como mucho 32 MiB.
+- Al terminar la llamada, o si se pasa del límite de tiempo, Melomango cierra el plugin **y todo lo que haya lanzado**
+  (en Windows, con un Job Object). Un plugin no debe dejar procesos en segundo plano.
+- Solo hay un `connect` a la vez por plugin.
+
 ```text
 <executable> <args...> search <texto>   → {"tracks": [Track, ...]}
 <executable> <args...> trending         → {"tracks": [Track, ...]}

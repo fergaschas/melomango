@@ -32,7 +32,7 @@ test("top artists since a date, counting collaborations for each artist", () => 
   ];
   const top = topArtists(plays, now - 30 * DAY);
   assert.deepEqual(top.map((a) => [a.name, a.plays]), [["Shakira", 2], ["Burna Boy", 1], ["Izal", 1]]);
-  assert.equal(top[0].artworkUrl, "https://img/a.jpg");
+  assert.equal(top[0]!.artworkUrl, "https://img/a.jpg");
 });
 
 test("play again: often played, quiet for a while", () => {

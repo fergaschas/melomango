@@ -47,9 +47,18 @@ if (!process.env.TAURI_SIGNING_PRIVATE_KEY && !fs.existsSync(key)) {
   fail(`No encuentro la clave de firma en ${key}. Define TAURI_SIGNING_PRIVATE_KEY.`);
 }
 
+const git = (...a) => execFileSync("git", a, { cwd: root, encoding: "utf8" }).trim();
+// The commit the installers are built from: the release is tagged on exactly this one.
+const head = git("rev-parse", "HEAD");
 if (publish) {
-  const dirty = execFileSync("git", ["status", "--porcelain"], { cwd: root, encoding: "utf8" }).trim();
-  if (dirty) fail("Hay cambios sin commitear. Haz commit y push antes de publicar.");
+  if (git("status", "--porcelain")) fail("Hay cambios sin commitear. Haz commit y push antes de publicar.");
+  // The tag goes on GitHub's main: it must be this very commit, or the tag and the
+  // binaries would not match.
+  git("fetch", "origin", "main");
+  const remote = git("rev-parse", "origin/main");
+  if (remote !== head) {
+    fail(`HEAD (${head.slice(0, 7)}) no es origin/main (${remote.slice(0, 7)}). Sube main (o ponte en él) antes de publicar.`);
+  }
 }
 
 // 3. Build signed installers.
@@ -104,7 +113,7 @@ console.log(`==> Publicando v${version} en ${REPO}`);
 execFileSync(
   "gh",
   [
-    "release", "create", `v${version}`, "--repo", REPO, "--target", "main",
+    "release", "create", `v${version}`, "--repo", REPO, "--target", head,
     "--title", `Melomango ${version}`, "--notes", notes,
     nsis, `${nsis}.sig`, msiEs, `${msiEs}.sig`, msiEn, `${msiEn}.sig`, latestPath,
   ],

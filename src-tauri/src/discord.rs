@@ -11,7 +11,7 @@
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     sync::watch,
@@ -35,7 +35,7 @@ const OP_PING: u32 = 3;
 const OP_PONG: u32 = 4;
 
 /// What is playing, as the frontend reports it.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct NowPlaying {
     pub title: String,
@@ -46,7 +46,7 @@ pub struct NowPlaying {
     pub position_secs: f64,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, specta::Type)]
 #[serde(tag = "state", rename_all = "camelCase")]
 pub enum Status {
     /// No application id configured.
@@ -56,7 +56,9 @@ pub enum Status {
     /// Something to show, but the Discord app isn't running here.
     NotRunning,
     Connected,
-    Error { message: String },
+    Error {
+        message: String,
+    },
 }
 
 pub struct Presence {
@@ -109,33 +111,43 @@ async fn run(
     loop {
         let now = wanted.borrow_and_update().clone();
         if last_sent.as_ref() != Some(&now) {
-            if conn.is_none() && now.is_some() {
-                match Connection::open(&pipes, &client_id).await {
-                    Ok(c) => conn = Some(c),
-                    Err(e) => {
-                        let _ = status.send(if e.is::<NotRunning>() {
-                            Status::NotRunning
-                        } else {
-                            Status::Error { message: format!("{e:#}") }
-                        });
+            // A connection that broke (Discord closed or restarted) is noticed only when
+            // writing to it: then one fresh connection right away, instead of showing an
+            // error until the next retry (~24 s).
+            for attempt in 0..2 {
+                if conn.is_none() && now.is_some() {
+                    match Connection::open(&pipes, &client_id).await {
+                        Ok(c) => conn = Some(c),
+                        Err(e) => {
+                            let _ = status.send(if e.is::<NotRunning>() {
+                                Status::NotRunning
+                            } else {
+                                Status::Error { message: format!("{e:#}") }
+                            });
+                            break;
+                        }
                     }
                 }
-            }
-            if let Some(c) = conn.as_mut() {
+                let Some(c) = conn.as_mut() else {
+                    if now.is_none() {
+                        last_sent = Some(None);
+                        let _ = status.send(Status::Idle);
+                    }
+                    break;
+                };
                 match c.set_activity(now.as_ref()).await {
                     Ok(()) => {
                         last_sent = Some(now.clone());
                         let _ = status.send(if now.is_some() { Status::Connected } else { Status::Idle });
+                        break;
                     }
                     Err(e) => {
-                        // Discord closed or restarted: reconnect on the next change or retry.
                         conn = None;
-                        let _ = status.send(Status::Error { message: format!("{e:#}") });
+                        if attempt == 1 || now.is_none() {
+                            let _ = status.send(Status::Error { message: format!("{e:#}") });
+                        }
                     }
                 }
-            } else if now.is_none() {
-                last_sent = Some(None);
-                let _ = status.send(Status::Idle);
             }
             tokio::time::sleep(MIN_INTERVAL).await;
         }
@@ -184,10 +196,7 @@ fn field(text: &str) -> String {
 }
 
 fn epoch_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
 }
 
 // ---------- IPC ----------
@@ -420,6 +429,66 @@ mod tests {
         assert!(cleared["args"]["activity"].is_null());
         tokio::time::sleep(Duration::from_millis(100)).await;
         assert_eq!(presence.status(), Status::Idle);
+
+        handle.abort();
+        fake.abort();
+    }
+
+    /// Discord restarts: the first connection dies right after the handshake. The update
+    /// goes out on a new connection straight away, not after the ~24 s retry.
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn reconnects_at_once_when_discord_restarts() {
+        use tokio::net::windows::named_pipe::ServerOptions;
+
+        let name = format!(r"\\.\pipe\melomango-test-discord-restart-{}", std::process::id());
+        let mut first = ServerOptions::new().first_pipe_instance(true).create(&name).unwrap();
+        let (updates_tx, mut updates) = tokio::sync::mpsc::unbounded_channel::<Value>();
+        let pipe_name = name.clone();
+        let fake = tokio::spawn(async move {
+            async fn frame(server: &mut tokio::net::windows::named_pipe::NamedPipeServer) -> Option<(u32, Value)> {
+                let mut header = [0u8; 8];
+                server.read_exact(&mut header).await.ok()?;
+                let op = u32::from_le_bytes(header[..4].try_into().unwrap());
+                let mut body = vec![0u8; u32::from_le_bytes(header[4..].try_into().unwrap()) as usize];
+                server.read_exact(&mut body).await.ok()?;
+                Some((op, serde_json::from_slice(&body).unwrap()))
+            }
+            async fn reply(server: &mut tokio::net::windows::named_pipe::NamedPipeServer, value: Value) {
+                let body = serde_json::to_vec(&value).unwrap();
+                let mut out = OP_FRAME.to_le_bytes().to_vec();
+                out.extend_from_slice(&(body.len() as u32).to_le_bytes());
+                out.extend_from_slice(&body);
+                let _ = server.write_all(&out).await;
+            }
+            // 1st connection: handshake, then Discord "closes".
+            first.connect().await.unwrap();
+            let mut second = ServerOptions::new().create(&pipe_name).unwrap();
+            frame(&mut first).await.unwrap();
+            reply(&mut first, json!({ "cmd": "DISPATCH", "evt": "READY", "data": { "v": 1 } })).await;
+            first.disconnect().unwrap();
+            drop(first);
+            // 2nd connection: works.
+            second.connect().await.unwrap();
+            while let Some((op, msg)) = frame(&mut second).await {
+                let answer = if op == OP_HANDSHAKE {
+                    json!({ "cmd": "DISPATCH", "evt": "READY", "data": { "v": 1 } })
+                } else {
+                    updates_tx.send(msg.clone()).unwrap();
+                    json!({ "cmd": "SET_ACTIVITY", "evt": null, "nonce": msg["nonce"], "data": msg["args"]["activity"] })
+                };
+                reply(&mut second, answer).await;
+            }
+        });
+
+        let (presence, task) = Presence::with_pipes("1234567890", vec![name]);
+        let handle = tokio::spawn(task);
+        presence.set(Some(now_playing("Copenhague")));
+        let update =
+            tokio::time::timeout(Duration::from_secs(3), updates.recv()).await.expect("no esperó 24 s").unwrap();
+        assert_eq!(update["args"]["activity"]["details"], "Copenhague");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(presence.status(), Status::Connected);
 
         handle.abort();
         fake.abort();

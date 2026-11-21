@@ -7,8 +7,8 @@
 
 use std::{collections::HashMap, sync::Mutex, time::Duration};
 
-use anyhow::{anyhow, bail, Context};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use anyhow::{Context, anyhow, bail};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
 
 use crate::models::Track;
@@ -30,7 +30,7 @@ const MAX_PLAYLIST_PAGES: usize = 12;
 const QUOTA_RETRIES: u32 = 3;
 const QUOTA_WAIT: Duration = Duration::from_millis(1500);
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ArtistRef {
     pub id: String,
@@ -38,7 +38,7 @@ pub struct ArtistRef {
     pub picture_url: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct AlbumSummary {
     pub id: String,
@@ -50,7 +50,7 @@ pub struct AlbumSummary {
     pub kind: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ArtistPage {
     pub artist: ArtistRef,
@@ -60,7 +60,7 @@ pub struct ArtistPage {
     pub related: Vec<ArtistRef>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct AlbumPage {
     #[serde(flatten)]
@@ -70,7 +70,7 @@ pub struct AlbumPage {
     pub duration_secs: u32,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ArtistHit {
     #[serde(flatten)]
@@ -78,7 +78,7 @@ pub struct ArtistHit {
     pub fans: u64,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct AlbumHit {
     #[serde(flatten)]
@@ -87,7 +87,7 @@ pub struct AlbumHit {
 }
 
 /// A public Deezer playlist (made by a user or an editor).
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct PublicPlaylist {
     pub id: String,
@@ -97,7 +97,7 @@ pub struct PublicPlaylist {
     pub track_count: u32,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct PlaylistPage {
     #[serde(flatten)]
@@ -108,7 +108,7 @@ pub struct PlaylistPage {
 }
 
 /// Quick suggestions while typing in the search box.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct Suggestions {
     pub artists: Vec<ArtistRef>,
@@ -116,7 +116,7 @@ pub struct Suggestions {
 }
 
 /// Artists, albums and playlists matching a search.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct CatalogSearch {
     pub artists: Vec<ArtistHit>,
@@ -266,7 +266,12 @@ impl ArtistService {
         Ok(CatalogSearch {
             artists,
             albums: albums.map(|p| p.data).unwrap_or_default().into_iter().map(RawAlbumHit::into_hit).collect(),
-            playlists: playlists.map(|p| p.data).unwrap_or_default().into_iter().map(RawPlaylist::into_public).collect(),
+            playlists: playlists
+                .map(|p| p.data)
+                .unwrap_or_default()
+                .into_iter()
+                .map(RawPlaylist::into_public)
+                .collect(),
         })
     }
 
@@ -301,10 +306,8 @@ impl ArtistService {
     /// A public playlist and its songs. `fresh` skips the cache (when syncing a saved copy).
     pub async fn playlist(&self, id: &str, fresh: bool) -> anyhow::Result<PlaylistPage> {
         let key = format!("playlist:{id}");
-        if !fresh {
-            if let Some(page) = self.playlists.lock().unwrap().get(&key) {
-                return Ok(page.clone());
-            }
+        if !fresh && let Some(page) = self.playlists.lock().unwrap().get(&key) {
+            return Ok(page.clone());
         }
         let raw: RawPlaylistFull = self.get(&format!("/playlist/{id}")).await?;
         let mut tracks = raw.tracks.data;
@@ -314,9 +317,8 @@ impl ArtistService {
         while tracks.len() < total && pages < MAX_PLAYLIST_PAGES {
             pages += 1;
             let (index, limit) = (tracks.len().to_string(), PLAYLIST_PAGE.to_string());
-            let page: Page<RawTrack> = self
-                .get_query(&format!("/playlist/{id}/tracks"), &[("index", &index), ("limit", &limit)])
-                .await?;
+            let page: Page<RawTrack> =
+                self.get_query(&format!("/playlist/{id}/tracks"), &[("index", &index), ("limit", &limit)]).await?;
             if page.data.is_empty() {
                 break;
             }
@@ -343,12 +345,8 @@ impl ArtistService {
         if name.is_empty() {
             bail!("falta el nombre del artista");
         }
-        let found: Page<RawArtist> = self
-            .get_query("/search/artist", &[("q", name), ("limit", "10")])
-            .await?;
-        pick_artist(name, &found.data)
-            .map(|a| a.id.to_string())
-            .ok_or_else(|| anyhow!("Deezer no conoce a «{name}»"))
+        let found: Page<RawArtist> = self.get_query("/search/artist", &[("q", name), ("limit", "10")]).await?;
+        pick_artist(name, &found.data).map(|a| a.id.to_string()).ok_or_else(|| anyhow!("Deezer no conoce a «{name}»"))
     }
 
     async fn get<T: DeserializeOwned>(&self, path: &str) -> anyhow::Result<T> {
@@ -403,11 +401,7 @@ fn pick_artist<'a>(name: &str, found: &'a [RawArtist]) -> Option<&'a RawArtist> 
 
 /// Lowercase without accents or punctuation, to compare names ("ROSALÍA" = "Rosalía").
 fn normalize(s: &str) -> String {
-    s.chars()
-        .flat_map(char::to_lowercase)
-        .map(crate::text::fold)
-        .filter(|c| c.is_alphanumeric())
-        .collect()
+    crate::text::fold(s).chars().filter(|c| c.is_alphanumeric()).collect()
 }
 
 // ---------- Deezer's JSON ----------
@@ -609,8 +603,13 @@ mod tests {
     }
 
     /// A fake Deezer: `answer(path with query, how many times it was asked)` gives the body.
-    async fn fake_deezer(answer: fn(&str, usize) -> String) -> (String, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
-        use std::sync::{atomic::{AtomicUsize, Ordering}, Arc};
+    async fn fake_deezer(
+        answer: fn(&str, usize) -> String,
+    ) -> (String, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        };
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
@@ -635,7 +634,9 @@ mod tests {
 
     fn songs(ids: std::ops::Range<u32>) -> String {
         let songs: Vec<String> = ids
-            .map(|i| format!(r#"{{"id": {i}, "title": "Canción {i}", "duration": 200, "artist": {{"name": "Artista"}}}}"#))
+            .map(|i| {
+                format!(r#"{{"id": {i}, "title": "Canción {i}", "duration": 200, "artist": {{"name": "Artista"}}}}"#)
+            })
             .collect();
         songs.join(",")
     }
@@ -681,7 +682,9 @@ mod tests {
 
     #[tokio::test]
     async fn other_deezer_errors_are_not_retried() {
-        let (url, calls) = fake_deezer(|_, _| r#"{"error": {"type": "DataException", "message": "no data", "code": 800}}"#.into()).await;
+        let (url, calls) =
+            fake_deezer(|_, _| r#"{"error": {"type": "DataException", "message": "no data", "code": 800}}"#.into())
+                .await;
         let mut service = ArtistService::new(reqwest::Client::new());
         service.api = url;
         service.quota_wait = Duration::from_millis(1);
@@ -727,7 +730,7 @@ mod tests {
             related: Vec::new(),
         };
         service.artists.lock().unwrap().insert(format!("name:{}", normalize("")), page);
-        let err = service.artist("  ", None).await.err().expect("must fail");
+        let Err(err) = service.artist("  ", None).await else { panic!("must fail") };
         assert!(err.to_string().contains("falta el nombre"), "{err}");
     }
 

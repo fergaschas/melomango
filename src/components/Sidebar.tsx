@@ -41,7 +41,8 @@ export function Sidebar({
 
   return (
     <nav className="sidebar" aria-label="Biblioteca">
-      <button className={`nav-item${isBrowse ? " active" : ""}`} onClick={() => onNavigate({ kind: "home" })}>
+      <button className={`nav-item${isBrowse ? " active" : ""}`}
+        aria-current={isBrowse ? "page" : undefined} onClick={() => onNavigate({ kind: "home" })}>
         <span className="nav-icon">
           <HomeIcon size={18} />
         </span>
@@ -49,6 +50,7 @@ export function Sidebar({
       </button>
       <button
         className={`nav-item${view.kind === "likes" ? " active" : ""}`}
+        aria-current={view.kind === "likes" ? "page" : undefined}
         onClick={() => onNavigate({ kind: "likes" })}
       >
         <PlaylistCover kind="likes" size={34} />
@@ -59,6 +61,7 @@ export function Sidebar({
       </button>
       <button
         className={`nav-item${view.kind === "history" ? " active" : ""}`}
+        aria-current={view.kind === "history" ? "page" : undefined}
         onClick={() => onNavigate({ kind: "history" })}
       >
         <span className="nav-icon history-icon">
@@ -68,6 +71,7 @@ export function Sidebar({
       </button>
       <button
         className={`nav-item${view.kind === "downloads" ? " active" : ""}`}
+        aria-current={view.kind === "downloads" ? "page" : undefined}
         onClick={() => onNavigate({ kind: "downloads" })}
       >
         <span className="nav-icon history-icon">
@@ -84,6 +88,7 @@ export function Sidebar({
       </button>
       <button
         className={`nav-item${view.kind === "summary" ? " active" : ""}`}
+        aria-current={view.kind === "summary" ? "page" : undefined}
         onClick={() => onNavigate({ kind: "summary" })}
       >
         <span className="nav-icon history-icon">
@@ -125,6 +130,7 @@ export function Sidebar({
           <button
             key={p.id}
             className={`nav-item${view.kind === "playlist" && view.id === p.id ? " active" : ""}`}
+        aria-current={view.kind === "playlist" && view.id === p.id ? "page" : undefined}
             onClick={() => onNavigate({ kind: "playlist", id: p.id })}
           >
             <PlaylistCover artworkUrls={p.artworkUrls} size={34} />

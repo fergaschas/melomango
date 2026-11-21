@@ -5,6 +5,7 @@ import { CACHE_OPTIONS, formatSize, songs } from "../lib/downloadState";
 import { CloseIcon } from "./Icons";
 import type { Theme } from "../lib/theme";
 import { MAX_CROSSFADE } from "../lib/crossfade";
+import { useDialog } from "../lib/useDialog";
 
 const THEMES: [Theme, string][] = [
   ["system", "Como Windows"],
@@ -77,17 +78,13 @@ export function SettingsDialog({
     };
   }, []);
 
-  useEffect(() => {
-    const esc = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", esc);
-    return () => window.removeEventListener("keydown", esc);
-  }, [onClose]);
+  const dialog = useDialog<HTMLElement>(onClose);
 
   const unavailable = status?.state === "unavailable";
 
   return (
     <div className="dialog-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <section className="dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <section ref={dialog} tabIndex={-1} className="dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
         <header className="dialog-header">
           <h2 id="settings-title">Ajustes</h2>
           <button className="icon-btn" onClick={onClose} aria-label="Cerrar">

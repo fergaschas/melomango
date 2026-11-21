@@ -1,392 +1,207 @@
-import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+/**
+ * What the app asks of the Rust side. The commands and their types are generated from
+ * Rust in `bindings.ts` (tauri-specta; `cargo test` keeps it current), so a renamed
+ * command, argument or field is a TypeScript error here instead of a failure at runtime.
+ * This module gives them the names the rest of the app uses.
+ *
+ * Types with an `_Serialize` variant in the bindings come out of Rust with every field
+ * present; that is the one named plainly here (`Track`). Commands accept the looser
+ * `_Deserialize` variant, which every `_Serialize` value satisfies.
+ */
+import { convertFileSrc } from "@tauri-apps/api/core";
+import { commands } from "./bindings";
+import type * as B from "./bindings";
 
-export interface Track {
-  id: string;
-  source: string;
-  title: string;
-  artist: string;
-  durationSecs: number;
-  artworkUrl: string | null;
-  genre: string | null;
-}
+export { formatTime, formatTotal } from "./format";
 
-export interface SourceInfo {
-  id: string;
-  name: string;
-  kind: "builtin" | "plugin";
-  version: string | null;
-  description: string | null;
-  supportsTrending: boolean;
-  isLibrary: boolean;
-}
+export type Track = B.Track_Serialize;
+export type SourceInfo = B.SourceInfo_Serialize;
+export type CatalogPlugin = B.CatalogPlugin_Serialize;
+export type Catalog = B.Catalog_Serialize;
+export type RegistryInfo = B.RegistryInfo;
+export type PlaylistSummary = B.PlaylistSummary;
+export type PlaylistLink = B.PlaylistLink;
+export type Playlist = B.Playlist_Serialize;
+export type LyricLine = B.LyricLine;
+export type Lyrics = B.Lyrics_Serialize;
+export type NowPlaying = B.NowPlaying_Serialize;
+export type DiscordStatus = B.Status;
+export type ArtistRef = B.ArtistRef_Serialize;
+export type AlbumSummary = B.AlbumSummary_Serialize;
+export type ArtistPage = B.ArtistPage_Serialize;
+export type AlbumPage = B.AlbumPage_Serialize;
+export type ArtistHit = B.ArtistHit_Serialize;
+export type AlbumHit = B.AlbumHit_Serialize;
+export type PublicPlaylist = B.PublicPlaylist_Serialize;
+export type PublicPlaylistPage = B.PlaylistPage_Serialize;
+export type CatalogSearch = B.CatalogSearch_Serialize;
+export type Suggestions = B.Suggestions_Serialize;
+export type Play = B.Play_Serialize;
+export type Download = B.Download_Serialize;
+export type MonthSummary = B.MonthSummary_Serialize;
+export type MatchOptions = B.MatchOptions_Serialize;
+export type LibraryConnection = B.Connection_Serialize;
+export type LibraryStatus = B.LibraryStatus_Serialize;
+export type CollectionView = B.CollectionView_Serialize;
+export type Requirement = B.Requirement_Serialize;
+
+/** Commands that return nothing come back as `null`: to the rest of the app they are `void`. */
+const done = (p: Promise<unknown>): Promise<void> => p.then(() => undefined);
 
 export const DEFAULT_SOURCE = "youtube";
 
-export const listSources = () => invoke<SourceInfo[]>("list_sources");
+export const listSources = () => commands.listSources();
 
 /** Built-in sources plus every installed plugin (including metadata-only ones like Spotify). */
-export const listPlugins = () => invoke<SourceInfo[]>("list_plugins");
+export const listPlugins = () => commands.listPlugins();
 
-export const searchTracks = (source: string, query: string) =>
-  invoke<Track[]>("search", { source, query });
+export const searchTracks = (source: string, query: string) => commands.search(source, query);
 
-export const trendingTracks = (source: string) => invoke<Track[]>("trending", { source });
+export const trendingTracks = (source: string) => commands.trending(source);
 
-export const installPlugin = (path: string) => invoke<SourceInfo>("install_plugin", { path });
+export const installPlugin = (path: string) => commands.installPlugin(path);
 
-export const uninstallPlugin = (id: string) => invoke<void>("uninstall_plugin", { id });
+export const uninstallPlugin = (id: string) => done(commands.uninstallPlugin(id));
 
-export const openPluginsDir = () => invoke<void>("open_plugins_dir");
+export const openPluginsDir = () => done(commands.openPluginsDir());
 
-export interface CatalogPlugin {
-  id: string;
-  name: string;
-  version: string;
-  description: string | null;
-  author: string | null;
-  homepage: string | null;
-  tags: string[];
-  registry: string;
-  registryName: string;
-  available: boolean;
-}
-
-export interface Catalog {
-  plugins: CatalogPlugin[];
-  errors: string[];
-}
-
-export interface RegistryInfo {
-  url: string;
-  official: boolean;
-}
-
-export const browsePlugins = () => invoke<Catalog>("browse_plugins");
+export const browsePlugins = () => commands.browsePlugins();
 
 /** `replaceOtherOrigin`: the user agreed to replace a same-id plugin from another repository. */
 export const installCatalogPlugin = (registry: string, id: string, replaceOtherOrigin = false) =>
-  invoke<SourceInfo>("install_catalog_plugin", { registry, id, replaceOtherOrigin });
+  commands.installCatalogPlugin(registry, id, replaceOtherOrigin);
 
 /** The repository the installed plugin `id` came from, if installing it from `registry` would replace it. */
-export const pluginOriginChange = (registry: string, id: string) =>
-  invoke<string | null>("plugin_origin_change", { registry, id });
+export const pluginOriginChange = (registry: string, id: string) => commands.pluginOriginChange(registry, id);
 
-export const listRegistries = () => invoke<RegistryInfo[]>("list_registries");
+export const listRegistries = () => commands.listRegistries();
 
-export const addRegistry = (url: string) => invoke<RegistryInfo[]>("add_registry", { url });
+export const addRegistry = (url: string) => commands.addRegistry(url);
 
-export const removeRegistry = (url: string) => invoke<RegistryInfo[]>("remove_registry", { url });
+export const removeRegistry = (url: string) => commands.removeRegistry(url);
 
 /** URL of the Rust `stream://` protocol that proxies the track's audio. */
 export const streamUrl = (track: Track) => convertFileSrc(`${track.source}/${track.id}`, "stream");
 
 /** Resolves the track's audio in the background so it starts right away when played. */
-export const prefetchStream = (track: Track) =>
-  invoke("prefetch_stream", { source: track.source, id: track.id }).catch(() => {});
-
-export function formatTime(secs: number) {
-  if (!Number.isFinite(secs) || secs < 0) return "0:00";
-  const s = Math.floor(secs);
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
-}
+export const prefetchStream = (track: Track) => commands.prefetchStream(track.source, track.id).catch(() => {});
 
 // ---------- Library ----------
 
-export interface PlaylistSummary {
-  id: number;
-  name: string;
-  trackCount: number;
-  durationSecs: number;
-  artworkUrls: string[];
-}
-
-export interface PlaylistLink {
-  pluginId: string;
-  remoteId: string;
-  syncedAt: number;
-}
-
-export interface Playlist extends PlaylistSummary {
-  /** When each track (same order as `tracks`) was added, in ms since the epoch. */
-  addedAt: number[];
-  tracks: Track[];
-  link: PlaylistLink | null;
-}
-
 export const trackKey = (t: Pick<Track, "source" | "id">) => `${t.source}/${t.id}`;
 
-export const likedTracks = () => invoke<Track[]>("liked_tracks");
-export const likedKeys = () => invoke<string[]>("liked_keys");
-export const setLiked = (track: Track, liked: boolean) => invoke<void>("set_liked", { track, liked });
+export const likedTracks = () => commands.likedTracks();
+export const likedKeys = () => commands.likedKeys();
+export const setLiked = (track: Track, liked: boolean) => done(commands.setLiked(track, liked));
 
-export const listPlaylists = () => invoke<PlaylistSummary[]>("list_playlists");
-export const createPlaylist = (name: string) => invoke<PlaylistSummary>("create_playlist", { name });
-export const renamePlaylist = (id: number, name: string) => invoke<void>("rename_playlist", { id, name });
-export const deletePlaylist = (id: number) => invoke<void>("delete_playlist", { id });
-export const getPlaylist = (id: number) => invoke<Playlist>("get_playlist", { id });
-export const addToPlaylist = (id: number, track: Track) => invoke<boolean>("add_to_playlist", { id, track });
-export const removeFromPlaylist = (id: number, track: Track) =>
-  invoke<void>("remove_from_playlist", { id, source: track.source, trackId: track.id });
-export const moveInPlaylist = (id: number, from: number, to: number) =>
-  invoke<void>("move_in_playlist", { id, from, to });
-
-export function formatTotal(secs: number) {
-  const mins = Math.round(secs / 60);
-  return mins < 60 ? `${mins} min` : `${Math.floor(mins / 60)} h ${mins % 60} min`;
-}
+export const listPlaylists = () => commands.listPlaylists();
+export const createPlaylist = (name: string) => commands.createPlaylist(name);
+export const renamePlaylist = (id: number, name: string) => done(commands.renamePlaylist(id, name));
+export const deletePlaylist = (id: number) => done(commands.deletePlaylist(id));
+export const getPlaylist = (id: number) => commands.getPlaylist(id);
+export const addToPlaylist = (id: number, track: Track) => commands.addToPlaylist(id, track);
+export const removeFromPlaylist = (id: number, track: Track) => done(commands.removeFromPlaylist(id, track.source, track.id));
+export const moveInPlaylist = (id: number, from: number, to: number) => done(commands.moveInPlaylist(id, from, to));
 
 // ---------- Lyrics ----------
 
-export interface LyricLine {
-  timeMs: number;
-  text: string;
-}
-
-export interface Lyrics {
-  found: boolean;
-  instrumental: boolean;
-  synced: LyricLine[];
-  plain: string | null;
-  matchedDurationSecs: number | null;
-}
-
-export const getLyrics = (track: Track) => invoke<Lyrics>("get_lyrics", { track });
+export const getLyrics = (track: Track) => commands.getLyrics(track);
 
 // ---------- Mini player ----------
 
 /** Shrinks the window to the mini player (always on top) or puts it back. */
-export const setMiniMode = (on: boolean) => invoke<void>("set_mini_mode", { on });
+export const setMiniMode = (on: boolean) => done(commands.setMiniMode(on));
 
 // ---------- System tray ----------
 
-export const trayUpdate = (title: string | null, playing: boolean) =>
-  invoke<void>("tray_update", { title, playing }).catch(() => {});
-export const setCloseToTray = (on: boolean) => invoke<void>("set_close_to_tray", { on }).catch(() => {});
+export const trayUpdate = (title: string | null, playing: boolean) => commands.trayUpdate(title, playing).catch(() => {});
+export const setCloseToTray = (on: boolean) => commands.setCloseToTray(on).catch(() => {});
 
 // ---------- Discord ("Escuchando Melomango") ----------
 
-export interface NowPlaying {
-  title: string;
-  artist: string;
-  artworkUrl: string | null;
-  durationSecs: number;
-  positionSecs: number;
-}
-
-export type DiscordStatus =
-  | { state: "unavailable" | "idle" | "notRunning" | "connected" }
-  | { state: "error"; message: string };
-
-export const discordSet = (now: NowPlaying | null) => invoke<void>("discord_set", { now }).catch(() => {});
-export const discordStatus = () => invoke<DiscordStatus>("discord_status");
+export const discordSet = (now: NowPlaying | null) => commands.discordSet(now).catch(() => {});
+export const discordStatus = () => commands.discordStatus();
 
 // ---------- Artists and albums (data from Deezer) ----------
-
-export interface ArtistRef {
-  id: string;
-  name: string;
-  pictureUrl: string | null;
-}
-
-export interface AlbumSummary {
-  id: string;
-  title: string;
-  coverUrl: string | null;
-  releaseDate: string | null;
-  /** "album", "single", "ep" or "compile". */
-  kind: string;
-}
-
-export interface ArtistPage {
-  artist: ArtistRef;
-  fans: number;
-  top: Track[];
-  albums: AlbumSummary[];
-  related: ArtistRef[];
-}
-
-export interface AlbumPage extends AlbumSummary {
-  artist: ArtistRef;
-  tracks: Track[];
-  durationSecs: number;
-}
-
-export interface ArtistHit extends ArtistRef {
-  fans: number;
-}
-
-export interface AlbumHit extends AlbumSummary {
-  artistName: string;
-}
-
-export interface PublicPlaylist {
-  id: string;
-  title: string;
-  pictureUrl: string | null;
-  owner: string;
-  trackCount: number;
-}
-
-export interface PublicPlaylistPage extends PublicPlaylist {
-  description: string | null;
-  tracks: Track[];
-  durationSecs: number;
-}
-
-export interface CatalogSearch {
-  artists: ArtistHit[];
-  albums: AlbumHit[];
-  playlists: PublicPlaylist[];
-}
 
 /** Plugin id of saved Deezer playlists (synced from Deezer). */
 export const DEEZER_ORIGIN = "deezer";
 
-export interface Suggestions {
-  artists: ArtistRef[];
-  tracks: Track[];
-}
-
 /** Artists and songs to suggest while typing a search. */
-export const searchSuggestions = (query: string) => invoke<Suggestions>("search_suggestions", { query });
+export const searchSuggestions = (query: string) => commands.searchSuggestions(query);
 
-export const catalogSearch = (query: string) => invoke<CatalogSearch>("catalog_search", { query });
-export const deezerPlaylist = (id: string) => invoke<PublicPlaylistPage>("deezer_playlist", { id });
-export const saveDeezerPlaylist = (id: string) => invoke<PlaylistSummary>("save_deezer_playlist", { id });
+export const catalogSearch = (query: string) => commands.catalogSearch(query);
+export const deezerPlaylist = (id: string) => commands.deezerPlaylist(id);
+export const saveDeezerPlaylist = (id: string) => commands.saveDeezerPlaylist(id);
 
-export const artistPage = (name: string, id?: string) => invoke<ArtistPage>("artist_page", { name, id: id ?? null });
-export const albumPage = (id: string) => invoke<AlbumPage>("album_page", { id });
+export const artistPage = (name: string, id?: string) => commands.artistPage(name, id ?? null);
+export const albumPage = (id: string) => commands.albumPage(id);
 
 /** Songs like `track` for the automatic radio, leaving out `exclude` ("source/id"). */
-export const radioTracks = (track: Track, exclude: string[]) => invoke<Track[]>("radio_tracks", { track, exclude });
+export const radioTracks = (track: Track, exclude: string[]) => commands.radioTracks(track, exclude);
 
 // ---------- History ----------
-
-export interface Play {
-  track: Track;
-  /** Milliseconds since the epoch. */
-  playedAt: number;
-}
 
 /** Fired on `window` after a play is recorded, so an open history view can reload. */
 export const HISTORY_EVENT = "melomango:history";
 
 export const recordPlay = (track: Track) =>
-  invoke<void>("record_play", { track }).then(() => window.dispatchEvent(new Event(HISTORY_EVENT)));
+  commands.recordPlay(track).then(() => window.dispatchEvent(new Event(HISTORY_EVENT)));
+
 // ---------- Downloads ----------
 
-export interface Download {
-  track: Track;
-  size: number;
-  /** Milliseconds since the epoch. */
-  downloadedAt: number;
-}
-
 /** Starts downloading in the background; progress comes as `download-progress` events. */
-export const downloadTracks = (tracks: Track[]) => invoke<void>("download_tracks", { tracks });
-export const removeDownload = (t: Track) => invoke<void>("remove_download", { source: t.source, id: t.id });
-export const listDownloads = () => invoke<Download[]>("list_downloads");
-export const downloadedKeys = () => invoke<string[]>("downloaded_keys");
+export const downloadTracks = (tracks: Track[]) => commands.downloadTracks(tracks);
+export const removeDownload = (t: Track) => done(commands.removeDownload(t.source, t.id));
+export const listDownloads = () => commands.listDownloads();
+export const downloadedKeys = () => commands.downloadedKeys();
 
 /** Bytes the automatic cache may use (0 turns it off and empties it). */
-export const setCacheLimit = (bytes: number) => invoke<void>("set_cache_limit", { bytes });
-export const cacheUsage = () => invoke<{ songs: number; bytes: number }>("cache_usage");
-export const clearCache = () => invoke<void>("clear_cache");
+export const setCacheLimit = (bytes: number) => done(commands.setCacheLimit(bytes));
+export const cacheUsage = () => commands.cacheUsage();
+export const clearCache = () => done(commands.clearCache());
 
-export const recentPlays = (limit?: number) => invoke<Play[]>("recent_plays", { limit: limit ?? null });
-export const clearHistory = () => invoke<void>("clear_history");
-
-export interface MonthSummary {
-  /** "YYYY-MM" */
-  month: string;
-  plays: number;
-  minutes: number;
-  songs: number;
-  artists: number;
-  topTracks: { track: Track; plays: number }[];
-  topArtists: { name: string; plays: number; artworkUrl: string | null }[];
-}
+export const recentPlays = (limit?: number) => commands.recentPlays(limit ?? null);
+export const clearHistory = () => done(commands.clearHistory());
 
 /** Months with plays ("YYYY-MM"), newest first. */
-export const summaryMonths = () => invoke<string[]>("summary_months");
-export const monthSummary = (month: string) => invoke<MonthSummary>("month_summary", { month });
-
-export interface MatchOptions {
-  track: Track;
-  query: string;
-  /** The recording it plays now, if already matched. */
-  current: { source: string; id: string } | null;
-  candidates: Track[];
-}
+export const summaryMonths = () => commands.summaryMonths();
+export const monthSummary = (month: string) => commands.monthSummary(month);
 
 /** Recordings to choose from when an imported track plays the wrong one. */
-export const matchOptions = (track: Track, query?: string) =>
-  invoke<MatchOptions>("match_options", { source: track.source, id: track.id, query: query ?? null });
+export const matchOptions = (track: Track, query?: string) => commands.matchOptions(track.source, track.id, query ?? null);
 
 /** Plays `track` from `choice` from now on. */
 export const chooseMatch = (track: Track, choice: Track) =>
-  invoke<void>("choose_match", { source: track.source, id: track.id, playSource: choice.source, playId: choice.id });
+  done(commands.chooseMatch(track.source, track.id, choice.source, choice.id));
 
 /** Plugin id of playlists imported from Spotify's data export (they can't be synced). */
 export const SPOTIFY_EXPORT = "spotify-export";
 
 /** A new playlist from pasted text, one song per line ("Artista - Título"). */
-export const importText = (name: string, text: string) =>
-  invoke<{ playlist: PlaylistSummary; skipped: number }>("import_text", { name, text });
+export const importText = (name: string, text: string) => commands.importText(name, text);
 
 /** Imports the playlist or album behind a Spotify, YouTube or Deezer link. */
-export const importLink = (url: string) =>
-  invoke<{ playlist: PlaylistSummary; limited: boolean }>("import_link", { url });
+export const importLink = (url: string) => commands.importLink(url);
 
-/** Imports the playlists and liked songs of a Spotify data export (its zip or JSON files). */
-/** `problems`: files (or parts) that couldn't be read and were skipped, one line each. */
-export const importSpotifyExport = (paths: string[]) =>
-  invoke<{ playlists: PlaylistSummary[]; problems: string[] }>("import_spotify_export", { paths });
+/**
+ * Imports the playlists and liked songs of a Spotify data export (its zip or JSON files).
+ * `problems`: files (or parts) that couldn't be read and were skipped, one line each.
+ */
+export const importSpotifyExport = (paths: string[]) => commands.importSpotifyExport(paths);
 
 // ---------- Services (library plugins such as Spotify) ----------
 
-export interface LibraryConnection {
-  pluginId: string;
-  name: string;
-  connected: boolean;
-  user: string | null;
-  error: string | null;
-}
-
-export interface LibraryStatus {
-  connected: boolean;
-  user: string | null;
-}
-
-export interface CollectionView {
-  id: string;
-  name: string;
-  kind: "liked" | "playlist" | "album" | string;
-  owner: string | null;
-  trackCount: number;
-  artworkUrl: string | null;
-  importable: boolean;
-  importedPlaylistId: number | null;
-}
-
-export const libraryConnections = () => invoke<LibraryConnection[]>("library_connections");
-export const connectLibrary = (pluginId: string) => invoke<LibraryStatus>("connect_library", { pluginId });
-export const disconnectLibrary = (pluginId: string) => invoke<LibraryStatus>("disconnect_library", { pluginId });
-export const libraryCollections = (pluginId: string) => invoke<CollectionView[]>("library_collections", { pluginId });
+export const libraryConnections = () => commands.libraryConnections();
+export const connectLibrary = (pluginId: string) => commands.connectLibrary(pluginId);
+export const disconnectLibrary = (pluginId: string) => commands.disconnectLibrary(pluginId);
+export const libraryCollections = (pluginId: string) => commands.libraryCollections(pluginId);
 export const importCollection = (pluginId: string, collectionId: string, name: string) =>
-  invoke<PlaylistSummary>("import_collection", { pluginId, collectionId, name });
-export const syncPlaylist = (id: number) => invoke<PlaylistSummary>("sync_playlist", { id });
+  commands.importCollection(pluginId, collectionId, name);
+export const syncPlaylist = (id: number) => commands.syncPlaylist(id);
 
 // ---------- Plugin requirements (e.g. yt-dlp for YouTube) ----------
 
-export interface Requirement {
-  id: string;
-  name: string;
-  description: string | null;
-  installed: boolean;
-  installable: boolean;
-}
-
-export const pluginRequirements = (pluginId: string) => invoke<Requirement[]>("plugin_requirements", { pluginId });
+export const pluginRequirements = (pluginId: string) => commands.pluginRequirements(pluginId);
 export const installPluginRequirement = (pluginId: string, requirementId: string) =>
-  invoke<Requirement[]>("install_plugin_requirement", { pluginId, requirementId });
+  commands.installPluginRequirement(pluginId, requirementId);

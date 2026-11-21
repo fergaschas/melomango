@@ -2,7 +2,7 @@
 //! login, at most 100 songs), YouTube / YouTube Music (through the YouTube plugin) and
 //! Deezer (its public API).
 
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use serde_json::Value;
 
 use crate::models::Track;
@@ -13,7 +13,8 @@ pub const YOUTUBE_ORIGIN: &str = "youtube-link";
 /// Spotify's embed page lists at most this many songs.
 pub const SPOTIFY_EMBED_LIMIT: usize = 100;
 /// Spotify serves the embed page to browsers.
-const BROWSER_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36";
+const BROWSER_UA: &str =
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36";
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Link {
@@ -159,10 +160,8 @@ fn parse_embed(html: &str) -> anyhow::Result<(String, Vec<Track>)> {
     let data: Value = serde_json::from_str(&html[start..end]).context("datos de Spotify no válidos")?;
     let entity = find_entity(&data).context("Spotify no devolvió canciones para ese enlace")?;
     let name = entity["name"].as_str().or(entity["title"].as_str()).unwrap_or("Playlist de Spotify").trim().to_string();
-    let tracks: Vec<Track> = entity["trackList"]
-        .as_array()
-        .map(|list| list.iter().filter_map(embed_track).collect())
-        .unwrap_or_default();
+    let tracks: Vec<Track> =
+        entity["trackList"].as_array().map(|list| list.iter().filter_map(embed_track).collect()).unwrap_or_default();
     if tracks.is_empty() {
         bail!("esa playlist de Spotify está vacía o no es pública");
     }
@@ -206,10 +205,19 @@ mod tests {
     #[test]
     fn recognises_links() {
         let cases = [
-            ("https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M?si=abc", Link::SpotifyPlaylist("37i9dQZF1DXcBWIGoYBM5M".into())),
-            ("https://open.spotify.com/intl-es/album/2noRn2Aes5aoNVsU6iWThc", Link::SpotifyAlbum("2noRn2Aes5aoNVsU6iWThc".into())),
+            (
+                "https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M?si=abc",
+                Link::SpotifyPlaylist("37i9dQZF1DXcBWIGoYBM5M".into()),
+            ),
+            (
+                "https://open.spotify.com/intl-es/album/2noRn2Aes5aoNVsU6iWThc",
+                Link::SpotifyAlbum("2noRn2Aes5aoNVsU6iWThc".into()),
+            ),
             ("spotify:playlist:37i9dQZF1DXcBWIGoYBM5M", Link::SpotifyPlaylist("37i9dQZF1DXcBWIGoYBM5M".into())),
-            ("https://www.youtube.com/playlist?list=PL4fGSI1pDJn6puJdseH2Rt9sMvt9E2M4i", Link::YouTubePlaylist("PL4fGSI1pDJn6puJdseH2Rt9sMvt9E2M4i".into())),
+            (
+                "https://www.youtube.com/playlist?list=PL4fGSI1pDJn6puJdseH2Rt9sMvt9E2M4i",
+                Link::YouTubePlaylist("PL4fGSI1pDJn6puJdseH2Rt9sMvt9E2M4i".into()),
+            ),
             ("https://music.youtube.com/playlist?list=OLAK5uy_kXyz", Link::YouTubePlaylist("OLAK5uy_kXyz".into())),
             ("https://www.youtube.com/watch?v=kJQP7kiw5Fk&list=PLabc123", Link::YouTubePlaylist("PLabc123".into())),
             ("https://www.deezer.com/es/playlist/1479458365", Link::DeezerPlaylist("1479458365".into())),

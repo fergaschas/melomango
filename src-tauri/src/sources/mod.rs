@@ -36,11 +36,7 @@ impl Registry {
     }
 
     pub fn get(&self, id: &str) -> anyhow::Result<Arc<dyn MusicSource>> {
-        self.sources
-            .iter()
-            .find(|s| s.info().id == id)
-            .cloned()
-            .ok_or_else(|| anyhow!("fuente desconocida: {id}"))
+        self.sources.iter().find(|s| s.info().id == id).cloned().ok_or_else(|| anyhow!("fuente desconocida: {id}"))
     }
 
     pub fn list(&self) -> Vec<SourceInfo> {

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 /// A playable track, independent of where it comes from.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct Track {
     pub id: String,
@@ -21,14 +21,14 @@ pub struct Track {
 }
 
 /// Where to fetch a track's audio from, plus any headers the server expects.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, specta::Type)]
 pub struct StreamInfo {
     pub url: String,
     #[serde(default)]
     pub headers: HashMap<String, String>,
 }
 
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Copy, Serialize, specta::Type)]
 #[serde(rename_all = "lowercase")]
 pub enum SourceKind {
     /// Built into the app (none today: every source is a plugin).
@@ -38,7 +38,7 @@ pub enum SourceKind {
 }
 
 /// What the UI needs to know about a source.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SourceInfo {
     pub id: String,
@@ -49,27 +49,4 @@ pub struct SourceInfo {
     pub supports_trending: bool,
     /// Metadata-only plugin (playlists from another service), not a playable source.
     pub is_library: bool,
-}
-
-/// "Song (feat. Someone)" -> "Song". Lyrics databases usually list the bare title.
-pub fn trim_featuring(title: &str) -> &str {
-    let lower = title.to_ascii_lowercase();
-    ["(feat", "(ft.", "[feat", "[ft.", " feat. ", " ft. "]
-        .iter()
-        .filter_map(|marker| lower.find(marker))
-        .min()
-        .map_or(title, |cut| title[..cut].trim_end())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::trim_featuring;
-
-    #[test]
-    fn trims_featuring() {
-        assert_eq!(trim_featuring("MIA (feat. Drake)"), "MIA");
-        assert_eq!(trim_featuring("Song [Ft. X]"), "Song");
-        assert_eq!(trim_featuring("Song feat. X"), "Song");
-        assert_eq!(trim_featuring("Feather"), "Feather");
-    }
 }

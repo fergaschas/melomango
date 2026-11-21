@@ -13,14 +13,10 @@
 //!
 //! The same import also takes Exportify's CSVs (see [`crate::exportify`]).
 
-use std::{
-    collections::HashMap,
-    fs,
-    io::Read,
-    path::Path,
-};
+use crate::text::fingerprint;
+use std::{collections::HashMap, fs, io::Read, path::Path};
 
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use percent_encoding::percent_decode_str;
 use serde::Deserialize;
 
@@ -94,7 +90,7 @@ pub fn read(paths: &[impl AsRef<Path>]) -> anyhow::Result<Import> {
     };
     let mut recognised = false;
     // Playlist1.json, Playlist2.json… in order.
-    files.sort_by(|a, b| natural_key(&a.0).cmp(&natural_key(&b.0)));
+    files.sort_by_key(|f| natural_key(&f.0));
     for (name, data) in &files {
         let base = name.rsplit(['/', '\\']).next().unwrap_or(name);
         let parsed: anyhow::Result<()> = (|| {
@@ -131,7 +127,8 @@ pub fn read(paths: &[impl AsRef<Path>]) -> anyhow::Result<Import> {
         }
     }
     if !liked.is_empty() {
-        collections.insert(0, Collection { remote_id: "liked".into(), name: "Me gusta de Spotify".into(), tracks: liked });
+        collections
+            .insert(0, Collection { remote_id: "liked".into(), name: "Me gusta de Spotify".into(), tracks: liked });
     }
     if collections.is_empty() {
         if !problems.is_empty() {
@@ -314,12 +311,6 @@ fn local_track(uri: &str) -> Option<Track> {
     track("", title, artist, seconds.parse().unwrap_or(0))
 }
 
-/// Short stable hash (FNV-1a), enough to tell local tracks apart.
-fn fingerprint(text: &str) -> String {
-    let hash = text.bytes().fold(0xcbf2_9ce4_8422_2325u64, |h, b| (h ^ b as u64).wrapping_mul(0x0100_0000_01b3));
-    format!("{hash:016x}")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -382,7 +373,10 @@ mod tests {
         let run = &collections[1].tracks;
         assert_eq!(run.len(), 2);
         assert_eq!(run[0].id, "4fakeSpotifyId");
-        assert_eq!((run[1].title.as_str(), run[1].artist.as_str(), run[1].duration_secs), ("Segundo premio", "Los Planetas", 245));
+        assert_eq!(
+            (run[1].title.as_str(), run[1].artist.as_str(), run[1].duration_secs),
+            ("Segundo premio", "Los Planetas", 245)
+        );
         assert!(run[1].id.starts_with("local:"));
         fs::remove_dir_all(&dir).unwrap();
     }
@@ -414,8 +408,14 @@ mod tests {
         let mut zip = zip::ZipWriter::new(fs::File::create(&path).unwrap());
         let options = zip::write::SimpleFileOptions::default();
         for (name, data) in [
-            ("liked.csv", "\"Track URI\",\"Track Name\",\"Artist Name(s)\",\"Track Duration (ms)\"\n\"spotify:track:2saoko\",\"Saoko\",\"ROSALÍA\",\"137875\"\n"),
-            ("para_correr.csv", "\"Track URI\",\"Track Name\",\"Artist Name(s)\"\n\"spotify:track:x\",\"Dai Dai\",\"Shakira\"\n"),
+            (
+                "liked.csv",
+                "\"Track URI\",\"Track Name\",\"Artist Name(s)\",\"Track Duration (ms)\"\n\"spotify:track:2saoko\",\"Saoko\",\"ROSALÍA\",\"137875\"\n",
+            ),
+            (
+                "para_correr.csv",
+                "\"Track URI\",\"Track Name\",\"Artist Name(s)\"\n\"spotify:track:x\",\"Dai Dai\",\"Shakira\"\n",
+            ),
             ("saved_albums.csv", "\"Album URI\",\"Album Name\"\n\"spotify:album:1\",\"RAM\"\n"),
         ] {
             zip.start_file(name, options).unwrap();
@@ -480,6 +480,39 @@ mod tests {
         zip.finish().unwrap();
         let err = read(&[path]).unwrap_err().to_string();
         assert!(err.contains("demasiados archivos"), "{err}");
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_zip_with_a_broken_csv_a_spanish_csv_and_an_unnamed_playlist() {
+        let dir = temp_dir("export-mixed-zip");
+        let path = dir.join("spotify_playlists.zip");
+        let mut zip = zip::ZipWriter::new(fs::File::create(&path).unwrap());
+        let options = zip::write::SimpleFileOptions::default();
+        // Excel with Spanish settings: «;» and Windows-1252 («ó» is 0xF3).
+        let spanish = b"Track URI;Track Name;Artist Name(s)\r\nspotify:track:1;Canci\xf3n;Alguien\r\n".to_vec();
+        let files: [(&str, Vec<u8>); 3] = [
+            ("para_correr.csv", spanish),
+            // Not a playlist at all (no title or artist columns): can't be imported.
+            ("rota.csv", b"fecha,importe\n2026-01-01,3\n".to_vec()),
+            (
+                "Playlist1.json",
+                br#"{"playlists": [{"name": "", "items": [{"track": {"trackName": "Saoko", "artistName": "Rosalia", "trackUri": "spotify:track:2"}}]}]}"#.to_vec(),
+            ),
+        ];
+        for (name, data) in files {
+            zip.start_file(name, options).unwrap();
+            zip.write_all(&data).unwrap();
+        }
+        zip.finish().unwrap();
+
+        let Import { collections, problems } = read(&[path]).unwrap();
+        let names: Vec<&str> = collections.iter().map(|c| c.name.as_str()).collect();
+        // Files are read in name order: Playlist1.json comes first.
+        assert_eq!(names, [UNNAMED, "Para correr"]);
+        assert_eq!(collections[1].tracks[0].title, "Canción");
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(problems[0].starts_with("rota.csv"), "{problems:?}");
         fs::remove_dir_all(&dir).unwrap();
     }
 

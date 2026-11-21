@@ -17,6 +17,7 @@ import {
 import { useLibrary } from "../lib/library";
 import { CloseIcon, SearchIcon } from "./Icons";
 import { PlaylistCover } from "./PlaylistCover";
+import { useDialog } from "../lib/useDialog";
 
 interface Props {
   onClose: () => void;
@@ -26,6 +27,7 @@ interface Props {
 
 /** Connect services such as Spotify and import their playlists. */
 export function ServicesDialog({ onClose, onOpenPlugins, onOpenPlaylist }: Props) {
+  const dialog = useDialog<HTMLElement>(onClose);
   const [connections, setConnections] = useState<LibraryConnection[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -39,7 +41,7 @@ export function ServicesDialog({ onClose, onOpenPlugins, onOpenPlaylist }: Props
 
   return (
     <div className="dialog-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <section className="dialog wide" role="dialog" aria-modal="true" aria-labelledby="services-title">
+      <section ref={dialog} tabIndex={-1} className="dialog wide" role="dialog" aria-modal="true" aria-labelledby="services-title">
         <header className="dialog-header">
           <h2 id="services-title">Importar playlists</h2>
           <button className="icon-btn" onClick={onClose} aria-label="Cerrar">

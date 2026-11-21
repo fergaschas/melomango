@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { Player } from "./usePlayer";
+import { describeTarget, ownsKey } from "../lib/keyTarget";
 
 /** Shown in the shortcuts dialog; keep in sync with `useShortcuts`. */
 export interface ShortcutHelp {
@@ -43,7 +44,7 @@ export function useShortcuts(handlers: Handlers) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.defaultPrevented || e.altKey || e.metaKey || isTyping(e.target, e.key)) return;
+      if (e.defaultPrevented || e.altKey || e.metaKey || ownsKey(describeTarget(e.target), e.key)) return;
       if (document.querySelector('[aria-modal="true"]')) return;
       const { player, onLike, onSearch, onTogglePanel, onHelp } = ref.current;
       const ctrl = e.ctrlKey;
@@ -72,7 +73,7 @@ export function useShortcuts(handlers: Handlers) {
           }[key];
 
       if (!action) return;
-      // Also stops Space from "clicking" the focused button.
+      // Also stops Space from scrolling the page.
       e.preventDefault();
       action();
     };
@@ -81,11 +82,3 @@ export function useShortcuts(handlers: Handlers) {
   }, []);
 }
 
-function isTyping(target: EventTarget | null, key: string) {
-  if (!(target instanceof HTMLElement)) return false;
-  if (target.isContentEditable) return true;
-  if (target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) return true;
-  if (!(target instanceof HTMLInputElement)) return false;
-  // Sliders (seek, volume) keep only their arrow keys; text fields keep every key.
-  return target.type !== "range" || key.startsWith("Arrow");
-}

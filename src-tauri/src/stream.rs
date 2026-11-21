@@ -13,9 +13,9 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use anyhow::{anyhow, bail, Context};
+use anyhow::{Context, anyhow, bail};
 use percent_encoding::percent_decode_str;
-use tauri::http::{header, Request, Response};
+use tauri::http::{Request, Response, header};
 use tokio::sync::{OnceCell, Semaphore};
 
 use crate::{
@@ -32,6 +32,9 @@ const PROBE_RETRIES: u32 = 20;
 const PROBE_RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(250);
 /// Background resolutions running at once (each may start a plugin process).
 const PREFETCH_LIMIT: usize = 3;
+/// Resolved streams kept. Hovering rows resolves them ahead of time, so without a cap the
+/// cache grew with every song the mouse passed over. The oldest go first.
+const MAX_SLOTS: usize = 300;
 
 type Slot = Arc<OnceCell<StreamInfo>>;
 
@@ -39,8 +42,23 @@ type Slot = Arc<OnceCell<StreamInfo>>;
 /// concurrent requests for the same track share a single resolution, and the app
 /// resolves likely next tracks ahead of time (see [`prefetch`]).
 pub struct StreamCache {
-    slots: Mutex<HashMap<String, Slot>>,
+    slots: Mutex<Slots>,
     prefetching: Semaphore,
+}
+
+/// The slots, and their keys from least to most recently used.
+#[derive(Default)]
+struct Slots {
+    map: HashMap<String, Slot>,
+    order: std::collections::VecDeque<String>,
+}
+
+impl Slots {
+    fn remove(&mut self, key: &str) {
+        if self.map.remove(key).is_some() {
+            self.order.retain(|k| k != key);
+        }
+    }
 }
 
 impl Default for StreamCache {
@@ -51,7 +69,27 @@ impl Default for StreamCache {
 
 impl StreamCache {
     fn slot(&self, key: &str) -> Slot {
-        self.slots.lock().unwrap().entry(key.to_string()).or_default().clone()
+        let mut slots = self.slots.lock().unwrap();
+        if let Some(slot) = slots.map.get(key).cloned() {
+            // Used again: to the back of the line.
+            if slots.order.back().map(String::as_str) != Some(key) {
+                slots.order.retain(|k| k != key);
+                slots.order.push_back(key.to_string());
+            }
+            return slot;
+        }
+        while slots.map.len() >= MAX_SLOTS {
+            let Some(oldest) = slots.order.pop_front() else { break };
+            slots.map.remove(&oldest);
+        }
+        let slot = Slot::default();
+        slots.map.insert(key.to_string(), slot.clone());
+        slots.order.push_back(key.to_string());
+        slot
+    }
+
+    fn contains(&self, key: &str) -> bool {
+        self.slots.lock().unwrap().map.get(key).is_some_and(|s| s.initialized())
     }
 
     /// Forgets the resolved stream of `key` (e.g. after the user picks another recording).
@@ -59,10 +97,15 @@ impl StreamCache {
         self.slots.lock().unwrap().remove(key);
     }
 
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.slots.lock().unwrap().map.len()
+    }
+
     /// Drops `slot` unless someone already replaced it with a fresher one.
     fn invalidate(&self, key: &str, slot: &Slot) {
         let mut slots = self.slots.lock().unwrap();
-        if slots.get(key).is_some_and(|s| Arc::ptr_eq(s, slot)) {
+        if slots.map.get(key).is_some_and(|s| Arc::ptr_eq(s, slot)) {
             slots.remove(key);
         }
     }
@@ -79,13 +122,15 @@ pub async fn prefetch(
     source_id: &str,
     track_id: &str,
 ) -> anyhow::Result<()> {
-    let slot = cache.slot(&format!("{source_id}/{track_id}"));
-    if slot.initialized() {
+    let key = format!("{source_id}/{track_id}");
+    if cache.contains(&key) {
         return Ok(());
     }
+    // No free permit: nothing is stored (a slot would stay behind, empty, for good).
     let Ok(_permit) = cache.prefetching.try_acquire() else {
         return Ok(());
     };
+    let slot = cache.slot(&key);
     slot.get_or_try_init(|| open(registry, library, http, source_id, track_id)).await?;
     Ok(())
 }
@@ -121,20 +166,13 @@ async fn serve(
     downloads: &Downloads,
     request: &Request<Vec<u8>>,
 ) -> anyhow::Result<Response<Vec<u8>>> {
-    let path = percent_decode_str(request.uri().path().trim_start_matches('/'))
-        .decode_utf8()
-        .context("ruta no válida")?;
-    let (source_id, track_id) = path
-        .split_once('/')
-        .ok_or_else(|| anyhow!("se esperaba <fuente>/<id>, llegó {path}"))?;
+    let path =
+        percent_decode_str(request.uri().path().trim_start_matches('/')).decode_utf8().context("ruta no válida")?;
+    let (source_id, track_id) =
+        path.split_once('/').ok_or_else(|| anyhow!("se esperaba <fuente>/<id>, llegó {path}"))?;
     let open = || open(registry, library, http, source_id, track_id);
 
-    let requested = capped_range(
-        request
-            .headers()
-            .get(header::RANGE)
-            .and_then(|v| v.to_str().ok()),
-    );
+    let requested = capped_range(request.headers().get(header::RANGE).and_then(|v| v.to_str().ok()));
 
     // Downloaded: straight from disk, no connection needed.
     let local = downloads.local(library, source_id, track_id);
@@ -150,14 +188,13 @@ async fn serve(
     let key = format!("{source_id}/{track_id}");
     let slot = cache.slot(&key);
     let was_cached = slot.initialized();
-    let info = slot
-        .get_or_try_init(open)
-        .await?
-        .clone();
+    let info = slot.get_or_try_init(open).await?.clone();
     let mut upstream = fetch(http, &info, &range).await?;
 
-    // Signed URLs expire: if a cached one fails, resolve again from the source.
-    if !upstream.status().is_success() && was_cached {
+    // Signed URLs expire: if a cached one is refused, resolve again from the source. Other
+    // answers (a 416 near the end, a 5xx) wouldn't change with a new URL, and resolving
+    // means running the plugin again.
+    if was_cached && needs_new_url(upstream.status()) {
         cache.invalidate(&key, &slot);
         let slot = cache.slot(&key);
         let info = slot.get_or_try_init(open).await?.clone();
@@ -174,9 +211,7 @@ async fn serve(
         }
     }
     let body = upstream.bytes().await?.to_vec();
-    Ok(response
-        .header(header::CONTENT_LENGTH, body.len())
-        .body(body)?)
+    Ok(response.header(header::CONTENT_LENGTH, body.len()).body(body)?)
 }
 
 /// The CORS check the WebView makes before a `fetch` with a Range header (the player does
@@ -192,6 +227,11 @@ fn preflight(request: &Request<Vec<u8>>) -> Option<Response<Vec<u8>>> {
             .body(Vec::new())
             .unwrap()
     })
+}
+
+/// The server no longer accepts the URL (expired or revoked).
+fn needs_new_url(status: reqwest::StatusCode) -> bool {
+    matches!(status.as_u16(), 401 | 403 | 404 | 410)
 }
 
 /// 416: the requested range can't be served (`size` is known for downloaded files).
@@ -237,11 +277,7 @@ pub(crate) async fn open(
 
 /// Asks the source for the stream and follows redirects once, so later chunks go
 /// straight to the final server.
-async fn resolve(
-    http: &reqwest::Client,
-    source: &dyn MusicSource,
-    track_id: &str,
-) -> anyhow::Result<StreamInfo> {
+async fn resolve(http: &reqwest::Client, source: &dyn MusicSource, track_id: &str) -> anyhow::Result<StreamInfo> {
     let mut info = source.stream(track_id).await?;
     // Some servers (YouTube) answer 403 for the first moments after issuing a URL.
     let mut attempt = 0;
@@ -336,6 +372,31 @@ mod tests {
     }
 
     #[test]
+    fn the_cache_keeps_at_most_max_slots_dropping_the_oldest() {
+        let cache = StreamCache::default();
+        let first = cache.slot("t/0");
+        for i in 1..MAX_SLOTS {
+            cache.slot(&format!("t/{i}"));
+        }
+        cache.slot("t/0"); // used again: no longer the oldest
+        cache.slot("t/new");
+        assert_eq!(cache.len(), MAX_SLOTS);
+        assert!(Arc::ptr_eq(&first, &cache.slot("t/0")), "recently used survives");
+        assert_eq!(cache.len(), MAX_SLOTS);
+        assert!(!cache.slots.lock().unwrap().map.contains_key("t/1"), "the oldest went");
+    }
+
+    #[test]
+    fn only_refused_urls_are_resolved_again() {
+        for code in [401, 403, 404, 410] {
+            assert!(needs_new_url(reqwest::StatusCode::from_u16(code).unwrap()), "{code}");
+        }
+        for code in [200, 206, 416, 500, 503] {
+            assert!(!needs_new_url(reqwest::StatusCode::from_u16(code).unwrap()), "{code}");
+        }
+    }
+
+    #[test]
     fn invalidate_keeps_a_newer_slot() {
         let cache = StreamCache::default();
         let old = cache.slot("a");
@@ -357,11 +418,9 @@ mod tests {
         let plugins_dir = std::env::temp_dir().join(format!("melomango-e2e-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&plugins_dir);
 
-        let listing = catalog::browse(&http, &[catalog::RegistryInfo {
-            url: catalog::OFFICIAL_INDEX.into(),
-            official: true,
-        }])
-        .await;
+        let listing =
+            catalog::browse(&http, &[catalog::RegistryInfo { url: catalog::OFFICIAL_INDEX.into(), official: true }])
+                .await;
         assert!(listing.errors.is_empty(), "{:?}", listing.errors);
         assert!(listing.plugins.iter().any(|p| p.id == "youtube" && p.available));
         catalog::install(&http, catalog::OFFICIAL_INDEX, "youtube", &plugins_dir, &plugins_dir.join("data"), false)

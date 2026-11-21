@@ -13,16 +13,29 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use anyhow::{anyhow, bail, Context};
+use anyhow::{Context, anyhow, bail};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::sources::plugin;
 
-pub const OFFICIAL_INDEX: &str =
-    "https://raw.githubusercontent.com/fergaschas/melomango-plugins/main/index.json";
+pub const OFFICIAL_INDEX: &str = "https://raw.githubusercontent.com/fergaschas/melomango-plugins/main/index.json";
 const INDEX_VERSION: u32 = 1;
 const MAX_DOWNLOAD_BYTES: usize = 200 * 1024 * 1024;
+/// An index lists plugins: even a big one is a few hundred KB.
+const MAX_INDEX_BYTES: usize = 5 * 1024 * 1024;
+
+/// The client for repositories and plugin downloads. Only https, redirects included: an
+/// index (or zip) sent through http could be swapped on the way, SHA-256 and all, and a
+/// plugin runs code on this computer. The shared client follows https → http redirects.
+pub fn client(user_agent: &str) -> reqwest::Result<reqwest::Client> {
+    reqwest::Client::builder()
+        .user_agent(user_agent)
+        .https_only(true)
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .read_timeout(std::time::Duration::from_secs(30))
+        .build()
+}
 
 #[derive(Debug, Deserialize)]
 struct Index {
@@ -58,7 +71,7 @@ struct Download {
 }
 
 /// A plugin as shown in the in-app browser.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct CatalogPlugin {
     pub id: String,
@@ -74,14 +87,14 @@ pub struct CatalogPlugin {
     pub available: bool,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, specta::Type)]
 pub struct Catalog {
     pub plugins: Vec<CatalogPlugin>,
     /// One message per repository that could not be read.
     pub errors: Vec<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, specta::Type)]
 pub struct RegistryInfo {
     pub url: String,
     pub official: bool,
@@ -98,7 +111,7 @@ pub struct Registries {
     file: PathBuf,
 }
 
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Default, Serialize, Deserialize, specta::Type)]
 struct RegistriesFile {
     extra: Vec<String>,
 }
@@ -151,14 +164,11 @@ impl Registries {
 
 async fn fetch_index(http: &reqwest::Client, url: &str) -> anyhow::Result<Index> {
     require_https(url)?;
-    let index: Index = http
-        .get(url)
-        .send()
-        .await?
-        .error_for_status()?
-        .json()
-        .await
-        .context("el índice no tiene un formato válido")?;
+    let response = http.get(url).send().await?.error_for_status()?;
+    let bytes = read_limited(response, MAX_INDEX_BYTES, "el índice es demasiado grande").await?;
+    let mut index: Index = serde_json::from_slice(&bytes).context("el índice no tiene un formato válido")?;
+    // Ids end up in folder names: one like "../x" is not a plugin anyone should install.
+    index.plugins.retain(|p| plugin::validate_id(&p.id).is_ok());
     if index.version != INDEX_VERSION {
         bail!("versión de índice {} no soportada", index.version);
     }
@@ -218,11 +228,12 @@ pub async fn install(
     data_root: &Path,
     replace_other_origin: bool,
 ) -> anyhow::Result<String> {
+    plugin::validate_id(id)?;
     let other_origin = origin_change(plugins_dir, registry_url, id);
-    if let Some(from) = &other_origin {
-        if !replace_other_origin {
-            bail!("ya tienes instalado un plugin \"{id}\" de otro repositorio ({from})");
-        }
+    if let Some(from) = &other_origin
+        && !replace_other_origin
+    {
+        bail!("ya tienes instalado un plugin \"{id}\" de otro repositorio ({from})");
     }
     let index = fetch_index(http, registry_url).await?;
     let entry = index
@@ -272,15 +283,20 @@ pub async fn install(
 }
 
 async fn download_limited(http: &reqwest::Client, url: &str) -> anyhow::Result<Vec<u8>> {
-    let mut response = http.get(url).send().await?.error_for_status()?;
-    if response.content_length().is_some_and(|len| len as usize > MAX_DOWNLOAD_BYTES) {
-        bail!("el plugin es demasiado grande");
+    let response = http.get(url).send().await?.error_for_status()?;
+    read_limited(response, MAX_DOWNLOAD_BYTES, "el plugin es demasiado grande").await
+}
+
+/// The body of `response`, failing with `too_big` past `max` bytes (without reading on).
+async fn read_limited(mut response: reqwest::Response, max: usize, too_big: &str) -> anyhow::Result<Vec<u8>> {
+    if response.content_length().is_some_and(|len| len as usize > max) {
+        bail!("{too_big}");
     }
     let mut bytes = Vec::new();
     while let Some(chunk) = response.chunk().await? {
         bytes.extend_from_slice(&chunk);
-        if bytes.len() > MAX_DOWNLOAD_BYTES {
-            bail!("el plugin es demasiado grande");
+        if bytes.len() > max {
+            bail!("{too_big}");
         }
     }
     Ok(bytes)
@@ -299,11 +315,7 @@ fn plugin_root(dir: &Path) -> anyhow::Result<PathBuf> {
     if dir.join("plugin.json").is_file() {
         return Ok(dir.to_path_buf());
     }
-    let subdirs: Vec<PathBuf> = fs::read_dir(dir)?
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| p.is_dir())
-        .collect();
+    let subdirs: Vec<PathBuf> = fs::read_dir(dir)?.flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect();
     match subdirs.as_slice() {
         [only] if only.join("plugin.json").is_file() => Ok(only.clone()),
         _ => bail!("el paquete no contiene plugin.json"),
@@ -315,6 +327,22 @@ fn require_https(url: &str) -> anyhow::Result<()> {
         bail!("solo se aceptan direcciones https://");
     }
     Ok(())
+}
+
+/// The YouTube plugin installed from the official repository into a temporary folder,
+/// for tests against the real service. Returns the source and the folder to delete.
+#[cfg(test)]
+pub async fn youtube_for_tests(
+    http: &reqwest::Client,
+) -> (std::sync::Arc<dyn crate::sources::MusicSource>, std::path::PathBuf) {
+    let dir = std::env::temp_dir().join(format!(
+        "melomango-yt-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    install(http, OFFICIAL_INDEX, "youtube", &dir, &dir.join("data"), false).await.unwrap();
+    let source = crate::sources::plugin::discover(&dir, &dir.join("data")).pop().expect("plugin de YouTube");
+    (std::sync::Arc::new(source), dir)
 }
 
 #[cfg(test)]
@@ -381,6 +409,57 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
+    #[tokio::test]
+    async fn the_catalog_client_refuses_plain_http() {
+        let http = client("Melomango-tests").unwrap();
+        let err = http.get("http://127.0.0.1:9/index.json").send().await.unwrap_err();
+        assert!(err.is_builder() || err.to_string().contains("scheme"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn refuses_a_bad_id_before_touching_anything() {
+        let dir = std::env::temp_dir().join(format!("melomango-badid-{}", std::process::id()));
+        let err = install(&reqwest::Client::new(), OFFICIAL_INDEX, "../evil", &dir, &dir, false).await.unwrap_err();
+        assert!(err.to_string().contains("no válido"), "{err}");
+        assert!(!dir.exists());
+    }
+
+    #[tokio::test]
+    async fn bodies_beyond_the_limit_are_refused() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/", listener.local_addr().unwrap());
+        tokio::spawn(async move {
+            while let Ok((mut socket, _)) = listener.accept().await {
+                let _ = socket.read(&mut [0; 1024]).await;
+                let body = vec![b'x'; 4096];
+                let head = "HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\nconnection: close\r\n\r\n";
+                let _ = socket.write_all(head.as_bytes()).await;
+                let _ = socket.write_all(format!("{:x}\r\n", body.len()).as_bytes()).await;
+                let _ = socket.write_all(&body).await;
+                let _ = socket.write_all(b"\r\n0\r\n\r\n").await;
+            }
+        });
+        let response = reqwest::get(&url).await.unwrap();
+        let err = read_limited(response, 1024, "demasiado grande").await.unwrap_err();
+        assert!(err.to_string().contains("demasiado grande"));
+        let response = reqwest::get(&url).await.unwrap();
+        assert_eq!(read_limited(response, 8192, "x").await.unwrap().len(), 4096);
+    }
+
+    /// The official repository and GitHub's download redirects work with the https-only
+    /// client the app uses: `cargo test -- --ignored https_only`
+    #[tokio::test]
+    #[ignore = "necesita red"]
+    async fn installs_from_the_official_repository_with_the_https_only_client() {
+        let http = client("Melomango-tests").unwrap();
+        let dir = std::env::temp_dir().join(format!("melomango-https-only-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        assert_eq!(install(&http, OFFICIAL_INDEX, "youtube", &dir, &dir.join("data"), false).await.unwrap(), "youtube");
+        assert!(dir.join("youtube/plugin.json").is_file());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn finds_plugin_root_in_subfolder() {
         let dir = std::env::temp_dir().join(format!("melomango-root-{}", std::process::id()));
@@ -390,20 +469,4 @@ mod tests {
         assert_eq!(plugin_root(&dir).unwrap(), dir.join("youtube"));
         let _ = fs::remove_dir_all(&dir);
     }
-}
-
-/// The YouTube plugin installed from the official repository into a temporary folder,
-/// for tests against the real service. Returns the source and the folder to delete.
-#[cfg(test)]
-pub async fn youtube_for_tests(
-    http: &reqwest::Client,
-) -> (std::sync::Arc<dyn crate::sources::MusicSource>, std::path::PathBuf) {
-    let dir = std::env::temp_dir().join(format!(
-        "melomango-yt-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
-    ));
-    install(http, OFFICIAL_INDEX, "youtube", &dir, &dir.join("data"), false).await.unwrap();
-    let source = crate::sources::plugin::discover(&dir, &dir.join("data")).pop().expect("plugin de YouTube");
-    (std::sync::Arc::new(source), dir)
 }

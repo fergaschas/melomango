@@ -75,9 +75,5 @@ fn ask(app: &AppHandle, text: &str, ok: &str) -> bool {
 }
 
 fn tell(app: &AppHandle, text: &str) {
-    app.dialog()
-        .message(text)
-        .title("Melomango")
-        .kind(MessageDialogKind::Error)
-        .blocking_show();
+    app.dialog().message(text).title("Melomango").kind(MessageDialogKind::Error).blocking_show();
 }

@@ -11,12 +11,12 @@ use std::{
     io::{Read, Seek, SeekFrom},
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex,
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
 };
 
-use anyhow::{anyhow, bail, Context};
+use anyhow::{Context, anyhow, bail};
 use serde::Serialize;
 use tokio::sync::Semaphore;
 
@@ -35,7 +35,7 @@ const PIECE: u64 = 2 * 1024 * 1024;
 const WAIT_STEP: std::time::Duration = std::time::Duration::from_millis(250);
 
 /// What the UI hears about a download.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct Progress {
     /// "source/id"
@@ -46,7 +46,7 @@ pub struct Progress {
     pub message: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum State {
     Queued,
@@ -179,11 +179,12 @@ impl Downloads {
         // The same song may be on its way already (e.g. into the cache): wait for it.
         loop {
             if let Some((_, file)) = self.local(library, &track.source, &track.id) {
-                if kind == StoredKind::Download && library.stored_kind(&track.source, &track.id).ok().flatten() == Some(StoredKind::Cache) {
-                    if let Err(e) = library.keep_cached(&track.source, &track.id) {
-                        report(progress(State::Failed, 0, None, Some(format!("{e:#}"))));
-                        return;
-                    }
+                if kind == StoredKind::Download
+                    && library.stored_kind(&track.source, &track.id).ok().flatten() == Some(StoredKind::Cache)
+                    && let Err(e) = library.keep_cached(&track.source, &track.id)
+                {
+                    report(progress(State::Failed, 0, None, Some(format!("{e:#}"))));
+                    return;
                 }
                 report(progress(State::Done, file.size, Some(file.size), None));
                 return;
@@ -313,7 +314,8 @@ impl Downloads {
                     continue;
                 }
                 // Asked past the end: done (when the size was never told, anything received counts).
-                if status == reqwest::StatusCode::RANGE_NOT_SATISFIABLE && total.map_or(received > 0, |t| t == received) {
+                if status == reqwest::StatusCode::RANGE_NOT_SATISFIABLE && total.map_or(received > 0, |t| t == received)
+                {
                     break;
                 }
                 if !status.is_success() {
@@ -393,11 +395,8 @@ fn file_stem(source: &str, id: &str) -> String {
         .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
         .take(60)
         .collect();
-    // FNV-1a of the exact key, so different ids never share a file.
-    let hash = format!("{source}/{id}")
-        .bytes()
-        .fold(0xcbf29ce484222325u64, |h, b| (h ^ b as u64).wrapping_mul(0x100000001b3));
-    format!("{readable}-{hash:016x}")
+    // A hash of the exact key, so different ids never share a file.
+    format!("{readable}-{}", crate::text::fingerprint(&format!("{source}/{id}")))
 }
 
 fn extension(mime: &str) -> &'static str {
@@ -526,8 +525,8 @@ mod tests {
     #[ignore = "necesita red y yt-dlp"]
     async fn downloads_and_serves_a_youtube_track() {
         use crate::sources::MusicSource;
-        use crate::stream::{handle, StreamCache};
-        use tauri::http::{header, Request};
+        use crate::stream::{StreamCache, handle};
+        use tauri::http::{Request, header};
 
         let http = reqwest::Client::builder().user_agent("Melomango-tests").build().unwrap();
         let (youtube, plugin_dir) = crate::catalog::youtube_for_tests(&http).await;
@@ -538,7 +537,9 @@ mod tests {
         let downloads = Downloads::new(dir.clone());
 
         let events = Mutex::new(Vec::new());
-        downloads.download(&registry, &library, &http, &track, StoredKind::Download, |p| events.lock().unwrap().push(p)).await;
+        downloads
+            .download(&registry, &library, &http, &track, StoredKind::Download, |p| events.lock().unwrap().push(p))
+            .await;
         let events = events.into_inner().unwrap();
         let last = events.last().unwrap();
         assert_eq!(last.state, State::Done, "{events:?}");
@@ -608,7 +609,8 @@ mod tests {
     async fn caches_a_song_played_twice() {
         let http = reqwest::Client::builder().user_agent("Melomango-tests").build().unwrap();
         let (youtube, plugin_dir) = crate::catalog::youtube_for_tests(&http).await;
-        let track = youtube.search("vetusta morla copenhague").await.unwrap().into_iter().next().expect("sin resultados");
+        let track =
+            youtube.search("vetusta morla copenhague").await.unwrap().into_iter().next().expect("sin resultados");
         let registry = Arc::new(Registry::new(vec![youtube]));
         let library = Library::in_memory();
         let dir = std::env::temp_dir().join(format!("melomango-cache-e2e-{}", std::process::id()));
@@ -627,7 +629,9 @@ mod tests {
 
         // Downloading it now just keeps the cached copy.
         let events = Mutex::new(Vec::new());
-        downloads.download(&registry, &library, &http, &track, StoredKind::Download, |p| events.lock().unwrap().push(p)).await;
+        downloads
+            .download(&registry, &library, &http, &track, StoredKind::Download, |p| events.lock().unwrap().push(p))
+            .await;
         let events = events.into_inner().unwrap();
         assert_eq!(events.len(), 1, "{events:?}");
         assert_eq!(events[0].state, State::Done);

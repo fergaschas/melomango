@@ -14,7 +14,7 @@ const thisMonth = () => {
 
 /** "2026-11" -> "Noviembre de 2026". */
 function monthLabel(month: string) {
-  const [y, m] = month.split("-").map(Number);
+  const [y = 1970, m = 1] = month.split("-").map(Number);
   const label = new Date(y, m - 1, 1).toLocaleDateString("es-ES", { month: "long", year: "numeric" });
   return label.charAt(0).toUpperCase() + label.slice(1);
 }

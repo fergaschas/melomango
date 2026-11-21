@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { chooseMatch, formatTime, matchOptions, type MatchOptions, type Track } from "../lib/api";
 import { Artwork } from "./Artwork";
 import { CloseIcon, SearchIcon } from "./Icons";
+import { useDialog } from "../lib/useDialog";
 
 interface Props {
   track: Track;
@@ -37,11 +38,7 @@ export function MatchDialog({ track, onClose, onChosen }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [track.source, track.id]);
 
-  useEffect(() => {
-    const esc = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", esc);
-    return () => window.removeEventListener("keydown", esc);
-  }, [onClose]);
+  const dialog = useDialog<HTMLElement>(onClose);
 
   function onSearch(e: FormEvent) {
     e.preventDefault();
@@ -63,7 +60,7 @@ export function MatchDialog({ track, onClose, onChosen }: Props) {
 
   return (
     <div className="dialog-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <section className="dialog wide" role="dialog" aria-modal="true" aria-labelledby="match-title">
+      <section ref={dialog} tabIndex={-1} className="dialog wide" role="dialog" aria-modal="true" aria-labelledby="match-title">
         <header className="dialog-header">
           <h2 id="match-title">¿Cuál es la buena?</h2>
           <button className="icon-btn" onClick={onClose} aria-label="Cerrar">

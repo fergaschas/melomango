@@ -96,7 +96,8 @@ export function SearchBox({ value, onChange, onSearch, onOpenArtist, onPlayTrack
       );
     } else if (e.key === "Enter") {
       e.preventDefault();
-      if (open && active >= 0 && active < items.length) choose(items[active]);
+      const item = open ? items[active] : undefined;
+      if (item) choose(item);
       else choose({ kind: "search", text: typed });
     } else if (e.key === "Escape") {
       if (open) setOpen(false);
@@ -149,6 +150,8 @@ export function SearchBox({ value, onChange, onSearch, onOpenArtist, onPlayTrack
         aria-expanded={showList}
         aria-controls="search-suggestions"
         aria-autocomplete="list"
+        // The option chosen with the arrows, so screen readers announce it.
+        aria-activedescendant={showList && active >= 0 && active < items.length ? `search-option-${active}` : undefined}
         autoComplete="off"
       />
       {showList && (
@@ -163,7 +166,7 @@ export function SearchBox({ value, onChange, onSearch, onOpenArtist, onPlayTrack
             const entries = items.map((item, index) => ({ item, index })).filter(({ item }) => kinds.includes(item.kind));
             if (!entries.length) return null;
             return (
-              <div key={title || "search"} className="dropdown-section">
+              <div key={title || "search"} className="dropdown-section" role="group" aria-label={title || "Buscar"}>
                 {title && (
                   <div className="dropdown-title">
                     <span>{title}</span>
@@ -177,6 +180,7 @@ export function SearchBox({ value, onChange, onSearch, onOpenArtist, onPlayTrack
                 {entries.map(({ item, index }) => (
                   <div
                     key={index}
+                    id={`search-option-${index}`}
                     role="option"
                     aria-selected={index === active}
                     className={`dropdown-item${index === active ? " active" : ""}`}
