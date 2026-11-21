@@ -1,0 +1,108 @@
+{
+  "$description": "Para qué se usa cada color, en el tema oscuro (hueso tostado). Mismas claves que semanticos.claro.tokens.json.",
+  "color": {
+    "$type": "color",
+    "bg": { "$value": "{tostado.900}", "$description": "Fondo de la app." },
+    "surface": {
+      "default": { "$value": "{tostado.850}", "$description": "Superficie: listas, tarjetas, barra del reproductor." },
+      "soft": { "$value": "{tostado.800}", "$description": "Superficie suave: fila al pasar el ratón, campos, paneles." },
+      "hover": { "$value": "{tostado.750}", "$description": "Lo elegido: la fila que suena, la entrada activa de la barra lateral." },
+      "raised": { "$value": "{tostado.850}", "$description": "Diálogos, menús y hojas." }
+    },
+    "border": { "$value": "{tostado.700}", "$description": "Bordes y separadores (decorativos)." },
+    "text": {
+      "default": { "$value": "{tostado.50}", "$description": "Texto principal." },
+      "muted": { "$value": "{tostado.300}", "$description": "Texto secundario: artista, duración, notas." },
+      "disabled": { "$value": "{tostado.500}", "$description": "Texto desactivado (sin requisito de contraste)." }
+    },
+    "accent": {
+      "default": { "$value": "{mango.500}", "$description": "Relleno de acento: el botón principal, lo elegido." },
+      "deep": { "$value": "{mango.600}", "$description": "Acento intenso: hover del acento, iconos de marca grandes." },
+      "text": { "$value": "{mango.300}", "$description": "Texto e iconos naranjas sobre superficies oscuras." },
+      "on": { "$value": "{tostado.900}", "$description": "Texto e iconos sobre el acento o el degradado." },
+      "inverse": { "$value": "{mango.800}", "$description": "Acento sobre una superficie invertida (el botón de un aviso, que es claro)." },
+      "gradient": {
+        "$type": "gradient",
+        "$description": "El degradado mango, a 135°: el mismo en los dos temas.",
+        "$value": [
+          { "color": "{mango.sol}", "position": 0 },
+          { "color": "{mango.500}", "position": 0.55 },
+          { "color": "{mango.coral}", "position": 1 }
+        ],
+        "$extensions": { "com.melomango": { "angle": 135 } }
+      }
+    },
+    "focus": {
+      "default": { "$value": "{mango.500}", "$description": "Anillo de foco del teclado." },
+      "halo": { "$value": "#ffa21f2e", "$description": "Halo suave alrededor de un campo enfocado." }
+    },
+    "state": {
+      "hover": { "$value": "{tostado.800}", "$description": "Fondo al pasar el ratón por algo que se puede pulsar." },
+      "pressed": { "$value": "{tostado.750}", "$description": "Fondo mientras se pulsa o de lo que está activo." }
+    },
+    "success": {
+      "default": { "$value": "{verde.300}", "$description": "Texto e icono de éxito." },
+      "bg": { "$value": "{verde.900}", "$description": "Fondo de un aviso de éxito." }
+    },
+    "warning": {
+      "default": { "$value": "{ambar.300}", "$description": "Texto e icono de aviso." },
+      "bg": { "$value": "{ambar.900}", "$description": "Fondo de un aviso." }
+    },
+    "danger": {
+      "default": { "$value": "{rojo.300}", "$description": "Texto e icono de error." },
+      "bg": { "$value": "{rojo.900}", "$description": "Fondo de un error." }
+    },
+    "info": {
+      "default": { "$value": "{azul.300}", "$description": "Texto e icono informativo." },
+      "bg": { "$value": "{azul.900}", "$description": "Fondo de un aviso informativo." }
+    },
+    "lyric": {
+      "past": { "$value": "#f7eadb94", "$description": "Líneas de la letra ya cantadas: el texto al 58 %." },
+      "current": { "$value": "{mango.300}", "$description": "La línea que suena." },
+      "future": { "$value": "#f7eadb66", "$description": "Líneas que vienen: el texto al 40 % (3:1, texto grande)." }
+    },
+    "backdrop": { "$value": "#0000008c", "$description": "Velo detrás de un diálogo." },
+    "decor": {
+      "glow": {
+        "top": { "$value": "{caramelo.800}", "$description": "Brillo de la parte de arriba del contenido." },
+        "mid": { "$value": "{caramelo.900}", "$description": "Mitad del brillo del contenido, antes del fondo." }
+      },
+      "panel": {
+        "$type": "gradient",
+        "$description": "Fondo de los paneles de letra y cola.",
+        "$value": [
+          { "color": "{caramelo.900}", "position": 0 },
+          { "color": "{caramelo.850}", "position": 1 }
+        ],
+        "$extensions": { "com.melomango": { "angle": 180 } }
+      },
+      "cover-soft": {
+        "$type": "gradient",
+        "$description": "Portada de lo que aún no tiene imagen (playlist vacía, canción sin carátula…).",
+        "$value": [
+          { "color": "{caramelo.700}", "position": 0 },
+          { "color": "{caramelo.500}", "position": 1 }
+        ],
+        "$extensions": { "com.melomango": { "angle": 135 } }
+      },
+      "glass": { "$value": "#ffffff12", "$description": "Cristal sobre el brillo (botones de la cabecera)." },
+      "topbar": { "$value": "#17110bd9", "$description": "Barra superior translúcida." },
+      "plugin-badge": { "$value": "{caramelo.750}", "$description": "Etiqueta de plugin." }
+    },
+    "data": {
+      "1": { "$value": "{datos.oscuro.1}", "$description": "Datos 1; jugador 1 del karaoke." },
+      "2": { "$value": "{datos.oscuro.2}", "$description": "Datos 2; jugador 2 del karaoke." },
+      "3": { "$value": "{datos.oscuro.3}" },
+      "4": { "$value": "{datos.oscuro.4}" },
+      "5": { "$value": "{datos.oscuro.5}" },
+      "6": { "$value": "{datos.oscuro.6}" }
+    }
+  },
+  "shadow": {
+    "card": {
+      "$type": "shadow",
+      "$description": "Sombra de tarjetas, listas y portadas.",
+      "$value": { "color": "#00000059", "offsetX": { "value": 0, "unit": "px" }, "offsetY": { "value": 6, "unit": "px" }, "blur": { "value": 24, "unit": "px" }, "spread": { "value": 0, "unit": "px" } }
+    }
+  }
+}

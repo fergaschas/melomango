@@ -1,0 +1,11 @@
+{
+  "$description": "Tokens de componente y valores que no cambian con el tema. Solo los que hacen falta en más de un sitio.",
+  "size": {
+    "$type": "dimension",
+    "player-height": { "$value": { "value": 92, "unit": "px" }, "$description": "Alto de la barra del reproductor de escritorio." }
+  },
+  "opacity": {
+    "$type": "number",
+    "disabled": { "$value": 0.4, "$description": "Opacidad de un control desactivado." }
+  }
+}

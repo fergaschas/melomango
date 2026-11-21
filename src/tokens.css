@@ -1,0 +1,158 @@
+/*
+ * Generado por scripts/tokens.ts desde design/tokens/ (versión 1.0.0). No lo edites a mano:
+ * cambia los tokens y ejecuta `npm run tokens` en el repo melomango.
+ *
+ * Claro en :root; oscuro si Windows lo usa (salvo que se elija Claro en Ajustes) o si se elige
+ * Oscuro (data-theme en <html>). Docs: docs/sistema-diseno/tokens.md
+ */
+
+:root {
+  --size-player-height: 92px;
+  --opacity-disabled: 0.4;
+  --color-bg: #fffaf2;
+  --color-surface: #ffffff;
+  --color-surface-soft: #fff3df;
+  --color-surface-hover: #ffeccc;
+  --color-surface-raised: #ffffff;
+  --color-border: #f2e2c6;
+  --color-text: #2e1f0f;
+  --color-text-muted: #7c674e;
+  --color-text-disabled: #b8a68f;
+  --color-accent: #ffa21f;
+  --color-accent-deep: #f07800;
+  --color-accent-text: #ad5000;
+  --color-accent-on: #2e1f0f;
+  --color-accent-inverse: #ffa21f;
+  --color-accent-gradient: linear-gradient(135deg, #ffd25e 0%, #ffa21f 55%, #ff7a1a 100%);
+  --color-focus: #ad5000;
+  --color-focus-halo: #ffa21f2e;
+  --color-state-hover: #fff3df;
+  --color-state-pressed: #ffeccc;
+  --color-success: #2e7d32;
+  --color-success-bg: #e8f5e9;
+  --color-warning: #8a5a00;
+  --color-warning-bg: #fff4d6;
+  --color-danger: #c62828;
+  --color-danger-bg: #fdecea;
+  --color-info: #1f5f99;
+  --color-info-bg: #e7f1fb;
+  --color-lyric-past: #2e1f0f99;
+  --color-lyric-current: #a34b00;
+  --color-lyric-future: #2e1f0f80;
+  --color-backdrop: #3c230a47;
+  --color-decor-glow-top: #ffe6b3;
+  --color-decor-glow-mid: #fff3df;
+  --color-decor-panel: linear-gradient(180deg, #fff3df 0%, #ffe6b3 100%);
+  --color-decor-cover-soft: linear-gradient(135deg, #ffe6b3 0%, #ffc46b 100%);
+  --color-decor-glass: #ffffff8c;
+  --color-decor-topbar: #fffaf2d9;
+  --color-decor-plugin-badge: #ffe6b3;
+  --color-data-1: #b06d00;
+  --color-data-2: #2a7fb8;
+  --color-data-3: #00805c;
+  --color-data-4: #a6508a;
+  --color-data-5: #8f1d1d;
+  --color-data-6: #24549c;
+  --shadow-card: 0 6px 24px #b464141f;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --color-bg: #17110b;
+    --color-surface: #221910;
+    --color-surface-soft: #2c2014;
+    --color-surface-hover: #362818;
+    --color-surface-raised: #221910;
+    --color-border: #3d2d1c;
+    --color-text: #f7eadb;
+    --color-text-muted: #b59d80;
+    --color-text-disabled: #6b5a47;
+    --color-accent: #ffa21f;
+    --color-accent-deep: #ff8f1f;
+    --color-accent-text: #ffb85a;
+    --color-accent-on: #17110b;
+    --color-accent-inverse: #ad5000;
+    --color-accent-gradient: linear-gradient(135deg, #ffd25e 0%, #ffa21f 55%, #ff7a1a 100%);
+    --color-focus: #ffa21f;
+    --color-focus-halo: #ffa21f2e;
+    --color-state-hover: #2c2014;
+    --color-state-pressed: #362818;
+    --color-success: #7fd08a;
+    --color-success-bg: #1f3323;
+    --color-warning: #ffd27a;
+    --color-warning-bg: #3a2a0c;
+    --color-danger: #ff8a80;
+    --color-danger-bg: #3d1f1c;
+    --color-info: #8cc4ff;
+    --color-info-bg: #15263a;
+    --color-lyric-past: #f7eadb94;
+    --color-lyric-current: #ffb85a;
+    --color-lyric-future: #f7eadb66;
+    --color-backdrop: #0000008c;
+    --color-decor-glow-top: #3a240c;
+    --color-decor-glow-mid: #24180d;
+    --color-decor-panel: linear-gradient(180deg, #24180d 0%, #33200b 100%);
+    --color-decor-cover-soft: linear-gradient(135deg, #5a3a12 0%, #a8641a 100%);
+    --color-decor-glass: #ffffff12;
+    --color-decor-topbar: #17110bd9;
+    --color-decor-plugin-badge: #4a3214;
+    --color-data-1: #e69f00;
+    --color-data-2: #56b4e9;
+    --color-data-3: #009e73;
+    --color-data-4: #cc79a7;
+    --color-data-5: #e5534b;
+    --color-data-6: #4c8fd6;
+    --shadow-card: 0 6px 24px #00000059;
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --color-bg: #17110b;
+  --color-surface: #221910;
+  --color-surface-soft: #2c2014;
+  --color-surface-hover: #362818;
+  --color-surface-raised: #221910;
+  --color-border: #3d2d1c;
+  --color-text: #f7eadb;
+  --color-text-muted: #b59d80;
+  --color-text-disabled: #6b5a47;
+  --color-accent: #ffa21f;
+  --color-accent-deep: #ff8f1f;
+  --color-accent-text: #ffb85a;
+  --color-accent-on: #17110b;
+  --color-accent-inverse: #ad5000;
+  --color-accent-gradient: linear-gradient(135deg, #ffd25e 0%, #ffa21f 55%, #ff7a1a 100%);
+  --color-focus: #ffa21f;
+  --color-focus-halo: #ffa21f2e;
+  --color-state-hover: #2c2014;
+  --color-state-pressed: #362818;
+  --color-success: #7fd08a;
+  --color-success-bg: #1f3323;
+  --color-warning: #ffd27a;
+  --color-warning-bg: #3a2a0c;
+  --color-danger: #ff8a80;
+  --color-danger-bg: #3d1f1c;
+  --color-info: #8cc4ff;
+  --color-info-bg: #15263a;
+  --color-lyric-past: #f7eadb94;
+  --color-lyric-current: #ffb85a;
+  --color-lyric-future: #f7eadb66;
+  --color-backdrop: #0000008c;
+  --color-decor-glow-top: #3a240c;
+  --color-decor-glow-mid: #24180d;
+  --color-decor-panel: linear-gradient(180deg, #24180d 0%, #33200b 100%);
+  --color-decor-cover-soft: linear-gradient(135deg, #5a3a12 0%, #a8641a 100%);
+  --color-decor-glass: #ffffff12;
+  --color-decor-topbar: #17110bd9;
+  --color-decor-plugin-badge: #4a3214;
+  --color-data-1: #e69f00;
+  --color-data-2: #56b4e9;
+  --color-data-3: #009e73;
+  --color-data-4: #cc79a7;
+  --color-data-5: #e5534b;
+  --color-data-6: #4c8fd6;
+  --shadow-card: 0 6px 24px #00000059;
+  color-scheme: dark;
+}

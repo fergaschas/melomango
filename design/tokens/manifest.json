@@ -1,0 +1,12 @@
+{
+  "$description": "Los tokens de diseño de Melomango (escritorio y móvil). Formato W3C Design Tokens (DTCG). Se generan con `npm run tokens`; ver docs/sistema-diseno/tokens.md.",
+  "version": "1.0.0",
+  "primitives": "primitivos.tokens.json",
+  "modes": {
+    "claro": "semanticos.claro.tokens.json",
+    "oscuro": "semanticos.oscuro.tokens.json"
+  },
+  "shared": ["componentes.tokens.json"],
+  "material3": "material3.json",
+  "contrast": "contraste.json"
+}

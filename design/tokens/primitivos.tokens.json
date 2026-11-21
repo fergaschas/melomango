@@ -1,0 +1,106 @@
+{
+  "$description": "La paleta en bruto de Melomango. No se usa directamente en las apps: los tokens semánticos (semanticos.*.tokens.json) eligen de aquí.",
+  "mango": {
+    "$type": "color",
+    "$description": "El acento. El 500 es el mango maduro de la marca.",
+    "50": { "$value": "#fff1d6" },
+    "100": { "$value": "#ffe6b3", "$description": "Brillo del contenido, portada suave." },
+    "200": { "$value": "#ffc46b" },
+    "300": { "$value": "#ffb85a", "$description": "Texto naranja sobre oscuro." },
+    "500": { "$value": "#ffa21f", "$description": "Mango maduro: el acento." },
+    "600": { "$value": "#ff8f1f" },
+    "700": { "$value": "#f07800" },
+    "800": { "$value": "#ad5000", "$description": "Texto naranja sobre claro (4,6:1 o más sobre todas las superficies claras)." },
+    "900": { "$value": "#a34b00", "$description": "Texto naranja sobre el brillo mango (la letra que suena, sobre el panel)." },
+    "sol": { "$value": "#ffd25e", "$description": "Principio del degradado mango." },
+    "coral": { "$value": "#ff7a1a", "$description": "Final del degradado mango." }
+  },
+  "crema": {
+    "$type": "color",
+    "$description": "Neutros cálidos del tema claro.",
+    "0": { "$value": "#ffffff" },
+    "50": { "$value": "#fffaf2", "$description": "Crema: el fondo claro." },
+    "100": { "$value": "#fff3df", "$description": "Pulpa clara." },
+    "200": { "$value": "#ffeccc" },
+    "300": { "$value": "#f2e2c6", "$description": "Bordes." },
+    "400": { "$value": "#b8a68f", "$description": "Desactivado (sin requisito de contraste)." },
+    "600": { "$value": "#7c674e", "$description": "Texto atenuado (4,6:1 o más sobre todas las superficies claras)." },
+    "900": { "$value": "#2e1f0f", "$description": "Hueso de mango: el texto." }
+  },
+  "tostado": {
+    "$type": "color",
+    "$description": "Neutros cálidos del tema oscuro, el hueso tostado.",
+    "50": { "$value": "#f7eadb", "$description": "Texto sobre oscuro." },
+    "300": { "$value": "#b59d80", "$description": "Texto atenuado sobre oscuro." },
+    "500": { "$value": "#6b5a47", "$description": "Desactivado (sin requisito de contraste)." },
+    "700": { "$value": "#3d2d1c", "$description": "Bordes." },
+    "750": { "$value": "#362818" },
+    "800": { "$value": "#2c2014" },
+    "850": { "$value": "#221910" },
+    "900": { "$value": "#17110b", "$description": "Hueso tostado: el fondo oscuro." }
+  },
+  "caramelo": {
+    "$type": "color",
+    "$description": "Marrones cálidos para los brillos y las portadas suaves del tema oscuro.",
+    "500": { "$value": "#a8641a" },
+    "700": { "$value": "#5a3a12" },
+    "750": { "$value": "#4a3214" },
+    "800": { "$value": "#3a240c" },
+    "850": { "$value": "#33200b" },
+    "900": { "$value": "#24180d" }
+  },
+  "verde": {
+    "$type": "color",
+    "$description": "Éxito.",
+    "50": { "$value": "#e8f5e9" },
+    "300": { "$value": "#7fd08a" },
+    "700": { "$value": "#2e7d32" },
+    "900": { "$value": "#1f3323" }
+  },
+  "ambar": {
+    "$type": "color",
+    "$description": "Aviso.",
+    "50": { "$value": "#fff4d6" },
+    "300": { "$value": "#ffd27a" },
+    "700": { "$value": "#8a5a00" },
+    "900": { "$value": "#3a2a0c" }
+  },
+  "rojo": {
+    "$type": "color",
+    "$description": "Error.",
+    "50": { "$value": "#fdecea" },
+    "300": { "$value": "#ff8a80" },
+    "700": { "$value": "#c62828" },
+    "900": { "$value": "#3d1f1c", "$description": "Fondo de error oscuro (el móvil tenía #3B1A16: se queda este)." }
+  },
+  "azul": {
+    "$type": "color",
+    "$description": "Información.",
+    "50": { "$value": "#e7f1fb" },
+    "300": { "$value": "#8cc4ff" },
+    "700": { "$value": "#1f5f99" },
+    "900": { "$value": "#15263a" }
+  },
+  "datos": {
+    "$type": "color",
+    "$description": "Colores de datos: gráficas del resumen y jugadores del karaoke. Salen de la paleta Okabe-Ito, que se distingue con daltonismo; los de claro, oscurecidos para llegar a 3:1 sobre la crema.",
+    "claro": {
+      "1": { "$value": "#b06d00" },
+      "2": { "$value": "#2a7fb8" },
+      "3": { "$value": "#00805c" },
+      "4": { "$value": "#a6508a" },
+      "5": { "$value": "#8f1d1d" },
+      "6": { "$value": "#24549c" }
+    },
+    "oscuro": {
+      "1": { "$value": "#e69f00" },
+      "2": { "$value": "#56b4e9" },
+      "3": { "$value": "#009e73" },
+      "4": { "$value": "#cc79a7" },
+      "5": { "$value": "#e5534b" },
+      "6": { "$value": "#4c8fd6" }
+    }
+  },
+  "blanco": { "$type": "color", "$value": "#ffffff" },
+  "negro": { "$type": "color", "$value": "#000000" }
+}

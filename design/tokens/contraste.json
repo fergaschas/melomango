@@ -1,0 +1,30 @@
+{
+  "$description": "Parejas de color que se comprueban en los dos temas (tests/tokens.test.ts). min: 4.5 para texto normal, 3 para texto grande, iconos y bordes que se necesitan para entender algo. Si el texto lleva transparencia, se mezcla antes con el fondo.",
+  "pairs": [
+    { "fg": "color.text", "bg": ["color.bg", "color.surface", "color.surface.soft", "color.surface.hover", "color.surface.raised"], "min": 4.5 },
+    { "fg": "color.text.muted", "bg": ["color.bg", "color.surface", "color.surface.soft", "color.surface.hover", "color.surface.raised"], "min": 4.5 },
+    { "fg": "color.accent.text", "bg": ["color.bg", "color.surface", "color.surface.soft", "color.surface.hover", "color.surface.raised"], "min": 4.5, "why": "el naranja como texto" },
+    { "fg": "color.accent.on", "bg": ["color.accent", "color.accent.deep", "color.accent.gradient"], "min": 4.5, "why": "texto sobre el mango y sobre cada punto del degradado" },
+    { "fg": "color.accent.inverse", "bg": ["color.text"], "min": 3, "why": "el botón de un aviso, sobre la superficie invertida" },
+    { "fg": "color.bg", "bg": ["color.text"], "min": 4.5, "why": "el texto de un aviso (superficie invertida)" },
+    { "fg": "color.focus", "bg": ["color.bg", "color.surface", "color.surface.soft", "color.surface.hover"], "min": 3, "why": "el anillo de foco" },
+    { "fg": "color.success", "bg": ["color.success.bg", "color.bg"], "min": 4.5 },
+    { "fg": "color.warning", "bg": ["color.warning.bg", "color.bg"], "min": 4.5 },
+    { "fg": "color.danger", "bg": ["color.danger.bg", "color.bg", "color.surface"], "min": 4.5 },
+    { "fg": "color.info", "bg": ["color.info.bg", "color.bg"], "min": 4.5 },
+    { "fg": "color.lyric.current", "bg": ["color.bg", "color.decor.panel"], "min": 4.5 },
+    { "fg": "color.lyric.past", "bg": ["color.bg", "color.decor.panel"], "min": 3, "why": "letra en texto grande, atenuada a propósito" },
+    { "fg": "color.lyric.future", "bg": ["color.bg", "color.decor.panel"], "min": 3, "why": "letra en texto grande, atenuada a propósito" },
+    { "fg": "color.data.1", "bg": ["color.bg", "color.surface"], "min": 3, "why": "marcas de una gráfica" },
+    { "fg": "color.data.2", "bg": ["color.bg", "color.surface"], "min": 3 },
+    { "fg": "color.data.3", "bg": ["color.bg", "color.surface"], "min": 3 },
+    { "fg": "color.data.4", "bg": ["color.bg", "color.surface"], "min": 3 },
+    { "fg": "color.data.5", "bg": ["color.bg", "color.surface"], "min": 3 },
+    { "fg": "color.data.6", "bg": ["color.bg", "color.surface"], "min": 3 }
+  ],
+  "distinct": {
+    "$description": "Colores que tienen que distinguirse entre sí también con protanopía, deuteranopía y tritanopía (ΔE mínimo, CIELAB).",
+    "tokens": ["color.data.1", "color.data.2", "color.data.3", "color.data.4", "color.data.5", "color.data.6"],
+    "minDeltaE": 10
+  }
+}
