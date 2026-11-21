@@ -80,7 +80,8 @@ const inlineStyles = new Map();
 for (const f of tsx) {
   const t = fs.readFileSync(f, "utf8");
   for (const m of t.matchAll(/Icon size=\{(\d+)\}/g)) count(iconSizes, `${m[1]}px`);
-  for (const m of t.matchAll(/Icon\s*\/>/g)) count(iconSizes, "20px (por defecto)");
+  const plain = [...t.matchAll(/Icon\s*\/>/g)].length;
+  if (plain) count(iconSizes, "20px (por defecto)", plain);
   for (const m of t.matchAll(/style=\{\{([^}]*)\}\}/g)) count(inlineStyles, `${path.basename(f)}: ${m[1].trim()}`);
 }
 table("Tamaños de icono (.tsx)", iconSizes, (a, b) => num(a) - num(b));
