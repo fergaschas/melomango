@@ -1,5 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
+// The design tokens (generated): before App.css, which uses them.
+import "./tokens.css";
 import App from "./App";
 import { LibraryProvider } from "./lib/library";
 import { DownloadsProvider } from "./lib/downloads";

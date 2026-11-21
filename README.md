@@ -121,6 +121,14 @@ cd src-tauri; cargo test                     # unitarios
 cd src-tauri; cargo test -- --include-ignored # + pruebas reales con el plugin de YouTube (lo descarga e instala)
 ```
 
+Colores y medidas: se cambian en [design/tokens/](design/tokens/README.md), nunca en `src/tokens.css`, que se
+genera junto con el tema del móvil:
+
+```powershell
+npm run tokens                                  # regenera src/tokens.css, el Kotlin y docs/sistema-diseno/tokens.md
+npm run tokens -- --mobile ..\melomango-mobile   # … y copia MelomangoTokens.kt al móvil
+```
+
 ## Plugins
 
 Un plugin es una carpeta con `plugin.json` y un ejecutable que habla un protocolo JSON muy simple
@@ -225,6 +233,7 @@ Los plugins instalados viven en `%APPDATA%\com.melomango.app\plugins\<id>\`.
 - [x] Letras sincronizadas con LRCLIB
 - [ ] Más plugins: SoundCloud, Jamendo, Subsonic/Navidrome, archivos locales
 - [ ] Emisoras de radio en directo, con las de tu zona primero (diseño en [docs/emisoras.md](docs/emisoras.md))
-- [ ] Sistema de diseño común con el móvil: [auditoría](docs/sistema-diseno/auditoria.md) y
-      [principios, identidad y tono](docs/sistema-diseno/principios.md)
+- [ ] Sistema de diseño común con el móvil: [auditoría](docs/sistema-diseno/auditoria.md),
+      [principios, identidad y tono](docs/sistema-diseno/principios.md), [tokens](design/tokens/README.md) y
+      [color](docs/sistema-diseno/color.md)
 - [x] Icono propio e instalador

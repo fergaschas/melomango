@@ -1,97 +1,39 @@
+/* Colors and sizes come from the design tokens: src/tokens.css, generated from design/tokens/
+   (docs/sistema-diseno/tokens.md), with light and dark. These short names are aliases while
+   App.css moves to the token names (KAN-97); don't give them values of their own. */
 :root {
-  --bg: #fffaf2;            /* crema */
-  --surface: #ffffff;
-  --surface-soft: #fff3df;  /* pulpa clara */
-  --surface-hover: #ffeccc;
-  --border: #f2e2c6;
-  --text: #2e1f0f;          /* hueso de mango */
-  --muted: #8c7558;
-  --accent: #ffa21f;        /* mango maduro */
-  --accent-deep: #f07800;
-  --accent-text: #b45300;   /* naranja legible sobre claro */
-  --mango-gradient: linear-gradient(135deg, #ffd25e 0%, #ffa21f 55%, #ff7a1a 100%);
-  --shadow: 0 6px 24px rgba(180, 100, 20, 0.12);
-  /* Colors that used to be written in place, now themeable. */
-  --content-glow: linear-gradient(180deg, #ffe6b3 0px, #fff3de 140px, var(--bg) 300px);
-  --panel-bg: linear-gradient(180deg, #fff3de 0%, #ffe6b3 100%);
-  --cover-soft: linear-gradient(135deg, #ffe6b3, #ffc46b);
-  --glass: rgba(255, 255, 255, 0.55);
-  --topbar-bg: rgba(255, 250, 242, 0.85);
-  --backdrop: rgba(60, 35, 10, 0.28);
-  --lyric-future: rgba(46, 31, 15, 0.38);
-  --lyric-past: rgba(46, 31, 15, 0.55);
-  --success: #2e7d32;
-  --success-bg: #e8f5e9;
-  --danger: #c62828;
-  --danger-bg: #fdecea;
-  --plugin-badge: #ffe2b8;
-  --player-h: 92px;
+  --bg: var(--color-bg);
+  --surface: var(--color-surface);
+  --surface-soft: var(--color-surface-soft);
+  --surface-hover: var(--color-surface-hover);
+  --border: var(--color-border);
+  --text: var(--color-text);
+  --muted: var(--color-text-muted);
+  --accent: var(--color-accent);
+  --accent-deep: var(--color-accent-deep);
+  --accent-text: var(--color-accent-text);
+  --mango-gradient: var(--color-accent-gradient);
+  --shadow: var(--shadow-card);
+  --content-glow: linear-gradient(180deg, var(--color-decor-glow-top) 0px, var(--color-decor-glow-mid) 140px, var(--color-bg) 300px);
+  --panel-bg: var(--color-decor-panel);
+  --cover-soft: var(--color-decor-cover-soft);
+  --glass: var(--color-decor-glass);
+  --topbar-bg: var(--color-decor-topbar);
+  --backdrop: var(--color-backdrop);
+  --lyric-future: var(--color-lyric-future);
+  --lyric-past: var(--color-lyric-past);
+  --success: var(--color-success);
+  --success-bg: var(--color-success-bg);
+  --danger: var(--color-danger);
+  --danger-bg: var(--color-danger-bg);
+  --plugin-badge: var(--color-decor-plugin-badge);
+  --player-h: var(--size-player-height);
 
   font-family: "Segoe UI Variable", "Segoe UI", Inter, system-ui, sans-serif;
   font-size: 15px;
   color: var(--text);
   background: var(--bg);
-  color-scheme: light;
   -webkit-font-smoothing: antialiased;
-}
-
-/* Dark theme: follows Windows unless chosen in Ajustes (data-theme on <html>). */
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #17110b;            /* hueso tostado */
-    --surface: #221910;
-    --surface-soft: #2c2014;
-    --surface-hover: #362818;
-    --border: #3d2d1c;
-    --text: #f7eadb;
-    --muted: #b59d80;
-    --accent: #ffa21f;
-    --accent-deep: #ff8f1f;
-    --accent-text: #ffb85a;   /* naranja legible sobre oscuro */
-    --shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
-    --content-glow: linear-gradient(180deg, #3a240c 0px, #24180d 140px, var(--bg) 300px);
-    --panel-bg: linear-gradient(180deg, #24180d 0%, #33200b 100%);
-    --cover-soft: linear-gradient(135deg, #5a3a12, #a8641a);
-    --glass: rgba(255, 255, 255, 0.07);
-  --topbar-bg: rgba(23, 17, 11, 0.85);
-    --backdrop: rgba(0, 0, 0, 0.55);
-    --lyric-future: rgba(247, 234, 219, 0.38);
-    --lyric-past: rgba(247, 234, 219, 0.58);
-    --success: #7fd08a;
-    --success-bg: #1f3323;
-    --danger: #ff8a80;
-    --danger-bg: #3d1f1c;
-    --plugin-badge: #4a3214;
-    color-scheme: dark;
-  }
-}
-
-:root[data-theme="dark"] {
-  --bg: #17110b;            /* hueso tostado */
-  --surface: #221910;
-  --surface-soft: #2c2014;
-  --surface-hover: #362818;
-  --border: #3d2d1c;
-  --text: #f7eadb;
-  --muted: #b59d80;
-  --accent: #ffa21f;
-  --accent-deep: #ff8f1f;
-  --accent-text: #ffb85a;   /* naranja legible sobre oscuro */
-  --shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
-  --content-glow: linear-gradient(180deg, #3a240c 0px, #24180d 140px, var(--bg) 300px);
-  --panel-bg: linear-gradient(180deg, #24180d 0%, #33200b 100%);
-  --cover-soft: linear-gradient(135deg, #5a3a12, #a8641a);
-  --glass: rgba(255, 255, 255, 0.07);
-  --topbar-bg: rgba(23, 17, 11, 0.85);
-  --backdrop: rgba(0, 0, 0, 0.55);
-  --lyric-future: rgba(247, 234, 219, 0.38);
-  --lyric-past: rgba(247, 234, 219, 0.58);
-  --success: #7fd08a;
-  --success-bg: #1f3323;
-  --danger: #ff8a80;
-  --danger-bg: #3d1f1c;
-  --plugin-badge: #4a3214;
-  color-scheme: dark;
 }
 
 * {
