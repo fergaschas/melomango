@@ -146,8 +146,18 @@ En la barra lateral (escritorio) y en Biblioteca (móvil):
   aplican y no se muestran.
 - **Escritorio:** la CSP solo deja `media-src 'self' stream: http://stream.localhost` (KAN-16), así
   que el audio pasa por el protocolo `stream:` de Rust, que hace de proxy del directo, pide
-  `Icy-MetaData: 1`, quita los metadatos del audio y los manda a la interfaz como evento. Así
-  tampoco hay que abrir la CSP, y funcionan las emisoras `http://`.
+  `Icy-MetaData: 1`, quita los metadatos del audio y los manda a la interfaz como evento
+  (`live-title`). Así tampoco hay que abrir la CSP, y funcionan las emisoras `http://`.
+  - Tauri responde cada petición del protocolo con el cuerpo entero, nunca en streaming. Por eso el
+    directo se sirve como un archivo que el `<audio>` lee a trozos (Range) con un **tamaño
+    inventado enorme** (1 TiB): una conexión a la emisora llena un búfer y cada petición se lleva los
+    bytes siguientes, esperándolos si aún no han llegado. Con tamaño desconocido (`bytes 0-N/*`)
+    Chromium da el final del primer trozo por el final del archivo. Lo que pide muy por delante
+    (busca etiquetas al «final» del archivo) recibe silencio.
+  - La URL es `stream://localhost/_live/<sesión>`; `station_play` abre la sesión y para la anterior
+    (suena una emisora a la vez). `station_stop` la cierra al pausar o al volver a las canciones, y
+    una sesión sin peticiones durante un minuto se cierra sola.
+  - Las listas `.m3u` y `.pls` se siguen hasta su primer stream; las HLS se rechazan.
 - **Móvil:** Media3 con la URL directa, **sin** `CacheDataSource` (un directo no se guarda) y con
   los metadatos ICY de Media3 (`IcyInfo`) en la notificación, la pantalla de bloqueo y el
   Bluetooth del coche. Para las 277 emisoras `http://` hay que permitir el tráfico sin cifrar en

@@ -111,6 +111,22 @@ CREATE TABLE IF NOT EXISTS meta (
     key   TEXT PRIMARY KEY,
     value INTEGER NOT NULL
 );
+-- Favourite radio stations (docs/emisoras.md), whole, so they show without a connection.
+CREATE TABLE IF NOT EXISTS stations (
+    uuid       TEXT PRIMARY KEY,
+    name       TEXT NOT NULL,
+    url        TEXT NOT NULL,
+    homepage   TEXT,
+    favicon    TEXT,
+    country    TEXT,
+    state      TEXT,
+    tags       TEXT,
+    codec      TEXT,
+    bitrate    INTEGER NOT NULL DEFAULT 0,
+    lat        REAL,
+    long       REAL,
+    liked_at   INTEGER NOT NULL
+);
 ";
 
 /// Additive changes that can't be written as `IF NOT EXISTS` (such as `ALTER TABLE ... ADD
@@ -357,6 +373,7 @@ fn track_from_row(r: &Row) -> rusqlite::Result<Track> {
 mod history;
 mod likes;
 mod playlists;
+mod stations;
 mod storage;
 mod tracks;
 

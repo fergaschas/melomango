@@ -51,7 +51,9 @@ strip = true
 
 [target.'cfg(windows)'.dependencies]
 # Job objects: a plugin and everything it starts end together (sources/plugin.rs).
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_Globalization"] }
+# The approximate location for «Cerca de ti» (stations/location.rs); the same version Tauri's WebView2 uses.
+windows = { version = "0.62", features = ["Devices_Geolocation", "Foundation", "Win32_System_WinRT"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

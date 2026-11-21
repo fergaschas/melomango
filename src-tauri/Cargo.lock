@@ -2325,6 +2325,7 @@ dependencies = [
  "tauri-specta",
  "tokio",
  "unicode-normalization",
+ "windows",
  "windows-sys 0.61.2",
  "zip 2.6.1",
 ]

@@ -98,6 +98,35 @@ export const commands = {
 	monthSummary: (month: string, options?: InvokeOptions) => __TAURI_INVOKE<MonthSummary_Serialize>("month_summary", { month }, options),
 	/**  Resolves a track's audio in the background so it starts at once when played. */
 	prefetchStream: (source: string, id: string, options?: InvokeOptions) => __TAURI_INVOKE<void>("prefetch_stream", { source, id }, options),
+	/**  «Cerca de ti»: stations within 50 km of `lat`, `long` (rounded to ~1 km before asking). */
+	stationsNear: (lat: number | null, long: number | null, options?: InvokeOptions) => __TAURI_INVOKE<Station_Serialize[]>("stations_near", { lat, long }, options),
+	/**  The most listened stations of `country` ("ES"). */
+	stationsTop: (country: string, options?: InvokeOptions) => __TAURI_INVOKE<Station_Serialize[]>("stations_top", { country }, options),
+	/**  Stations whose name has every word of `query` or, failing that, of that genre. */
+	stationsSearch: (query: string, country: string | null, options?: InvokeOptions) => __TAURI_INVOKE<Station_Serialize[]>("stations_search", { query, country }, options),
+	/**  Countries with stations, for the selector. */
+	stationCountries: (options?: InvokeOptions) => __TAURI_INVOKE<Country[]>("station_countries", undefined, options),
+	/**  «Tus emisoras», the newest first. */
+	stationsLiked: (options?: InvokeOptions) => __TAURI_INVOKE<Station_Serialize[]>("stations_liked", undefined, options),
+	/**
+	 *  Saves `station` in «Tus emisoras» (as Radio Browser has it now, if it answers) or takes
+	 *  it out.
+	 */
+	stationsLike: (station: Station_Deserialize, liked: boolean, options?: InvokeOptions) => __TAURI_INVOKE<null>("stations_like", { station, liked }, options),
+	/**
+	 *  Starts listening to `station` (stopping any other). Its «now playing» comes as
+	 *  `live-title` events.
+	 */
+	stationPlay: (station: Station_Deserialize, options?: InvokeOptions) => __TAURI_INVOKE<LivePlay_Serialize>("station_play", { station }, options),
+	/**  Stops the station (paused, or the player went back to songs). */
+	stationStop: (options?: InvokeOptions) => __TAURI_INVOKE<void>("station_stop", undefined, options),
+	/**
+	 *  Where Windows says this computer is, rounded to ~1 km. Fails if the user or Windows
+	 *  doesn't allow it.
+	 */
+	systemLocation: (options?: InvokeOptions) => __TAURI_INVOKE<Coords>("system_location", undefined, options),
+	/**  The country of the system's region setting ("ES"), if it has one. */
+	systemCountry: (options?: InvokeOptions) => __TAURI_INVOKE<string | null>("system_country", undefined, options),
 };
 
 /* Types */
@@ -339,6 +368,20 @@ export type Connection_Serialize = {
 	error: string | null,
 };
 
+export type Coords = {
+	lat: number | null,
+	long: number | null,
+};
+
+/**  A country of the selector, with how many stations it has. */
+export type Country = {
+	/**  ISO 3166-1 code ("ES"). */
+	code: string,
+	/**  In English, as Radio Browser has it (the app shows its own name). */
+	name: string,
+	stations: number,
+};
+
 /**  A song saved to listen without a connection. */
 export type Download = Download_Serialize | Download_Deserialize;
 
@@ -387,6 +430,39 @@ export type LibraryStatus_Deserialize = {
 export type LibraryStatus_Serialize = {
 	connected: boolean,
 	user: string | null,
+};
+
+/**
+ *  What `station_play` started: the session for `stream://localhost/_live/<session>`, and
+ *  the station as it plays (a favourite's stream may have moved).
+ */
+export type LivePlay = LivePlay_Serialize | LivePlay_Deserialize;
+
+/**
+ *  What `station_play` started: the session for `stream://localhost/_live/<session>`, and
+ *  the station as it plays (a favourite's stream may have moved).
+ */
+export type LivePlay_Deserialize = {
+	session: number,
+	station: Station_Deserialize,
+};
+
+/**
+ *  What `station_play` started: the session for `stream://localhost/_live/<session>`, and
+ *  the station as it plays (a favourite's stream may have moved).
+ */
+export type LivePlay_Serialize = {
+	session: number,
+	station: Station_Serialize,
+};
+
+/**
+ *  What a station says is playing (ICY `StreamTitle`), pushed to the frontend as the
+ *  `live-title` event. An empty title means it no longer says.
+ */
+export type LiveTitle = {
+	session: number,
+	title: string,
 };
 
 export type LyricLine = {
@@ -660,6 +736,61 @@ export type SourceKind =
 "builtin" | "plugin";
 
 export type State = "queued" | "downloading" | "done" | "failed" | "cancelled";
+
+/**  A station, as the app shows and saves it. */
+export type Station = Station_Serialize | Station_Deserialize;
+
+/**  A station, as the app shows and saves it. */
+export type Station_Deserialize = {
+	/**  Radio Browser's `stationuuid`: the key. */
+	uuid: string,
+	name: string,
+	/**  The stream itself (`url_resolved`). */
+	url: string,
+	homepage?: string | null,
+	/**  Only `https://` logos: the window's CSP blocks the rest. */
+	favicon?: string | null,
+	/**  ISO 3166-1 code ("ES"). */
+	country: string,
+	/**  Region as the station wrote it («Catalunya», «Catalonia»…): only to show. */
+	state?: string | null,
+	/**  Lowercase genres. */
+	tags: string[],
+	/**  «MP3», «AAC»… Empty when unknown. */
+	codec: string,
+	/**  kbps; 0 when unknown. */
+	bitrate: number,
+	lat?: number | null,
+	long?: number | null,
+	/**  Meters from the user, only in «Cerca de ti». */
+	distanceM?: number | null,
+};
+
+/**  A station, as the app shows and saves it. */
+export type Station_Serialize = {
+	/**  Radio Browser's `stationuuid`: the key. */
+	uuid: string,
+	name: string,
+	/**  The stream itself (`url_resolved`). */
+	url: string,
+	homepage: string | null,
+	/**  Only `https://` logos: the window's CSP blocks the rest. */
+	favicon: string | null,
+	/**  ISO 3166-1 code ("ES"). */
+	country: string,
+	/**  Region as the station wrote it («Catalunya», «Catalonia»…): only to show. */
+	state: string | null,
+	/**  Lowercase genres. */
+	tags: string[],
+	/**  «MP3», «AAC»… Empty when unknown. */
+	codec: string,
+	/**  kbps; 0 when unknown. */
+	bitrate: number,
+	lat: number | null,
+	long: number | null,
+	/**  Meters from the user, only in «Cerca de ti». */
+	distanceM: number | null,
+};
 
 export type Status = 
 /**  No application id configured. */
