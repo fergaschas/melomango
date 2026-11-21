@@ -128,8 +128,9 @@ En la barra lateral (escritorio) y en Biblioteca (móvil):
 
 - **Cerca de ti**: las emisoras a menos de 50 km, de la más cercana a la más lejana, con «a 2 km».
   Debajo, **«Lo más escuchado en España»** (el país del paso 2 o 3): ahí están las nacionales, que
-  no tienen coordenadas. Si no hay ubicación, solo esto, con «Activar ubicación» (móvil) o
-  «Elegir país».
+  no tienen coordenadas. Si no hay ubicación, solo esto, con «Activar ubicación» y «Elegir país».
+  En escritorio, «Activar ubicación» enciende el ajuste «Emisoras cerca de ti» (Ajustes), que
+  también la apaga y borra la posición guardada.
 - **Buscar emisoras** por nombre o género.
 - **Tus emisoras** (favoritas), con la más reciente primero.
 - **Escuchadas hace poco**: las 10 últimas (en los ajustes, no en la base de datos).

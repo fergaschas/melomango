@@ -25,3 +25,11 @@ test("leaves Melomango's own messages readable", () => {
   assert.equal(e.details, null);
   assert.equal(friendlyError("").message, "Algo ha fallado.");
 });
+
+test("a directory failure says so, whatever the cause", () => {
+  const e = friendlyError(
+    "No se pudo cargar la lista de emisoras. Comprueba tu conexión y vuelve a intentarlo. (error sending request)",
+  );
+  assert.equal(e.message, "No se pudo cargar la lista de emisoras. Comprueba tu conexión y vuelve a intentarlo.");
+  assert.ok(e.details?.includes("error sending request"));
+});

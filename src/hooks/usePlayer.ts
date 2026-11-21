@@ -1,5 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { prefetchStream, radioTracks, recordPlay, streamUrl, trackKey, type Track } from "../lib/api";
+import { listen } from "@tauri-apps/api/event";
+import {
+  LIVE_TITLE_EVENT,
+  liveUrl,
+  prefetchStream,
+  radioTracks,
+  recordPlay,
+  stationKey,
+  stationPlay,
+  stationStop,
+  streamUrl,
+  trackKey,
+  type LiveTitle,
+  type Station,
+  type Track,
+} from "../lib/api";
+import { neighbour } from "../lib/stations";
 import * as q from "../lib/queue";
 import {
   clampCrossfade,
@@ -20,6 +36,23 @@ const POSITION_KEY = "melomango.player.position";
 const SAVE_EVERY_MS = 5000;
 const SEEK_STEP = 5;
 const CANT_PLAY = "No se pudo reproducir esta canción";
+const STATION_FAILED = "Esta emisora no responde ahora mismo. Prueba con otra.";
+/** A station that played this long and then failed (a network blip) is reconnected on its own… */
+const LIVE_RECONNECT_AFTER_MS = 10_000;
+/** …up to this many times in a row (it starts counting again after a minute of playing). */
+const LIVE_RECONNECTS = 3;
+
+/** A live radio station playing instead of the queue (the queue stays as it was). */
+export interface LiveState {
+  station: Station;
+  /** The list it was played from, for «Siguiente» and «Anterior». */
+  list: Station[];
+  index: number;
+  /** The stream session, once connected. */
+  session: number | null;
+  /** What the station says is playing (ICY), if it says. */
+  title: string | null;
+}
 
 /** Why the stream failed: the backend answers the stream URL with the reason as text. */
 async function streamFailure(src: string): Promise<string | null> {
@@ -96,6 +129,7 @@ export function usePlayer() {
   const [seekCount, setSeekCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [crossfade, setCrossfadeState] = useState(loadCrossfade);
+  const [live, setLive] = useState<LiveState | null>(null);
 
   const queueRef = useRef(queue);
   queueRef.current = queue;
@@ -121,6 +155,19 @@ export function usePlayer() {
   /** The radio request in flight (one per seed entry), and the last seed that found nothing. */
   const radioJob = useRef<{ uid: number; promise: Promise<boolean> } | null>(null);
   const radioFailed = useRef<number | null>(null);
+  /** The station playing (set right away, before React re-renders). */
+  const liveRef = useRef(live);
+  liveRef.current = live;
+  /** Bumped on every station picked (and when leaving them): a slow connection that comes
+   *  back after another choice is ignored. */
+  const tunes = useRef(0);
+  /** When the current connection started playing, and reconnections in a row. */
+  const liveSince = useRef(0);
+  const liveReconnects = useRef(0);
+  /** The latest «now playing» of any session (it may arrive before the session is known). */
+  const lastTitle = useRef<LiveTitle | null>(null);
+  /** The song's position when a station took over, so it is what gets remembered. */
+  const songTime = useRef(0);
 
   const currentEntry = q.currentItem(queue);
   const current = currentEntry?.track ?? null;
@@ -136,7 +183,7 @@ export function usePlayer() {
     if (e instanceof DOMException && e.name === "AbortError") return;
     // An element that is no longer the main one (a blend that was given up) says nothing.
     if (el !== mainRef.current) return;
-    setError(CANT_PLAY);
+    setError(liveRef.current ? STATION_FAILED : CANT_PLAY);
     setIsPlaying(false);
     setIsLoading(false);
   }, []);
@@ -187,9 +234,19 @@ export function usePlayer() {
     }
   }, [clock]);
 
+  /** Back to songs: the station stops (its connection too). */
+  const leaveLive = useCallback(() => {
+    if (!liveRef.current) return;
+    tunes.current += 1;
+    liveRef.current = null;
+    setLive(null);
+    stationStop();
+  }, []);
+
   /** Plays the queue's current entry, from `resumeAt` seconds or the start. */
   const start = useCallback(
     (next: q.QueueState, resumeAt: number | null = null, blend = false) => {
+      leaveLive();
       if (!blend) endFade();
       noFadeFrom.current = null;
       pendingSeek.current = resumeAt;
@@ -199,7 +256,54 @@ export function usePlayer() {
       setQueue(next);
       setLoadKey((k) => k + 1);
     },
-    [endFade],
+    [endFade, leaveLive],
+  );
+
+  /**
+   * Plays the station `index` of `list` live, instead of the queue (which stays as it was).
+   * `reconnect`: the same station again after its stream failed.
+   */
+  const tuneIn = useCallback(
+    async (list: Station[], index: number, reconnect = false) => {
+      const station = list[index];
+      if (!station) return;
+      endFade();
+      const el = mainRef.current;
+      // The other element may hold the song that was fading out.
+      elements.forEach((other) => other !== el && release(other));
+      if (!liveRef.current) songTime.current = pendingSeek.current ?? el.currentTime;
+      el.pause();
+      pendingSeek.current = null;
+      userStarted.current = true;
+      if (!reconnect) liveReconnects.current = 0;
+      const tune = ++tunes.current;
+      const tuning: LiveState = { station, list, index, session: null, title: null };
+      liveRef.current = tuning;
+      setLive(tuning);
+      setError(null);
+      setIsLoading(true);
+      setDuration(0);
+      clock.set(0);
+      try {
+        const play = await stationPlay(station);
+        if (tune !== tunes.current) return; // another station (or a song) was picked meanwhile
+        const said = lastTitle.current?.session === play.session ? lastTitle.current.title : "";
+        const tuned: LiveState = { ...tuning, station: play.station, session: play.session, title: said || null };
+        liveRef.current = tuned;
+        setLive(tuned);
+        loudness.setTrack(el, stationKey(play.station));
+        el.src = liveUrl(play.session);
+        el.volume = volumeRef.current;
+        liveSince.current = Date.now();
+        el.play().catch(onPlayRejected(el));
+      } catch (e) {
+        if (tune !== tunes.current) return;
+        setError(String(e));
+        setIsLoading(false);
+        setIsPlaying(false);
+      }
+    },
+    [elements, endFade, clock, loudness, onPlayRejected],
   );
 
   /** Starts the next song on the idle element while the current one keeps playing. */
@@ -260,6 +364,19 @@ export function usePlayer() {
   const playQueue = useCallback((tracks: Track[], index: number) => start(q.play(queueRef.current, tracks, index)), [start]);
 
   const toggle = useCallback(() => {
+    const station = liveRef.current;
+    if (station) {
+      // Paused, a station lets go of its connection; playing again goes back to live.
+      if (!audio.paused && audio.src) {
+        audio.pause();
+        release(audio);
+        stationStop();
+        // load() in release() drops the pending «pause» event: say it here.
+        setIsPlaying(false);
+        setIsLoading(false);
+      } else tuneIn(station.list, station.index);
+      return;
+    }
     if (!queueRef.current.items.length) return;
     // Nothing loaded (or the restored load failed): load it now, keeping the position.
     if (!audio.src || audio.error) {
@@ -272,7 +389,7 @@ export function usePlayer() {
       endFade(); // pausing mid-blend silences both songs
       audio.pause();
     }
-  }, [audio, onPlayRejected, start, endFade]);
+  }, [audio, onPlayRejected, start, endFade, tuneIn]);
 
   /** Appends songs like the last queued one. Resolves whether it found any. */
   const fillRadio = useCallback((): Promise<boolean> => {
@@ -310,6 +427,12 @@ export function usePlayer() {
 
   const next = useCallback(
     (auto = false) => {
+      const station = liveRef.current;
+      if (station) {
+        const i = neighbour(station.list, station.index, 1);
+        if (i !== null) tuneIn(station.list, i);
+        return;
+      }
       const result = q.advance(queueRef.current, auto);
       if (result === "stop") {
         // The queue is over: the radio keeps the music going.
@@ -331,11 +454,17 @@ export function usePlayer() {
       }
       start(result);
     },
-    [audio, onPlayRejected, start, fillRadio],
+    [audio, onPlayRejected, start, fillRadio, tuneIn],
   );
   nextRef.current = next;
 
   const prev = useCallback(() => {
+    const station = liveRef.current;
+    if (station) {
+      const i = neighbour(station.list, station.index, -1);
+      if (i !== null) tuneIn(station.list, i);
+      return;
+    }
     const s = queueRef.current;
     const previous = q.back(s);
     if (audio.currentTime > 3 || previous === s) {
@@ -343,10 +472,11 @@ export function usePlayer() {
       return;
     }
     start(previous);
-  }, [audio, start]);
+  }, [audio, start, tuneIn]);
 
   const seek = useCallback(
     (secs: number) => {
+      if (liveRef.current) return; // live: always now
       audio.currentTime = secs;
       clock.set(secs);
     },
@@ -355,7 +485,7 @@ export function usePlayer() {
 
   const seekBy = useCallback(
     (delta: number) => {
-      if (!audio.src) return;
+      if (!audio.src || liveRef.current) return;
       const end = Number.isFinite(audio.duration) ? audio.duration : Infinity;
       seek(Math.min(Math.max(0, audio.currentTime + delta), end));
     },
@@ -386,10 +516,15 @@ export function usePlayer() {
   const jumpTo = useCallback((uid: number) => start(q.jump(queueRef.current, uid)), [start]);
   /** Loads the current track again (e.g. it now plays from another recording). */
   const reloadCurrent = useCallback(() => {
+    const station = liveRef.current;
+    if (station) {
+      tuneIn(station.list, station.index);
+      return;
+    }
     if (!queueRef.current.items.length) return;
     reloads.current += 1;
     start(queueRef.current);
-  }, [start]);
+  }, [start, tuneIn]);
   const toggleMute = useCallback(() => setMuted((m) => !m), []);
   const toggleAutoRadio = useCallback(() => setAutoRadio((r) => !r), []);
   /** Plays `track` followed by songs like it. */
@@ -438,15 +573,15 @@ export function usePlayer() {
   // While the last queued song plays, the radio already looks for what comes after.
   const isLast = q.atEnd(queue);
   useEffect(() => {
-    if (autoRadio && queue.repeat === "off" && isLast && isPlaying) fillRadio();
-  }, [autoRadio, queue.repeat, isLast, isPlaying, currentEntry?.uid, fillRadio]);
+    if (autoRadio && queue.repeat === "off" && isLast && isPlaying && !live) fillRadio();
+  }, [autoRadio, queue.repeat, isLast, isPlaying, currentEntry?.uid, fillRadio, live]);
 
   // Once the current track is playing, resolve the next one so skipping to it (or
   // reaching it) starts right away.
   const upcomingTrack = q.peekNext(queue);
   useEffect(() => {
-    if (upcomingTrack && isPlaying && !isLoading) prefetchStream(upcomingTrack);
-  }, [upcomingTrack, isPlaying, isLoading]);
+    if (upcomingTrack && isPlaying && !isLoading && !live) prefetchStream(upcomingTrack);
+  }, [upcomingTrack, isPlaying, isLoading, live]);
 
   // Mirror the <audio> element's state into React.
   useEffect(() => {
@@ -455,6 +590,8 @@ export function usePlayer() {
         "timeupdate",
         () => {
           clock.set(audio.currentTime);
+          // A station has no end to blend into, and isn't a play in the history.
+          if (liveRef.current) return;
           if (!audio.paused && shouldStartFade(crossfadeRef.current, audio.currentTime, audio.duration)) {
             beginFade();
           }
@@ -472,7 +609,7 @@ export function usePlayer() {
           listened.current.last = null;
         },
       ],
-      ["durationchange", () => Number.isFinite(audio.duration) && setDuration(audio.duration)],
+      ["durationchange", () => !liveRef.current && Number.isFinite(audio.duration) && setDuration(audio.duration)],
       [
         "loadedmetadata",
         () => {
@@ -485,7 +622,15 @@ export function usePlayer() {
       ["seeked", () => setSeekCount((n) => n + 1)],
       ["play", () => setIsPlaying(true)],
       ["pause", () => setIsPlaying(false)],
-      ["ended", () => next(true)],
+      [
+        "ended",
+        () => {
+          // A live stream doesn't end: if it does, it broke. Back to live.
+          const station = liveRef.current;
+          if (station) tuneIn(station.list, station.index, true);
+          else next(true);
+        },
+      ],
       [
         "playing",
         () => {
@@ -501,6 +646,25 @@ export function usePlayer() {
           // The song coming in during a blend failed: don't let the music stop.
           if (fade.current?.incoming === audio) {
             abandonFade();
+            return;
+          }
+          const station = liveRef.current;
+          if (station) {
+            // It played a good while and then failed (a network blip): back to live, quietly.
+            const played = Date.now() - liveSince.current;
+            if (played > 60_000) liveReconnects.current = 0;
+            if (played > LIVE_RECONNECT_AFTER_MS && liveReconnects.current < LIVE_RECONNECTS) {
+              liveReconnects.current += 1;
+              tuneIn(station.list, station.index, true);
+              return;
+            }
+            setIsPlaying(false);
+            setIsLoading(false);
+            setError(STATION_FAILED);
+            const src = audio.src;
+            streamFailure(src).then((reason) => {
+              if (reason && audio.src === src) setError(reason);
+            });
             return;
           }
           endFade();
@@ -520,11 +684,32 @@ export function usePlayer() {
     const guarded = listeners.map(([ev, fn]): [string, () => void] => [ev, () => audio === mainRef.current && fn()]);
     guarded.forEach(([ev, fn]) => audio.addEventListener(ev, fn));
     return () => guarded.forEach(([ev, fn]) => audio.removeEventListener(ev, fn));
-  }, [audio, next, beginFade, rampFade, endFade, abandonFade, clock]);
+  }, [audio, next, beginFade, rampFade, endFade, abandonFade, clock, tuneIn]);
+
+  // What a station says is playing.
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    listen<LiveTitle>(LIVE_TITLE_EVENT, ({ payload }) => {
+      lastTitle.current = payload;
+      const station = liveRef.current;
+      if (!station || station.session !== payload.session) return;
+      const next = { ...station, title: payload.title || null };
+      liveRef.current = next;
+      setLive(next);
+    })
+      .then((stop) => (cancelled ? stop() : (unlisten = stop)))
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
 
   // Remember the queue, position and volume for next time. The queue (up to thousands of
   // songs) is written only when it changes; while music plays, only the position.
   const savePosition = useCallback(() => {
+    if (liveRef.current) return; // the song's position was kept when the station took over
     try {
       localStorage.setItem(POSITION_KEY, String(pendingSeek.current ?? audio.currentTime));
     } catch {
@@ -536,7 +721,7 @@ export function usePlayer() {
     try {
       const data: Saved = {
         queue: q.serialize(queueRef.current),
-        time: pendingSeek.current ?? audio.currentTime,
+        time: liveRef.current ? songTime.current : (pendingSeek.current ?? audio.currentTime),
         volume: volumeRef.current,
         muted: audio.muted,
         autoRadio: autoRadioRef.current,
@@ -562,14 +747,26 @@ export function usePlayer() {
   }, [audio, savePosition]);
 
   // Media keys and the OS "now playing" panel (SMTC on Windows) via the Media Session API.
+  const liveStation = live?.station ?? null;
+  const liveTitle = live?.title ?? null;
   useEffect(() => {
-    if (!("mediaSession" in navigator) || !current) return;
+    if (!("mediaSession" in navigator)) return;
+    if (liveStation) {
+      // What the station plays, with its name underneath; or its name and «En directo».
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: liveTitle ?? liveStation.name,
+        artist: liveTitle ? liveStation.name : "En directo",
+        artwork: liveStation.favicon ? [{ src: liveStation.favicon }] : [],
+      });
+      return;
+    }
+    if (!current) return;
     navigator.mediaSession.metadata = new MediaMetadata({
       title: current.title,
       artist: current.artist,
       artwork: current.artworkUrl ? [{ src: current.artworkUrl, sizes: "480x480" }] : [],
     });
-  }, [current]);
+  }, [current, liveStation, liveTitle]);
 
   useEffect(() => {
     if (!("mediaSession" in navigator)) return;
@@ -587,7 +784,7 @@ export function usePlayer() {
   useEffect(() => {
     if (!("mediaSession" in navigator) || !navigator.mediaSession.setPositionState) return;
     try {
-      if (!current || !Number.isFinite(duration) || duration <= 0) {
+      if (!current || live || !Number.isFinite(duration) || duration <= 0) {
         navigator.mediaSession.setPositionState();
         return;
       }
@@ -599,10 +796,13 @@ export function usePlayer() {
     } catch {
       /* the position may be past a duration that just changed: the next update fixes it */
     }
-  }, [current, duration, isPlaying, seekCount, clock]);
+  }, [current, duration, isPlaying, seekCount, clock, live]);
 
   return {
-    current,
+    /** The song playing (null while a station plays: see `live`). */
+    current: live ? null : current,
+    /** The station playing instead of the queue, if one is. */
+    live,
     currentUid: currentEntry?.uid ?? null,
     queue: queue.items,
     index: queue.index,
@@ -616,8 +816,9 @@ export function usePlayer() {
     volume,
     muted,
     error,
-    hasNext:
-      q.peekNext(queue) !== null ||
+    hasNext: live
+      ? neighbour(live.list, live.index, 1) !== null
+      : q.peekNext(queue) !== null ||
       (queue.repeat === "all" && queue.items.length > 0) ||
       (autoRadio && queue.repeat === "off" && queue.index >= 0),
     autoRadio,
@@ -630,9 +831,12 @@ export function usePlayer() {
     toggleAutoRadio,
     startRadio,
     playQueue,
+    /** Plays the station `index` of `list` live; «Siguiente» and «Anterior» move in `list`. */
+    playStation: (list: Station[], index: number) => tuneIn(list, index),
     toggle,
     next: () => next(false),
     prev,
+    hasPrev: live ? neighbour(live.list, live.index, -1) !== null : current !== null,
     seek,
     seekBy,
     seekStep: SEEK_STEP,

@@ -50,8 +50,12 @@ export function useTray(player: Player) {
     };
   }, []);
 
-  const { current, isPlaying } = player;
-  const title = current ? `${current.title} — ${current.artist}` : null;
+  const { current, live, isPlaying } = player;
+  const title = live
+    ? `${live.station.name} — ${live.title ?? "En directo"}`
+    : current
+      ? `${current.title} — ${current.artist}`
+      : null;
   useEffect(() => {
     trayUpdate(title, isPlaying);
   }, [title, isPlaying]);

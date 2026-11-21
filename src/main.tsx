@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import App from "./App";
 import { LibraryProvider } from "./lib/library";
 import { DownloadsProvider } from "./lib/downloads";
+import { StationsProvider } from "./lib/stationsContext";
 import { applyTheme, savedTheme } from "./lib/theme";
 
 // Before the first paint, so the app doesn't flash in the other theme.
@@ -12,7 +13,9 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <LibraryProvider>
       <DownloadsProvider>
-        <App />
+        <StationsProvider>
+          <App />
+        </StationsProvider>
       </DownloadsProvider>
     </LibraryProvider>
   </React.StrictMode>,

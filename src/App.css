@@ -2829,3 +2829,120 @@ kbd {
   white-space: nowrap;
   border: 0;
 }
+
+/* ---------- Emisoras (live radio stations) ---------- */
+.station-search {
+  width: min(420px, 100%);
+  margin-top: 12px;
+}
+
+.station-search .icon-btn {
+  flex-shrink: 0;
+}
+
+/* Logos come in any shape: shown whole, on a soft tile. */
+img.station-logo {
+  object-fit: contain;
+  background: var(--surface-soft);
+}
+
+.station-logo-empty {
+  display: grid;
+  place-items: center;
+  color: #fff;
+}
+
+/* No duration column: name, genres and the heart. */
+.track.station {
+  grid-template-columns: 36px minmax(0, 1fr) 180px auto;
+}
+
+@media (max-width: 760px) {
+  .track.station {
+    grid-template-columns: 36px minmax(0, 1fr) auto;
+  }
+}
+
+.station-prompt {
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+}
+
+.station-prompt p {
+  margin: 0;
+}
+
+/* «En directo» where the progress bar was. */
+.live-now {
+  justify-content: center;
+  gap: 8px;
+  min-height: 20px;
+  color: var(--accent-text);
+  font-weight: 700;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.live-dot.on {
+  background: var(--danger);
+  animation: live-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes live-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-dot.on {
+    animation: none;
+  }
+}
+
+.country-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 52vh;
+  overflow-y: auto;
+}
+
+.country {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  text-align: left;
+}
+
+.country:hover,
+.country:focus-visible {
+  background: var(--surface-soft);
+}
+
+.country.active {
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+.country-count {
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 400;
+  white-space: nowrap;
+}

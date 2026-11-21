@@ -32,6 +32,8 @@ interface Props {
   onCrossfadeChange: (secs: number) => void;
   normalize: boolean;
   onNormalizeChange: (on: boolean) => void;
+  useLocation: boolean;
+  onUseLocationChange: (on: boolean) => void;
   onClose: () => void;
 }
 
@@ -46,6 +48,8 @@ export function SettingsDialog({
   onCrossfadeChange,
   normalize,
   onNormalizeChange,
+  useLocation,
+  onUseLocationChange,
   onClose,
 }: Props) {
   const [status, setStatus] = useState<DiscordStatus | null>(null);
@@ -187,6 +191,25 @@ export function SettingsDialog({
             ))}
           </div>
         </div>
+
+        <label className="radio-switch settings-row">
+          <input
+            type="checkbox"
+            id="station-location"
+            checked={useLocation}
+            onChange={(e) => onUseLocationChange(e.target.checked)}
+          />
+          <span className="switch-track" aria-hidden="true">
+            <span className="switch-thumb" />
+          </span>
+          <span>
+            <strong>Emisoras cerca de ti</strong>
+            <span className="radio-switch-note">
+              Usa la ubicación aproximada de Windows (a 1 km) para poner primero las emisoras de tu zona. Solo se usa para
+              eso y no sale de tu equipo salvo para pedir la lista.
+            </span>
+          </span>
+        </label>
 
         <label className="radio-switch settings-row">
           <input
