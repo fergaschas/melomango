@@ -53,7 +53,7 @@ Las más escuchadas (Cadena 100, esRadio, LOS40 Classic, Cadena Dial, RNE…) so
 |---|---|
 | Cerca de ti | `/json/stations/search?geo_lat=…&geo_long=…&geo_distance=50000&hidebroken=true&limit=100` y se ordena **en la app** por `geo_distance` (metros) |
 | Lo más escuchado del país | `/json/stations/search?countrycode=ES&order=clickcount&reverse=true&hidebroken=true&limit=50` |
-| Buscar | `/json/stations/search?name=…&countrycode=…&order=clickcount&reverse=true&hidebroken=true&limit=100` con la palabra más larga, y en la app se quedan las que tienen **todas** las palabras (ver abajo); `tag=…` para géneros |
+| Buscar | `/json/stations/search?name=…&countrycode=…&order=clickcount&reverse=true&hidebroken=true&limit=100` con la palabra más larga no genérica, en tu país y si no en todo el mundo (sin `countrycode`), y en la app se quedan las que tienen **todas** las palabras (ver abajo); `tag=…` para géneros |
 | Países (selector) | `/json/countries` (`name`, `iso_3166_1`, `stationcount`) |
 | Una favorita al ponerla | `/json/stations/byuuid/{uuid}` (por si cambió su URL) |
 
@@ -79,9 +79,21 @@ Station {
 
 **Buscar:** la API busca el texto **seguido** dentro del nombre, sin distinguir mayúsculas ni
 tildes: «Radio Girona» encuentra «Taronja ràdio Girona», pero «SER Miranda» no encuentra
-«Cadena SER - Miranda de Ebro». Por eso se pide con la palabra más larga («Miranda») y la app
-filtra por todas las palabras, sin tildes ni mayúsculas (con `fold()` de `text.rs`; en el móvil, `words()`). Si nada
-coincide por nombre, se prueba la palabra como género (`tag`).
+«Cadena SER - Miranda de Ebro». Así que:
+
+1. Se le pide la **palabra más larga que no sea genérica** («Miranda»). Las genéricas las llevan
+   muchísimas emisoras en el nombre y no sirven para buscar: con «BBC radio», pedir «radio» devolvía
+   cientos de emisoras sin «BBC» y ninguna de la BBC. Son: radio, radios, fm, am, online, web, live,
+   stream, la, el, los, las, de, del, the, of, and, y, en, station, emisora. Si todas las palabras
+   son genéricas («Radio FM»), la más larga.
+2. La app se queda con las que tienen **todas** las palabras en el nombre, sin tildes ni mayúsculas
+   (con `fold()` de `text.rs`; en el móvil, `words()`).
+3. Primero **en tu país**; si ahí no hay ninguna, **en todo el mundo** («BBC radio» desde España
+   encuentra BBC Radio 1 Dance).
+4. Si tampoco y se buscó **una sola palabra**, se prueba como **género** (`tag`, en tu país):
+   «jazz», «noticias». Con varias palabras no, porque saldrían emisoras que no tienen que ver.
+
+El móvil lo hace así (`RadioBrowser.search` y `Stations.searchWord`, con sus tests).
 
 Se descartan al leer: las HLS (`hls == 1`), las que no tienen `url_resolved` y las repetidas (misma
 `url_resolved`, 6 en España; se queda la de más `clickcount`).
