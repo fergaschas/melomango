@@ -225,4 +225,6 @@ Los plugins instalados viven en `%APPDATA%\com.melomango.app\plugins\<id>\`.
 - [x] Letras sincronizadas con LRCLIB
 - [ ] Más plugins: SoundCloud, Jamendo, Subsonic/Navidrome, archivos locales
 - [ ] Emisoras de radio en directo, con las de tu zona primero (diseño en [docs/emisoras.md](docs/emisoras.md))
+- [ ] Sistema de diseño común con el móvil: [auditoría](docs/sistema-diseno/auditoria.md) y
+      [principios, identidad y tono](docs/sistema-diseno/principios.md)
 - [x] Icono propio e instalador
