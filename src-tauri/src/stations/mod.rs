@@ -163,8 +163,20 @@ fn has_all_words(name: &str, words: &[String]) -> bool {
     words.iter().all(|w| name.contains(w.as_str()))
 }
 
-fn longest(words: &[String]) -> Option<&str> {
-    words.iter().max_by_key(|w| w.chars().count()).map(String::as_str)
+/// Words that so many stations have in their name that they don't help to find one: with
+/// «BBC radio», asking for «radio» gave hundreds of stations and none of the BBC.
+const GENERIC: &[&str] = &[
+    "radio", "radios", "fm", "am", "online", "web", "live", "stream", "la", "el", "los", "las", "de", "del", "the",
+    "of", "and", "y", "en", "station", "emisora",
+];
+
+/// The word to ask Radio Browser for: the longest one that isn't generic (or the longest,
+/// if they all are). The first one of the longest, as on mobile.
+fn search_word(words: &[String]) -> Option<&str> {
+    fn longest<'a>(list: impl DoubleEndedIterator<Item = &'a String>) -> Option<&'a str> {
+        list.rev().max_by_key(|w| w.chars().count()).map(String::as_str)
+    }
+    longest(words.iter().filter(|w| !GENERIC.contains(&w.as_str()))).or_else(|| longest(words.iter()))
 }
 
 /// About 1 km: the most the app ever sends of where the user is.
@@ -302,22 +314,30 @@ impl RadioBrowser {
         .await
     }
 
-    /// By name (every word, in any order) or, if no name matches, by genre.
+    /// By name (every word, in any order), in `country` and else in the whole world; failing
+    /// that, a single word is tried as a genre (docs/emisoras.md, «Buscar»).
     pub async fn search(&self, query: &str, country: Option<&str>) -> anyhow::Result<Vec<Station>> {
         let words = words(query);
-        let Some(longest) = longest(&words) else { return Ok(Vec::new()) };
+        let Some(word) = search_word(&words) else { return Ok(Vec::new()) };
         let country = match country {
             Some(c) => format!("&countrycode={}", country_code(c)?),
             None => String::new(),
         };
-        let tail = format!("{country}&order=clickcount&reverse=true&hidebroken=true&limit=100");
-        let by_name = self.stations(&format!("/json/stations/search?name={}{tail}", encode(longest)), false).await?;
-        let found: Vec<Station> = by_name.into_iter().filter(|s| has_all_words(&s.name, &words)).collect();
-        if !found.is_empty() {
-            return Ok(found);
+        const ORDER: &str = "&order=clickcount&reverse=true&hidebroken=true&limit=100";
+        let name = format!("/json/stations/search?name={}", encode(word));
+        let places = if country.is_empty() { vec![""] } else { vec![country.as_str(), ""] };
+        for place in places {
+            let by_name = self.stations(&format!("{name}{place}{ORDER}"), false).await?;
+            let found: Vec<Station> = by_name.into_iter().filter(|s| has_all_words(&s.name, &words)).collect();
+            if !found.is_empty() {
+                return Ok(found);
+            }
         }
-        let genre = words.join(" ");
-        self.stations(&format!("/json/stations/search?tag={}{tail}", encode(&genre)), false).await
+        // Several words as a genre would bring stations that have nothing to do with them.
+        if words.len() != 1 {
+            return Ok(Vec::new());
+        }
+        self.stations(&format!("/json/stations/search?tag={}{country}{ORDER}", encode(word)), false).await
     }
 
     /// Countries with stations, for the selector.
@@ -439,12 +459,23 @@ mod tests {
     fn search_needs_every_word_in_any_order() {
         let q = words("SER Miranda");
         assert_eq!(q, ["ser", "miranda"]);
-        assert_eq!(longest(&q), Some("miranda"));
+        assert_eq!(search_word(&q), Some("miranda"));
         assert!(has_all_words("Cadena SER - Miranda de Ebro", &q));
         assert!(!has_all_words("Radio Miranda", &q));
         let q = words("radio girona");
         assert!(has_all_words("Taronja ràdio Girona", &q));
         assert!(words("  -- ").is_empty());
+    }
+
+    #[test]
+    fn generic_words_are_not_searched_for() {
+        assert_eq!(search_word(&words("BBC radio")), Some("bbc"));
+        assert_eq!(search_word(&words("Radio Nacional de España")), Some("nacional"));
+        // All generic: the longest one after all.
+        assert_eq!(search_word(&words("Radio FM")), Some("radio"));
+        // Two of the same length: the first one.
+        assert_eq!(search_word(&words("rock pop")), Some("rock"));
+        assert_eq!(search_word(&[]), None);
     }
 
     #[test]
@@ -496,6 +527,11 @@ mod tests {
         assert!(top.len() > 20);
         let found = rb.search("SER Miranda", Some("ES")).await.unwrap();
         assert!(found.iter().any(|s| s.name.contains("Miranda")), "{found:?}");
+        // Not in Spain: found in the whole world.
+        let bbc = rb.search("BBC radio", Some("ES")).await.unwrap();
+        assert!(bbc.iter().any(|s| s.name.contains("BBC")), "{bbc:?}");
+        // A single word that no name has is a genre.
+        assert!(!rb.search("jazz", Some("ES")).await.unwrap().is_empty());
         let near = rb.near(41.98, 2.82).await.unwrap();
         assert!(near.windows(2).all(|w| w[0].distance_m <= w[1].distance_m));
         let again = rb.by_uuid(&top[0].uuid).await.unwrap().unwrap();
